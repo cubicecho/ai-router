@@ -3,27 +3,25 @@
 What ai-router is made of: its concepts, who may change them, and what always holds. Use these
 terms, and only these, in code, tests, docs and reviews.
 
-**There is no code yet.** Until there is, this file is the agreed design, and each entry's
-`Owner:` is where that concept will live. From the first commit that builds a concept, its entry
-describes the code as it is, and a proposed change becomes an `M` item in
-`.agents/coding-standards-todos.md` before it is written in here.
+**Phase 1 is built:** sign-in, roles, workspaces, keys and the snapshot describe the code as it
+is. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
+the commit that builds a concept, its entry describes the code, and a proposed change becomes an
+`M` item in `.agents/coding-standards-todos.md` before it is written in here.
 
 ## Purpose
 
-One self-hosted service that gives every app on a network three things through one address and
-one key: **models** to call, **tools** to use, and **agents** to run. An agent is a model, a
-prompt and tools defined once and used by any app.
+One self-hosted service that gives every app on a network **agents** to run, through one address
+and one key. An agent is a model, a prompt and tools defined once and used by any app. The router
+keeps the models and MCP servers its agents use, and serves no raw model or tool to apps: those
+that want them use llm-router and mcp-router.
 
 ## Flow
 
 ```
-app ─key→ workspace ─┬─ /v1         agent id ──→ run → resolved agent ─┬→ models (as below)
-                     │                                                 └→ tools  (as below)
-                     ├─ /bare/v1    model id ──→ provider ─────────────────→ model server
-                     │              pool name ─→ pool → target → provider
-                     ├─ /bare/mcp   <server>__<tool> → server → instance → MCP server
-                     ├─ /agents     agent document → the app runs it itself
-                     └─ /runs       a run's record and its events → the app's own timeline
+app ─key→ workspace ─┬─ /v1    agent id → run → resolved agent ─┬→ model id ─→ provider ───────→ model server
+                     │                                          │   pool name → pool → target → provider
+                     │                                          └→ server → instance → MCP server
+                     └─ /runs  a run's record and its events → the app's own timeline
 
 user ─session→ /graphql ─→ every table, through the permission map
 ```
@@ -33,14 +31,6 @@ user ─session→ /graphql ─→ every table, through the permission map
   agent's live revision, runs the tool loop, records the run, and streams the answer back. If the
   app asks, the stream also carries each step as a run event, so the app's own chat or Runs tab
   shows the detail it shows today.
-- **Call a model:** an app sets its base URL to the **bare models endpoint** (`/bare/v1`) and sends
-  a model id or a pool name. The request goes to one provider unchanged.
-- **Use tools:** an app's MCP client points at the **bare tools endpoint** (`/bare/mcp`) and sees
-  every server its workspace offers as one MCP server, with each tool prefixed by its server's
-  name.
-- **Fetch an agent (directory mode):** an app that knows the agent format reads the document
-  from the **agent directory**, stacks its own layers on top, and runs it with its own
-  `agent-core` loop.
 - **Manage the router:** users manage it in the UI over `/graphql`. An admin can do everything.
   Other users can do everything except secrets, settings and roles. A later phase adds the admin
   server, which gives agents and MCP clients the same management as tools.
@@ -54,13 +44,9 @@ Dependencies point one way:
 - **`agents`** knows `models`, `tools` and the general folders.
 - **`workspaces`** knows all of the above.
 - **Assembly:** only `graphql/` and `http/` put the areas together.
-- **Scope:** `models` and `tools` each declare the scope they need (`ModelScope`, `ToolScope`).
-  `workspaces/scope` builds both.
-  - **For an app:** from its workspace.
-  - **For a run:** the servers come from the agent's document (`agents/reach`), and each one's
-    configuration comes from the calling workspace's entry for it.
-
-  So one tools gateway serves both an app and a run, and no import cycle forms.
+- **Reach and configuration:** a run's models and servers come from the agent's document
+  (`agents/reach`), and each server's configuration from the calling workspace's entry for it
+  (`workspaces/`), so `agents` never imports `workspaces`.
 
 ## Actors
 
@@ -68,7 +54,7 @@ Dependencies point one way:
 |---|---|---|---|
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
-| App | a program using the router: `min-agent`, `task_server`, telos, Claude Code, any OpenAI or MCP client | `/v1`, `/bare/v1`, `/bare/mcp`, `/agents`, `/runs`, with a workspace key | nothing stored but its own conversations. It may call the agents, models and tools its workspace grants, and send layers the agent's override policy accepts |
+| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. Given the admin server, it may write what that server's permission levels allow |
 | MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its own install folder and the env it is given |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
@@ -140,11 +126,8 @@ starting --timeout or exit--> failed --backoff--> starting
 
 - **Base instance:** a server's shared instance.
 - **Workspace instance:** started separately for a workspace that overrides that server's env,
-  args, headers or URL. Two kinds of caller use it:
-  - that workspace's apps on `/bare/mcp`;
-  - every agent run that workspace starts.
-
-  So one agent can work on each workspace's own account.
+  args, headers or URL, and used by every agent run that workspace starts. So one agent can work
+  on each workspace's own account.
 
 ### Workspace key
 
@@ -160,31 +143,29 @@ created (shown once) --> in use --revoke--> deleted
 | Invariant | Will be enforced by |
 |---|---|
 | Every key is a workspace key. A request carries one key, and the key belongs to one workspace. People never use keys: they use sessions | `auth/caller` |
-| What a request can reach is decided by its credential, never by its URL or by a header the app chooses | `auth/caller`, `workspaces/scope` |
+| What a request can reach is decided by its credential, never by its URL or by a header the app chooses | `auth/caller`, `workspaces/` |
 | A key is read from `Authorization: Bearer` or `x-api-key`. If both are sent and differ, the request is refused | `auth/caller` |
 | Keys are created, listed and revoked only from a session, never with a key. Any user may do it | `graphql/permissions` |
 | Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
-| A run's model calls carry a run token: minted for that run, naming its workspace and agent, held only in memory, accepted only on the router's own loopback call to `/bare/v1`, and dead once the run ends. It is not a key, and it is never shown or stored | `agents/run`, `auth/caller` |
-| A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1`, `/bare/v1`, `/bare/mcp`, `/agents` or `/runs` | `auth/caller` |
+| A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1` or `/runs` | `auth/caller` |
 | Only an admin sets secrets and settings, and grants or removes the admin role | `graphql/permissions` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
 | The router itself holds no capabilities. The helper is the only binary with any, holds only `CAP_SETUID` and `CAP_SETGID`, and only the router's group may run it | the Dockerfile |
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
-| The agents endpoint lists and runs only agents. The bare models endpoint lists and forwards only models and pools. Neither answers for the other's names | `agents/routes`, `models/routes` |
-| On the bare models endpoint, a model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
+| The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app | `agents/routes`, `http/app` |
+| A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
 | An agent id is unique and follows the same name rule as providers and servers | the agent id check in `agents/revisions` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
 | No server may be named `ai-router`. The name is kept for the admin server | the server name check in `tools/` |
-| A workspace owns nothing. A provider, pool, server or agent may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
-| A workspace decides which agents an app may run, and how their servers are configured, through its server entries. The agent decides which servers and models it uses. Granting an agent never grants its reach: an app reaches those servers and models on the bare endpoints only if its workspace lists them as well, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/scope`, `agents/reach` |
-| A server entry that is not offered to apps configures agent runs only, and never appears on `/bare/mcp` | `workspaces/scope` |
+| A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
+| A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks | `agents/policy` |
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, the part id check in `agents/revisions` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
 | A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused | `agents/run` |
-| Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call models through the router's bare models endpoint | `agents/layers` |
+| Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent | `agents/layers`, `models/forward` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run | `agents/run` |
@@ -194,13 +175,13 @@ created (shown once) --> in use --revoke--> deleted
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if it answers every call that run handed back. A partial answer is refused | `agents/run` |
-| A key reads only the runs and run events of its own workspace | `agents/routes`, `workspaces/scope` |
+| A key reads only the runs and run events of its own workspace | `agents/routes` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own. Progress chunks are written with `agent-core`'s own encoder | `agents/progress` |
 | A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them | `agents/run`, `agents/run-bus` |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included | `agents/revisions`, which stores the `jsonb` as received |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
-| The gateways route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
+| Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent | `models/usage` |
 
 ## Glossary
@@ -210,8 +191,8 @@ Everything about the code comes after `Owner:`.
 
 ### The router
 
-- **ai-router:** this service. It gives apps models, tools and agents through one address. Owner:
-  the repo; `server/index.ts`.
+- **ai-router:** this service. It gives apps agents through one address. Owner: the repo;
+  `server/index.ts`.
 - **User:** a person who signs in to the router. Anyone the sign-in provider allows may do so,
   and every user shares the same router. Owner: `auth/`; a better-auth user, signed in through
   OIDC (such as heautou), which decides who may sign in by group.
@@ -229,23 +210,15 @@ Everything about the code comes after `Owner:`.
 
 - **Agents endpoint:** the address apps use to run agents. It looks like any OpenAI-compatible
   model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
-- **Bare endpoints:** the addresses for the plain pieces, without agents: one for models and
-  pools, one for MCP servers. An app that runs its own loop uses these. Owner: `models/routes`,
-  `tools/routes`; `/bare/v1`, `/bare/mcp` and `/bare/mcp/<server>`.
-- **Agent directory:** where an app that knows the agent format fetches its workspace's agents
-  to run itself (directory mode). That works only when the workspace also lists the agent's
-  servers and models. Owner: `agents/routes`; `/agents`.
+- **Run records:** where an app reads a run it started, and its events, after the answer or
+  while it runs. Owner: `agents/routes`; `/runs/<id>` and `/runs/<id>/events`.
 
 ### Workspaces
 
-- **Workspace:** what one app may reach: chosen agents, models, pools and servers. Any section may
-  be empty. A workspace with only models and servers makes the router a plain model and tool
-  server for an app that runs its own loop. Owner: `workspaces/`; the `workspaces` table and its
-  join tables.
-- **Server entry:** a server listed in a workspace, with optional overrides such as an account's
-  credentials. If it is **offered to apps**, the workspace's apps can call it directly. If not, it
-  only configures that server for the agent runs this workspace starts. Owner:
-  `workspace_servers`, with its overrides and `offered_on_mcp`.
+- **Workspace:** what one app may run: chosen agents, and how their servers are configured for
+  its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
+- **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
+  account's credentials. Owner: `workspace_servers`, with its overrides.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -253,19 +226,19 @@ Everything about the code comes after `Owner:`.
 
 ### Models
 
-- **Provider:** a model server the router forwards to, such as OpenAI, Ollama or llama.cpp: its
+- **Provider:** a model server the router's agents call, such as OpenAI, Ollama or llama.cpp: its
   address, an optional key and extra headers. Owner: `models/`; the `providers` table.
-- **Model id:** how an app names a model on the bare models endpoint: one provider's model, named
-  after the provider, or a pool. Owner: `models/naming`; `<provider>/<model>`, split at the first
-  `/`, or a pool's name.
+- **Model id:** how an agent names its model: one provider's model, named after the provider, or a
+  pool. Owner: `models/naming`; `<provider>/<model>`, split at the first `/`, or a pool's name.
 - **Pool:** one model name served by several targets, with the router choosing one for each
   request. Owner: `models/pool`; the `pools` table.
 - **Target:** one place a pool can send a request: a provider and the model's name there. Owner:
   `models/pool`; the `pool_targets` table.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
-- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Owner:
-  `models/usage`; the `usage` table.
+- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. A
+  provider's usage stays after the provider is deleted. Owner: `models/usage`; the `usage` table,
+  which keeps the provider's name, and an optional foreign key to it.
 
 ### Tools
 
@@ -278,9 +251,8 @@ Everything about the code comes after `Owner:`.
   Owner: `servers.source`.
 - **Transport:** how the router reaches a server: a program it starts, or an address it connects
   to. Owner: `servers.transport`; stdio or streamable HTTP.
-- **Tool:** one action a server offers. Apps see each tool named after its server and itself, so
-  two servers' tools never clash. Resources and prompts are named the same way. Owner:
-  `tools/naming`; `<server>__<tool>` on `/bare/mcp`, unprefixed on `/bare/mcp/<server>`.
+- **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
+  two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`.
 - **Instance:** a running connection to a server: a base instance shared by everyone, or a
   workspace instance when a workspace overrides that server's settings. A server the router starts
   itself runs as a user of its own, walled off from the router and from other servers. Owner:
@@ -315,7 +287,8 @@ Everything about the code comes after `Owner:`.
   everything, so an agent without an address of its own runs through the router), then the
   agent, then the host (the app's own instructions), then the task (a scheduled job), then the
   request (the sampling settings the app sent). Owner: `agents/layers`; the router layer sets
-  `endpoint` to the router's own `/bare/v1`.
+  `endpoint` to the router's internal model address, which the run's `fetch` hands to
+  `models/forward`.
 - **Override policy:** what the layers above an agent may change. Anything it does not allow is
   refused. For now there is one policy, which every agent uses: an app may add its own
   instructions, narrow the servers and set sampling settings, but never change the model. Owner:
@@ -358,30 +331,23 @@ Everything about the code comes after `Owner:`.
 - **Caller:** who a request is from: an admin or another user (by session), or an app (by
   workspace key). It is read from the credential once per request. Owner: `auth/caller`;
   `Context.caller`.
-- **Scope:** what one request may reach: for the models gateway, which model ids and pools to
-  allow and list, and who the usage counts under; for the tools gateway, which servers and which
-  overrides. Owner: `models/scope` and `tools/scope` declare it, and `workspaces/scope` builds it,
-  with `agents/reach` for a run.
-- **Run token:** the credential a run's own model calls carry to the router's bare models
-  endpoint, so usage counts under the run's workspace and agent. Owner: `agents/run` mints it, and
-  `auth/caller` accepts it on loopback only.
-- **Snapshot:** the in-memory copy of everything the gateways route by, rebuilt after each
-  committed write that changes it. Owner: `db/snapshot`.
+- **Forwarding:** handing one of a run's model calls to a provider: picking a pool's target,
+  adding the provider's key and headers, passing the stream through and counting its usage.
+  Owner: `models/forward`; a function the run's `fetch` calls, not an HTTP endpoint.
+- **Snapshot:** the in-memory copy of everything requests route by, rebuilt after each committed
+  write that changes it. Owner: `db/snapshot`.
 - **Lease:** an in-flight slot a pool holds for one request, released on every exit path. Owner:
   `models/balancer`.
-- **MCP session:** one MCP client's streamable-HTTP session with the router. Plain "session"
-  always means a user signed in. Owner: `tools/session`.
 - **Resolved agent:** the flat settings a run uses, after layers and policy. Owner: `agent-core`
   `ResolvedAgent`.
 - **Dispatch:** the function that runs one of a run's tool calls on a tools instance. Owner:
   `agents/run`; `agent-core` `ToolDispatch`.
 - **Error formats:**
   - GraphQL answers `extensions.code` from the `ErrorCode` vocabulary.
-  - `/v1` and `/bare/v1` answer OpenAI's `{ error: { message, type, code } }`.
-  - `/bare/mcp` answers JSON-RPC errors.
-  - `/agents` and `/runs` answer `{ error, code }` with the same codes as GraphQL.
+  - `/v1` answers OpenAI's `{ error: { message, type, code } }`.
+  - `/runs` answers `{ error, code }` with the same codes as GraphQL.
 
-  Owner: `core/errors`, `models/openai-error`.
+  Owner: `core/errors`, `agents/openai-error`.
 
 ## Explain test
 
@@ -390,17 +356,15 @@ into **pools**. They install MCP **servers** from a **registry**, and write **ag
 model, **prompt parts** and a list of servers. Every save is a **revision**. A user's own saves
 go **live** at once, and anything an app or a run saves waits as a **draft** until a user
 **promotes** it. An **admin** also holds secrets, settings and roles. Each app gets a
-**workspace** and a **workspace key**, and the key alone decides what the app sees. On the
+**workspace** and a **workspace key**, and the key alone decides which agents the app sees. On the
 **agents endpoint**, every model is an agent, and picking one starts a **run**. The router turns
 the app's own instructions into a host part and a scheduled job's text into a task part, after
 the agent's own parts. The **override policy** lets the app set sampling settings and narrow the
 servers, but never change the model, and it refuses anything else. The run loops between the
-agent's model and its **reach** of tools until the model answers. A workspace's **server
-entries** can configure those tools for its own runs, such as one household's budget login,
-without offering them to the app. If the model calls an **app tool**, the run waits for the
-app's answer and then carries on. On the **bare endpoints**, an app that runs its own loop gets
-the workspace's **model ids**, pools and **tools** directly: a model id goes to one provider, a
-pool picks a **target** first, and a tool call goes to an **instance** of its server. An app
-that knows the agent format can also fetch an agent from the **agent directory** and run it
-itself. Every model call counts as **usage**, every run is recorded, and none of the router's
-secrets ever leave it.
+agent's model and its **reach** of tools until the model answers: a **model id** goes to one
+provider, a pool picks a **target** first, and a tool call goes to an **instance** of its server.
+A workspace's **server entries** configure those tools for its own runs, such as one household's
+budget login. If the model calls an **app tool**, the run waits for the app's answer and then
+carries on. Apps never reach the models or tools directly: those are the agents' alone. Every
+model call counts as **usage**, every run is recorded, and none of the router's secrets ever
+leave it.

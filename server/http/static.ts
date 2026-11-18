@@ -21,7 +21,7 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /** Paths that belong to the router's endpoints, which never fall back to the UI's page, served yet or not. */
-const API_PREFIXES = ['/graphql', '/healthz', '/v1', '/bare', '/mcp', '/agents', '/runs', '/api', '/sso', '/oauth'];
+const API_PREFIXES = ['/graphql', '/healthz', '/v1', '/mcp', '/runs', '/api', '/sso', '/oauth'];
 
 /**
  * Whether a path belongs to one of the router's endpoints.

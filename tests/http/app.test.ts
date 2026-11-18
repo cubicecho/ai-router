@@ -98,14 +98,11 @@ describe('app', () => {
     expect(await response.text()).toBe(INDEX);
   });
 
-  it.each(['/v1/models', '/bare/v1/models', '/bare/mcp', '/mcp', '/agents', '/runs/x'])(
-    'never answers %s with the UI',
-    async (path) => {
-      const response = await fetch(`${base}${path}`);
-      expect(response.status).toBe(HttpStatus.NotFound);
-      expect(await response.text()).not.toContain(INDEX);
-    },
-  );
+  it.each(['/v1/models', '/mcp', '/runs/x'])('never answers %s with the UI', async (path) => {
+    const response = await fetch(`${base}${path}`);
+    expect(response.status).toBe(HttpStatus.NotFound);
+    expect(await response.text()).not.toContain(INDEX);
+  });
 
   it('answers a signed-in person', async () => {
     const body = await ask(WORKSPACES, { authorization: `Bearer ${token}` });

@@ -1,20 +1,20 @@
 # AGENTS.md — ai-router
 
-ai-router gives every app on a network **agents**, **models** and **tools** through one address
-and one key per app.
+ai-router gives every app on a network **agents**, through one address and one key per app.
 
 - **`/v1` is the agents endpoint.** It looks like any OpenAI-compatible server, but every model
   it lists is an agent: a `cubicecho.agent/1` document naming a model, a prompt and tools.
-- **`/bare/v1` forwards to model servers**, and **`/bare/mcp` serves MCP servers** over
-  streamable HTTP. They are for apps that run their own loop.
-- **The key decides what each app sees.** It belongs to a **workspace**, which lists the agents,
-  models and servers that app may use.
+- **Models and MCP servers are internal.** The router keeps the providers, pools and servers its
+  agents use, and serves no raw model or tool endpoint. Apps that run their own loop keep using
+  llm-router and mcp-router.
+- **The key decides what each app sees.** It belongs to a **workspace**, which lists the agents
+  that app may run, and configures their servers for its runs.
 
-It replaces llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`). They are the
-reference implementations to port from, not dependencies.
+llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`) stay in service. Their model and
+tool code is the reference to port from, not a dependency.
 
 **Status: phase 1, the scaffold.** Sign-in, roles, workspaces and their keys, the snapshot and the
-child-user check exist. The gateways and agents come in the phases after it (`PLAN.md`).
+child-user check exist. Models, tools and agents come in the phases after it (`PLAN.md`).
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
@@ -52,10 +52,10 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `db/` | the Postgres client, the advisory lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
 | `auth/` | better-auth, keys, the caller, roles, the trusted-network sign-in, rate limiting, and their GraphQL fields | `core`, `db`, `sso`, `graphql/object-type`, `http/sso` (for its path) |
 | `sso/` | pairing with an OIDC provider from the UI | `core`, `db`, `auth` |
-| `models/` | providers, pools, the `/bare/v1` proxy, usage, `ModelScope` (phase 2) | `core`, `db`, `auth` |
-| `tools/` | the child-user check; later registries, the installer, servers, instances, sessions, the `/bare/mcp` gateway, activity, `ToolScope` | `core`, `db`, `auth` |
-| `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/agents`, `/runs` (phases 5–7) | the above and `models`, `tools` |
-| `workspaces/` | workspaces, their keys' mutations, server entries, and the scope every request gets | all of the above |
+| `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
+| `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
+| `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/runs` (phases 5–7) | the above and `models`, `tools` |
+| `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
 | `admin/` (phase 9) | the built-in admin server, the only way to the router's management tools | everything |
@@ -84,38 +84,34 @@ non-negotiables apply on top of these.
 ### Callers and keys
 
 - **The key decides the scope, never the URL.** A request carries one key, and a key belongs to
-  one workspace. A user's session, as the UI uses it, sees everything enabled. There are no
-  `/w/<slug>` routes. One handler serves every caller, given the scope from `workspaces/scope`.
+  one workspace. A user's session, as the UI uses it, sees every agent. There are no
+  `/w/<slug>` routes.
 - **Every key is a workspace key; people never use keys.** Keys come from `Authorization: Bearer`
   or `x-api-key`, and if both are sent and differ, the request is refused. A Bearer value is
   tried as a key first, then as a user's session token. Keys are managed only from a session, by
   any user.
 - **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
   decide.
-- **A run token is not a key.** It's minted per run, held in memory, accepted only on the
-  router's own loopback call to `/bare/v1`, and dead when the run ends. Refuse it everywhere
-  else.
 - **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
-  OIDC. A request to `/v1`, `/bare/v1`, `/bare/mcp`, `/agents` or `/runs` without a workspace key
-  is still refused.
+  OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
   each is set by its own write-only mutation. Reads answer `apiKeySet: boolean`. A test plants
   each secret and scans every answer.
 
 ### Endpoints and names
 
-- **`/v1` lists and runs only agents; `/bare/v1` lists and forwards only models and pools.**
-  Neither answers for the other's names. `/mcp` stays unanswered until agents are offered as MCP
-  tools.
-- **On `/bare/v1`, a model id splits at its first `/`, and a name with no `/` is a pool.**
+- **`/v1` lists and runs only agents.** No endpoint serves a raw model or tool. `/mcp` stays
+  unanswered until agents are offered as MCP tools.
+- **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
+  document names its model.
 - **Reserved name:** no server may be called `ai-router`, which is kept for the admin server.
   That server is the only way to the management tools, and there is no `/admin/mcp`. Agent ids
   follow the same name rule as providers and servers.
-- **No discovery yet.** mcp-router's AI Catalog, Server Cards and LAN announce/discovery are not
-  ported in the first pass. When they come, the public catalog names only endpoints, and
-  everything behind them needs a key.
+- **No discovery yet.** mcp-router's AI Catalog, cards and LAN announce/discovery are not
+  ported in the first pass. When they come, the public catalog names only the endpoint, and
+  every agent behind it needs a key.
 
 ### Untrusted code and the snapshot
 
@@ -126,7 +122,8 @@ non-negotiables apply on top of these.
   never swap the helper for a general tool like `setpriv`: with `CAP_SETUID`, that can become
   root. The helper's source is `docker/run-as-child.c`, and its checks are
   `scripts/check-children.sh`, which CI runs against the image.
-- **The gateways route from the snapshot.** They never query the database per request. Every
+- **Requests route from the snapshot.** Keys, and later agents, providers and servers, are read
+  from it, never from the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: a Postgres advisory lock taken at boot, so a second
   router refuses to start.
@@ -138,17 +135,13 @@ non-negotiables apply on top of these.
   the workspace's. The calling workspace's server entry decides how each of those servers is
   configured, so its workspace instance is used. Without an entry, the base instance is used.
   An entry never adds a server. The admin server is never part of "every server".
-- **Granting an agent grants the run, not its reach.** A workspace that lists only
-  `personal-finance` shows it on `/v1`, and none of that agent's models on `/bare/v1` or its
-  servers on `/bare/mcp`. Those appear only if the workspace lists them too.
-- **`offered_on_mcp: false`** means a server entry configures agent runs only. It must never show
-  on `/bare/mcp` or `/bare/mcp/<server>`.
 - **A layer adds and never widens.** The order is agent, host, task, request. Everything above
   the agent passes the override policy before `resolveAgentSpec`. `endpoint` and the model never
   change for a request, and a caller's `servers` is intersected with the agent's. Sampling
   settings pass only if the policy allows them, and never reach side tasks.
-- **The router layer goes underneath every run.** It sets the endpoint to the router's own
-  `/bare/v1`, so an agent without one, and its side tasks, can run.
+- **The router layer goes underneath every run.** It sets the endpoint to the router's internal
+  model address, which the run's `fetch` hands to the models area in process, so an agent
+  without an endpoint, and its side tasks, can run, and usage counts under the run.
 - **Map sampling fields by name.** `temperature` goes to `model.temperature`, and `max_tokens` or
   `max_completion_tokens` to `model.maxTokens`. Only fields the format can't spell go into
   `extraBody`. Never copy a request's fields into `extraBody` wholesale
@@ -189,9 +182,8 @@ non-negotiables apply on top of these.
 ### Error formats
 
 - GraphQL: `extensions.code` from `ErrorCode`.
-- `/v1` and `/bare/v1`, auth refusals included: OpenAI's `{ error: { message, type, code } }`.
-- `/bare/mcp`: JSON-RPC errors.
-- `/agents` and `/runs`: `{ error, code }`.
+- `/v1`, auth refusals included: OpenAI's `{ error: { message, type, code } }`.
+- `/runs`: `{ error, code }`.
 
 Don't leak one surface's format into another.
 
