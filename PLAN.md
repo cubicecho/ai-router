@@ -445,11 +445,44 @@ The acceptance check for the first release.
      or from `/runs/<id>`. Such a profile sends no MCP tools (today an empty server list means
      all of them), and no compaction or tool-select model.
    - telos: a lane whose agent is a router agent, with its Runs tab filled the same way.
-9. **Admin server.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`, with
-   permission levels (read, author drafts, operate, install) on its server entries. Agents must
-   name it.
-   Drafts, discarding and auto-promote arrive here, because this is the first way anything other
-   than a user can save an agent.
+9. **Admin server.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`. Drafts,
+   discarding and auto-promote arrive here, because this is the first way anything other than a
+   user can save an agent. Decided 2026-11-18:
+   - **Roles, not levels.** A workspace's entry for `ai-router` holds a set of roles, which add
+     up. Each is a list of casl abilities, and every "manage" role includes reading its area:
+
+     | Role | casl abilities |
+     | --- | --- |
+     | `agents:read` | read Agent, Revision |
+     | `agents:manage` | read, create, update Agent, Revision |
+     | `models:read` | read Provider, Pool |
+     | `models:manage` | read, create, update, delete Provider, Pool |
+     | `servers:read` | read Server, Registry |
+     | `servers:manage` | read, create, update, delete Server, Registry |
+     | `servers:operate` | read, operate Server (restart, try a tool, a server's login) |
+     | `runs:read` | read Run |
+
+   - **Actions are listed, never casl's `manage`**, which would grant any action added later
+     (a `promote`, say) to every role that has it. A new action stays shut until a role names it.
+   - **No role reaches** promoting or auto-promote, deleting an agent, secrets (provider keys,
+     server secrets, login clients), settings, users and roles, or workspaces and their keys.
+     People keep all of it, and the UI works as now: `/graphql` moves onto casl abilities too.
+   - **Nothing by default.** No entry for `ai-router`, or one with no roles, gives no admin
+     tools. Agents must still name `ai-router` in `tools.servers`: it is never in "every server".
+     An agent is shown only the tools its roles allow, and the permissions guard every call.
+   - **Config is router-wide, runs are the workspace's.** The read roles see every agent,
+     provider, pool, server and registry. `runs:read` sees only runs its own workspace started.
+   - **A built-in transport.** The `ai-router` row in `servers` is made by a migration, with a
+     transport of its own that connects in process (the MCP SDK's in-memory transport), as a
+     run's model calls are. The run's workspace and roles are handed over directly. Nobody can
+     delete or rename it, or give it a transport, secrets or a login. The UI marks it "Built in",
+     and a workspace's entry for it shows its roles instead of env, args and URL.
+   - **Drafts.** An `agents:manage` save is a draft, live at once only when the agent has
+     auto-promote. An agent may have any number of drafts. Each records the revision it was
+     based on and who saved it (a user, or a workspace and an agent). People discard any draft,
+     and an agent discards only drafts it saved itself, from the same workspace.
+   - **Any user grants roles and turns on auto-promote**, as with every workspace and agent
+     setting today. Making both admin-only is a later option.
 10. **Later.**
     - Agents offered as MCP tools, on `/mcp`.
     - `/v1/responses` for agents.
