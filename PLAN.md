@@ -256,7 +256,7 @@ The check for phases 5–8.
    hand three ways: alone, with a `min-agent` host layer, and with a "Friday" task layer. Walk
    the two use cases above against the model. Settle the open questions below that block
    phase 1.
-1. **Scaffold.** The single-operator service layout, following the `cubicecho_backend`,
+1. **Scaffold. Done.** The single-operator service layout, following the `cubicecho_backend`,
    `cubicecho_typescript` and `coding-standards` skills.
    - **`core/` and `http/`:** the standard foundation.
    - **`db/`:** PGlite or Postgres, migrations, waiting for Postgres, the PGlite lockfile or

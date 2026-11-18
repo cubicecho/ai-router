@@ -1,0 +1,22 @@
+# The router on its own, with PGlite on the data volume. For Postgres, see docker-compose.postgres.yml.
+name: ai-router
+services:
+  ai-router:
+    image: ai-router
+    build: .
+    restart: unless-stopped
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required. Generate one with `openssl rand -hex 32`}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      SECURE_LOCAL_NET: ${SECURE_LOCAL_NET:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
+    ports:
+      - "${PORT:-3000}:3000"
+    # A named volume: a bind mount keeps the host folder's owner, which must then be uid 1000.
+    volumes: [ai_router_data:/data]
+volumes:
+  ai_router_data:
