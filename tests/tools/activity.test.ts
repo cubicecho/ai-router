@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { activity } from '../../server/db/tables/activity.ts';
+import { servers } from '../../server/db/tables/servers.ts';
 import { createActivityRecorder } from '../../server/tools/activity.ts';
 import { closeTestDb, createTestDb, resetTestDb, type TestDb } from '../helpers.ts';
 
@@ -48,5 +49,19 @@ describe('the activity recorder', () => {
     }
     await recorder.stop();
     expect((await db.select().from(activity)).map((row) => row.tool).sort()).toEqual(['b', 'c']);
+  });
+});
+
+describe('a call recorded just before its server is deleted', () => {
+  it('is written with the server named and its id cleared, not retried forever', async () => {
+    const [server] = await db
+      .insert(servers)
+      .values({ name: 'gone', source: { type: 'manual' }, transport: { type: 'stdio', command: 'node', args: [] } })
+      .returning();
+    const recorder = createActivityRecorder(db);
+    recorder.record({ ...CALL, serverId: server?.id ?? null, serverName: 'gone', ok: true });
+    await db.delete(servers);
+    await recorder.flush();
+    expect((await db.select().from(activity)).map((row) => [row.serverName, row.serverId])).toEqual([['gone', null]]);
   });
 });

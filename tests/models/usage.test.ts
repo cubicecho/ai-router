@@ -93,6 +93,15 @@ describe('the usage recorder', () => {
     });
   });
 
+  it('writes a call whose provider and workspace were deleted before the write, by name', async () => {
+    const recorder = createUsageRecorder(db, {}, () => NOW);
+    recorder.record(served);
+    await db.delete(providers).where(eq(providers.name, 'ollama'));
+    await db.delete(workspaces).where(eq(workspaces.slug, 'min-agent'));
+    await recorder.flush();
+    expect(await rows()).toMatchObject([{ providerId: null, providerName: 'ollama', workspaceId: null, requests: 1 }]);
+  });
+
   it('folds days past the detail window into the all-time row, and keeps the rest', async () => {
     const old = { ...served, requests: 1, inputTokens: 10, outputTokens: 1 };
     await db.insert(usageCounts).values([

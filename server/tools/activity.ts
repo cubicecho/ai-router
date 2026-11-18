@@ -3,7 +3,10 @@ import { ACTIVITY_DEFAULTS, type ActivitySettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { MS_PER_DAY, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
+import { existingIds } from '../db/existing-ids.ts';
 import { activity, type NewActivityRow } from '../db/tables/activity.ts';
+import { servers } from '../db/tables/servers.ts';
+import { workspaces } from '../db/tables/workspaces.ts';
 
 /** Milliseconds in one hour. */
 const MS_PER_HOUR = 3_600_000;
@@ -82,7 +85,26 @@ export function createActivityRecorder(
       return;
     }
     try {
-      await db.insert(activity).values(taken);
+      const liveServers = await existingIds(
+        db,
+        servers,
+        servers.id,
+        taken.map((row) => row.serverId),
+      );
+      const liveWorkspaces = await existingIds(
+        db,
+        workspaces,
+        workspaces.id,
+        taken.map((row) => row.workspaceId),
+      );
+      // A server or workspace deleted since the call keeps its name here, and loses its id.
+      await db.insert(activity).values(
+        taken.map((row) => ({
+          ...row,
+          serverId: liveServers.has(row.serverId ?? '') ? row.serverId : null,
+          workspaceId: liveWorkspaces.has(row.workspaceId ?? '') ? row.workspaceId : null,
+        })),
+      );
     } catch (error) {
       console.error(
         `[activity] could not write ${taken.length} calls, keeping them for the next try: ${errorMessage(error)}`,

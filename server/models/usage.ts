@@ -3,7 +3,10 @@ import { USAGE_DEFAULTS, type UsageSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { MS_PER_DAY, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
+import { existingIds } from '../db/existing-ids.ts';
+import { providers } from '../db/tables/providers.ts';
 import { type NewUsageCount, usageCounts } from '../db/tables/usage-counts.ts';
+import { workspaces } from '../db/tables/workspaces.ts';
 import type { ReportedUsage } from './usage-reader.ts';
 
 /** Milliseconds in one hour. */
@@ -124,7 +127,28 @@ export function createUsageRecorder(
     const taken = pending;
     pending = new Map();
     try {
-      await addCounts(db, [...taken.values()]);
+      const rows = [...taken.values()];
+      const liveProviders = await existingIds(
+        db,
+        providers,
+        providers.id,
+        rows.map((row) => row.providerId),
+      );
+      const liveWorkspaces = await existingIds(
+        db,
+        workspaces,
+        workspaces.id,
+        rows.map((row) => row.workspaceId),
+      );
+      // A provider or workspace deleted since the call keeps its name here, and loses its id.
+      await addCounts(
+        db,
+        rows.map((row) => ({
+          ...row,
+          providerId: liveProviders.has(row.providerId ?? '') ? row.providerId : null,
+          workspaceId: liveWorkspaces.has(row.workspaceId ?? '') ? row.workspaceId : null,
+        })),
+      );
     } catch (error) {
       console.error(
         `[usage] could not write ${taken.size} counts, keeping them for the next try: ${errorMessage(error)}`,
