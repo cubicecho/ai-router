@@ -9,6 +9,9 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
   uq_workspaces_slug: 'A workspace with that slug already exists.',
   uq_providers_name: 'A provider with that name already exists.',
   uq_pools_name: 'A pool with that name already exists.',
+  uq_servers_name: 'A server with that name already exists.',
+  uq_registries_name: 'A registry with that name already exists.',
+  uq_workspace_servers_workspace_id_server_id: 'This workspace already has an entry for that server.',
 };
 
 /** The parts of a driver error this reads. */

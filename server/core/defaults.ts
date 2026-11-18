@@ -243,3 +243,165 @@ export const MODEL_CONFIG_DEFAULTS: Readonly<ModelConfigSettings> = Object.freez
   maxTargets: 64,
   maxModelLength: 256,
 });
+
+/** What a server's settings, entries and secrets may hold. */
+export interface ToolConfigSettings {
+  /** Env vars a server, or a workspace's entry for it, may set. */
+  maxEnvVars: number;
+  /** Characters in one env value, secret or not. */
+  maxEnvValueLength: number;
+  /** Arguments a stdio server's command may have. */
+  maxArgs: number;
+  /** Characters in one argument, or a command. */
+  maxArgLength: number;
+  /** Headers an HTTP server may be sent. */
+  maxHeaders: number;
+  /** Characters in a secret: an env value or a header value. */
+  maxSecretLength: number;
+  /** The longest idle or call timeout a server may set. */
+  maxTimeoutMs: number;
+  /** Characters in a server's display name. */
+  maxDisplayNameLength: number;
+  /** Characters in a server's description. */
+  maxDescriptionLength: number;
+}
+
+export const TOOL_CONFIG_DEFAULTS: Readonly<ToolConfigSettings> = Object.freeze({
+  maxEnvVars: 64,
+  maxEnvValueLength: 8192,
+  maxArgs: 64,
+  maxArgLength: 4096,
+  maxHeaders: 32,
+  maxSecretLength: 8192,
+  maxTimeoutMs: 3_600_000,
+  maxDisplayNameLength: 120,
+  maxDescriptionLength: 2000,
+});
+
+/** Running MCP servers and calling their tools. */
+export interface InstanceSettings {
+  /** How long a stdio program may sit with no call before it is stopped, for a server that sets no time of its own. */
+  idleTimeoutMs: number;
+  /** How long one tool call may take, for a server that sets no time of its own. */
+  callTimeoutMs: number;
+  /** How long a server may take to start and answer the handshake. Long, since `npx` and `uvx` may download first. */
+  startTimeoutMs: number;
+  /** How long a server may take to list its tools. */
+  listTimeoutMs: number;
+  /** Most pages of tools read from one server. A server that pages past it is refused. */
+  maxToolListPages: number;
+  /** How long a failed server waits before the next start, after its first failure. */
+  firstBackoffMs: number;
+  /** The longest a failed server waits before the next start. */
+  maxBackoffMs: number;
+  /** How much the wait grows after each failure in a row. */
+  backoffFactor: number;
+  /** How much of a program's stderr is kept for error messages, in characters. */
+  stderrTailChars: number;
+  /**
+   * How long a stopping program gets after its stdin closes, and again after SIGTERM, before the next signal. An
+   * isolated program is signalled through `run-as-child`, since the router may not signal another user.
+   */
+  closeGraceMs: number;
+  /** How long the helper may take to signal an isolated program. */
+  signalTimeoutMs: number;
+}
+
+export const INSTANCE_DEFAULTS: Readonly<InstanceSettings> = Object.freeze({
+  idleTimeoutMs: 300_000,
+  callTimeoutMs: 600_000,
+  startTimeoutMs: 60_000,
+  listTimeoutMs: 30_000,
+  maxToolListPages: 50,
+  firstBackoffMs: 1_000,
+  maxBackoffMs: 60_000,
+  backoffFactor: 2,
+  stderrTailChars: 4_000,
+  closeGraceMs: 2_000,
+  signalTimeoutMs: 5_000,
+});
+
+/** Reading MCP registries. */
+export interface RegistrySettings {
+  /** How long a registry may take to answer one request. */
+  fetchTimeoutMs: number;
+  /** How much of a registry's failed answer is kept in an error message, in characters. */
+  errorBodyMaxChars: number;
+}
+
+export const REGISTRY_DEFAULTS: Readonly<RegistrySettings> = Object.freeze({
+  fetchTimeoutMs: 30_000,
+  errorBodyMaxChars: 500,
+});
+
+/** Servers' install folders, and the commands the router runs in them as each server's user. */
+export interface InstallSettings {
+  /** The PATH every child process gets, whatever the router's own PATH is. */
+  childPath: string;
+  /** Random bytes in an install folder's name, after its uid. Hex doubles them. */
+  folderRandomBytes: number;
+  /** How long creating or removing an install folder may take. */
+  folderTimeoutMs: number;
+  /** How long one `npm install` may run before it is stopped. */
+  npmTimeoutMs: number;
+  /** How long reading an installed package's package.json may take. */
+  readTimeoutMs: number;
+  /** How long a command that overran gets after SIGTERM before SIGKILL, and the router stops waiting after that. */
+  killGraceMs: number;
+  /** How much of the end of a failed command's stderr is kept in its error message, in characters. */
+  stderrTailChars: number;
+}
+
+export const INSTALL_DEFAULTS: Readonly<InstallSettings> = Object.freeze({
+  childPath: '/usr/local/bin:/usr/bin:/bin',
+  folderRandomBytes: 8,
+  folderTimeoutMs: 30_000,
+  npmTimeoutMs: 300_000,
+  readTimeoutMs: 10_000,
+  killGraceMs: 5_000,
+  stderrTailChars: 1_000,
+});
+
+/** Server login: the OAuth sign-in a remote MCP server asks for. */
+export interface ServerLoginSettings {
+  /** How long a started login waits for its callback before its `state` stops working. */
+  pendingLoginTtlMinutes: number;
+  /** Random bytes in a login's `state`, which is sent as base64url. */
+  stateBytes: number;
+  /** How long one request of a login may take: the first knock, discovery, registration, a token exchange. */
+  requestTimeoutMs: number;
+  /** The router's name, as a server's login shows it on its consent page. */
+  clientName: string;
+  /** Longest hand-typed client id, client secret or scope, in characters. */
+  maxClientFieldLength: number;
+}
+
+export const SERVER_LOGIN_DEFAULTS: Readonly<ServerLoginSettings> = Object.freeze({
+  pendingLoginTtlMinutes: 10,
+  stateBytes: 32,
+  requestTimeoutMs: 10_000,
+  clientName: 'ai-router',
+  maxClientFieldLength: 4_096,
+});
+
+/** The record of tool calls. */
+export interface ActivitySettings {
+  /** How often calls gathered in memory are written. A crash loses at most this much. */
+  flushSeconds: number;
+  /** How many days a call is kept. */
+  retentionDays: number;
+  /** How often calls past the retention are deleted. */
+  pruneEveryHours: number;
+  /** Calls held in memory at most; past it the oldest are dropped, so a database outage can't fill memory. */
+  maxPending: number;
+  /** Characters of a failure's message kept. */
+  maxErrorLength: number;
+}
+
+export const ACTIVITY_DEFAULTS: Readonly<ActivitySettings> = Object.freeze({
+  flushSeconds: 5,
+  retentionDays: 30,
+  pruneEveryHours: 6,
+  maxPending: 10_000,
+  maxErrorLength: 500,
+});

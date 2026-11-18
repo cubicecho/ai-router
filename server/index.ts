@@ -36,8 +36,14 @@ if (children.mode === ChildMode.Shared) {
 
 // After migrating: the provider may be a pairing, which lives in the database.
 const authHost = await createAuthHost(database.db);
-const { app, models } = await createApp({ db: database.db, authHost, children, staticDir: path.join(ROOT, 'dist') });
+const { app, models, tools } = await createApp({
+  db: database.db,
+  authHost,
+  children,
+  staticDir: path.join(ROOT, 'dist'),
+});
 models.usage.start();
+tools.activity.start();
 
 const server = app.listen(port(), LISTEN_HOST, () => {
   console.log(`[server] ready at ${appUrl()}`);
@@ -59,7 +65,8 @@ const server = app.listen(port(), LISTEN_HOST, () => {
 
 stopOnSignals(server, {
   after: async () => {
-    // Counts gathered since the last write go in before the database closes.
+    // MCP servers stop first, then counts and calls gathered since the last write go in before the database closes.
+    await tools.stop();
     await models.usage.stop();
     await database.close();
   },

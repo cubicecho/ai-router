@@ -1,0 +1,378 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { eq, sql } from 'drizzle-orm';
+import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
+import { badInput, conflict, errorMessage, notFound, upstreamFailed } from '../core/errors.ts';
+import { isRecord } from '../core/is-record.ts';
+import { parseOrThrow } from '../core/validation.ts';
+import type { DB } from '../db/client.ts';
+import type { SnapshotHost, SnapshotServer } from '../db/snapshot.ts';
+import { registries } from '../db/tables/registries.ts';
+import { SecretKind, serverSecrets } from '../db/tables/server-secrets.ts';
+import { servers } from '../db/tables/servers.ts';
+import { type ActivityRecorder, createActivityRecorder } from './activity.ts';
+import type {
+  InstallServerRequest,
+  ServedInstance,
+  ServedRegistryPage,
+  ServedServer,
+  ServedTool,
+  ToolServices,
+} from './api.ts';
+import type { ChildIsolation } from './child-users.ts';
+import { envInput, transportInput } from './input.ts';
+import { createInstallFolder, type FolderOptions, removeInstallFolder } from './install-folder.ts';
+import { deriveServerName, installServer } from './installer.ts';
+import { InstanceError } from './instance.ts';
+import { InstanceManager } from './instances.ts';
+import { createServerLoginStore } from './login-store.ts';
+import { ServerLoginService } from './oauth/service.ts';
+import { RegistryClient, type RegistryFetch, type RegistryServerEntry } from './registry.ts';
+import { resolveServer } from './resolve.ts';
+import {
+  type ResolvedServer,
+  type ServerSource,
+  SourceType,
+  serverNameSchema,
+  serverSourceSchema,
+  TRANSPORT_STREAMABLE_HTTP,
+} from './shapes.ts';
+
+/** Characters of a failure kept on an instance's status. */
+const MAX_INSTANCE_ERROR = 500;
+
+/** The tools area's running parts, with what boot starts and shutdown stops. */
+export interface ToolServiceParts extends ToolServices {
+  activity: ActivityRecorder;
+  instances: InstanceManager;
+  /** Stops every instance and writes the activity still held. */
+  stop(): Promise<void>;
+}
+
+/** What the tools area is built from. */
+export interface ToolServiceDeps {
+  db: DB;
+  snapshot: SnapshotHost;
+  /** What the boot check found. */
+  isolation: ChildIsolation;
+  /** How registries are reached. The global fetch when absent. */
+  registryFetch?: RegistryFetch;
+  /** Where install folders go, and how child commands run, for tests. */
+  folders?: FolderOptions;
+}
+
+/**
+ * Turns an instance's failure into what a person is told.
+ *
+ * @param error - What the instance threw.
+ * @returns UPSTREAM_FAILED for a server that couldn't start or answer; anything else as it was.
+ */
+function asUpstream(error: unknown): unknown {
+  return error instanceof InstanceError ? upstreamFailed(error.message) : error;
+}
+
+/**
+ * Lists what a registry entry can be installed as.
+ *
+ * @param entry - The entry.
+ * @returns One choice per npm or PyPI package, and per streamable-HTTP remote, by the selector installServer takes.
+ */
+function choicesOf(entry: RegistryServerEntry): ServedRegistryPage['servers'][number]['choices'] {
+  const packages = (entry.server.packages ?? []).flatMap((pkg, index) =>
+    pkg.registryType === 'npm' || pkg.registryType === 'pypi'
+      ? [{ selector: String(index), kind: pkg.registryType, identifier: pkg.identifier, version: pkg.version ?? null }]
+      : [],
+  );
+  const remotes = (entry.server.remotes ?? []).flatMap((remote, index) =>
+    remote.type === TRANSPORT_STREAMABLE_HTTP
+      ? [{ selector: `remote:${index}`, kind: remote.type, identifier: remote.url, version: null }]
+      : [],
+  );
+  return [...packages, ...remotes];
+}
+
+/**
+ * Hands out the next server user id. Taken before anything is installed, and never handed out again,
+ * even when the install fails.
+ *
+ * @param db - The database.
+ * @returns The uid.
+ * @throws CONFLICT when every id in the child range has been handed out.
+ */
+async function nextChildUid(db: DB): Promise<number> {
+  let answer: unknown;
+  try {
+    answer = await db.execute(sql`select nextval('child_uid_seq')::int as uid`);
+  } catch (error) {
+    throw conflict(`No server user ids are left to hand out: ${errorMessage(error)}`);
+  }
+  const rows = isRecord(answer) && Array.isArray(answer.rows) ? answer.rows : [];
+  const [first]: unknown[] = rows;
+  if (isRecord(first) && typeof first.uid === 'number') {
+    return first.uid;
+  }
+  throw new Error('The child uid sequence answered nothing.');
+}
+
+/**
+ * Builds the tools area's parts. Nothing starts: the activity recorder's timers are the caller's to start.
+ *
+ * @param deps - The database, the snapshot, the isolation, and stand-ins for tests.
+ * @returns The parts.
+ */
+export function createToolServices({
+  db,
+  snapshot,
+  isolation,
+  registryFetch,
+  folders = {},
+}: ToolServiceDeps): ToolServiceParts {
+  const activity = createActivityRecorder(db);
+  const logins = new ServerLoginService({ store: createServerLoginStore(db, snapshot) });
+  const registryClient = new RegistryClient(registryFetch);
+  const instances = new InstanceManager({
+    isolation,
+    authProviderFor: (resolved) =>
+      resolved.transport.type === TRANSPORT_STREAMABLE_HTTP
+        ? logins.providerFor(resolved.id, resolved.transport.url)
+        : undefined,
+  });
+
+  const serverById = (id: string): SnapshotServer => {
+    const found = [...snapshot.current().servers.values()].find((server) => server.id === id);
+    if (found === undefined) {
+      throw notFound('Server not found.');
+    }
+    return found;
+  };
+
+  const resolve = (serverId: string, workspaceId: string | null): ResolvedServer => {
+    const server = serverById(serverId);
+    if (server.enabled === false) {
+      throw badInput(`Server "${server.name}" is turned off.`);
+    }
+    return resolveServer(server, workspaceId, INSTANCE_DEFAULTS, folders.root);
+  };
+
+  const getRegistry = async (name: string) => {
+    const [row] = await db.select().from(registries).where(eq(registries.name, name));
+    return row === undefined ? undefined : { name: row.name, url: row.url };
+  };
+
+  /**
+   * Removes a folder, logging rather than failing: a folder left behind is never handed to another server.
+   *
+   * @param childUid - Its owner.
+   * @param name - The folder's name.
+   */
+  const discardFolder = async (childUid: number, name: string): Promise<void> => {
+    try {
+      await removeInstallFolder(isolation, childUid, name, folders);
+    } catch (error) {
+      console.error(`[tools] could not remove install folder ${name}: ${errorMessage(error)}`);
+    }
+  };
+
+  const install = async (request: InstallServerRequest): Promise<ServedServer> => {
+    const source: ServerSource = parseOrThrow(serverSourceSchema, {
+      type: request.source.type,
+      ...Object.fromEntries(
+        Object.entries(request.source).filter(([, value]) => value !== null && value !== undefined),
+      ),
+    });
+    const transport =
+      request.transport === null || request.transport === undefined
+        ? undefined
+        : parseOrThrow(transportInput, {
+            type: request.transport.type,
+            ...(request.transport.command === null || request.transport.command === undefined
+              ? {}
+              : { command: request.transport.command }),
+            ...(request.transport.args === null || request.transport.args === undefined
+              ? {}
+              : { args: request.transport.args }),
+            ...(request.transport.url === null || request.transport.url === undefined
+              ? {}
+              : { url: request.transport.url }),
+          });
+    const env = parseOrThrow(envInput, request.env ?? {});
+    const requestedName = request.name?.trim() ?? '';
+    if (requestedName === '' && source.type === SourceType.Manual) {
+      throw badInput('Name a server added by hand.');
+    }
+    const name = parseOrThrow(serverNameSchema, requestedName === '' ? deriveServerName(source) : requestedName);
+    const [taken] = await db.select({ id: servers.id }).from(servers).where(eq(servers.name, name));
+    if (taken !== undefined) {
+      throw badInput('A server with that name already exists.');
+    }
+    const childUid = await nextChildUid(db);
+    const needsFolder = transport?.type !== TRANSPORT_STREAMABLE_HTTP;
+    const folder = needsFolder ? await createInstallFolder(isolation, childUid, folders) : null;
+    try {
+      const result = await installServer(
+        {
+          source,
+          ...(request.packageSelector === null || request.packageSelector === undefined
+            ? {}
+            : { packageSelector: request.packageSelector }),
+          ...(transport === undefined ? {} : { transport }),
+        },
+        { isolation, childUid, installDir: folder?.path ?? '', getRegistry, registryClient, ...folders },
+      );
+      const keepsFolder = folder !== null && result.transport.type !== TRANSPORT_STREAMABLE_HTTP;
+      if (folder !== null && keepsFolder === false) {
+        await discardFolder(childUid, folder.name);
+      }
+      const row = await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(servers)
+          .values({
+            name,
+            displayName: result.displayName ?? null,
+            description: result.description ?? '',
+            enabled: request.enabled ?? true,
+            source: result.source,
+            transport: result.transport,
+            env: { ...result.env, ...env },
+            envMeta: result.envMeta,
+            childUid,
+            installDir: keepsFolder ? folder.name : null,
+          })
+          .returning();
+        if (inserted === undefined) {
+          throw new Error('The server insert returned no row.');
+        }
+        const headers = Object.entries(result.headers);
+        if (headers.length > 0) {
+          await tx.insert(serverSecrets).values(
+            headers.map(([header, value]) => ({
+              serverId: inserted.id,
+              workspaceId: null,
+              kind: SecretKind.Header,
+              name: header,
+              value,
+            })),
+          );
+        }
+        return inserted;
+      });
+      await snapshot.rebuild();
+      const { oauth: _secret, ...served } = row;
+      return served;
+    } catch (error) {
+      if (folder !== null) {
+        await discardFolder(childUid, folder.name);
+      }
+      throw error;
+    }
+  };
+
+  const remove = async (serverId: string): Promise<boolean> => {
+    const [row] = await db.select().from(servers).where(eq(servers.id, serverId));
+    if (row === undefined) {
+      return false;
+    }
+    await instances.forget(row.id);
+    logins.forget(row.id);
+    await db.delete(servers).where(eq(servers.id, row.id));
+    await snapshot.rebuild();
+    if (row.installDir !== null) {
+      await discardFolder(row.childUid, row.installDir);
+    }
+    return true;
+  };
+
+  const listTools = async (serverId: string, workspaceId: string | null): Promise<ServedTool[]> => {
+    const resolved = resolve(serverId, workspaceId);
+    try {
+      const tools = await instances.listTools(resolved);
+      return tools.map((tool) => ({
+        name: tool.name,
+        title: tool.title ?? tool.annotations?.title ?? null,
+        description: tool.description ?? null,
+        inputSchema: tool.inputSchema,
+      }));
+    } catch (error) {
+      throw asUpstream(error);
+    }
+  };
+
+  const callTool = async (
+    serverId: string,
+    workspaceId: string | null,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<CallToolResult> => {
+    const resolved = resolve(serverId, workspaceId);
+    const workspace = workspaceId === null ? undefined : snapshot.current().workspaces.get(workspaceId);
+    const startedAt = performance.now();
+    const record = (ok: boolean, error: string | null): void =>
+      activity.record({
+        serverId: resolved.id,
+        serverName: resolved.name,
+        workspaceId: workspace?.id ?? null,
+        workspaceName: workspace?.slug ?? null,
+        tool,
+        durationMs: Math.round(performance.now() - startedAt),
+        ok,
+        error,
+      });
+    try {
+      const result = await instances.callTool(resolved, tool, args);
+      record(result.isError !== true, result.isError === true ? 'The tool answered an error.' : null);
+      return result;
+    } catch (error) {
+      record(false, errorMessage(error));
+      throw asUpstream(error);
+    }
+  };
+
+  const listInstances = (serverId: string): ServedInstance[] =>
+    instances.list(serverId).map((instance) => ({
+      workspaceId: instance.server.workspaceId,
+      state: instance.state,
+      error: instance.error === '' ? null : instance.error.slice(-MAX_INSTANCE_ERROR),
+      inFlight: instance.inFlightCount,
+    }));
+
+  const browse = async (
+    registryId: string,
+    search: string | null,
+    cursor: string | null,
+  ): Promise<ServedRegistryPage> => {
+    const [row] = await db.select().from(registries).where(eq(registries.id, registryId));
+    if (row === undefined) {
+      throw notFound('Registry not found.');
+    }
+    const page = await registryClient.listServers(
+      { name: row.name, url: row.url },
+      { ...(search === null ? {} : { search }), ...(cursor === null ? {} : { cursor }) },
+    );
+    return {
+      servers: page.servers.map((entry) => ({
+        name: entry.server.name,
+        title: entry.server.title ?? null,
+        description: entry.server.description ?? null,
+        version: entry.server.version ?? null,
+        choices: choicesOf(entry),
+      })),
+      nextCursor: page.metadata?.nextCursor ?? null,
+    };
+  };
+
+  return {
+    activity,
+    instances,
+    logins,
+    install,
+    remove,
+    listTools,
+    callTool,
+    instanceStates: listInstances,
+    restart: (serverId, workspaceId) => instances.stop(serverId, workspaceId),
+    browse,
+    async stop() {
+      await instances.stopAll();
+      await activity.stop();
+    },
+  };
+}

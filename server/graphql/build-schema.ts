@@ -9,6 +9,8 @@ import type { DB } from '../db/client.ts';
 import { modelWriteHooks } from '../models/hooks.ts';
 import { applyModelsExtension } from '../models/resolvers.ts';
 import { applySsoExtension } from '../sso/resolvers.ts';
+import { toolWriteHooks } from '../tools/hooks.ts';
+import { applyToolsExtension } from '../tools/resolvers.ts';
 import { workspaceWriteHooks } from '../workspaces/hooks.ts';
 import { applyWorkspacesExtension } from '../workspaces/resolvers.ts';
 import { mapDatabaseError } from './database-errors.ts';
@@ -17,8 +19,21 @@ import { permissions } from './permissions.ts';
 /** better-auth's tables, and the pairing's secrets. Never served: every read of them goes through the server. */
 const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
-/** Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets, usage. */
-const WRITES_RESERVED = new Set<string>(['users', 'workspaceKeys', 'poolTargets', 'usageCounts']);
+/**
+ * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
+ * usage, secrets and activity.
+ */
+const WRITES_RESERVED = new Set<string>([
+  'users',
+  'workspaceKeys',
+  'poolTargets',
+  'usageCounts',
+  'serverSecrets',
+  'activity',
+]);
+
+/** Tables CRUD may update but not create or delete: a server is installed and removed by hand-written mutations. */
+const CREATE_DELETE_RESERVED = new Set<string>(['servers']);
 
 /**
  * Whether a table keeps its generated writes.
@@ -27,6 +42,15 @@ const WRITES_RESERVED = new Set<string>(['users', 'workspaceKeys', 'poolTargets'
  * @returns false for reserved tables.
  */
 const generatedWritesAllowed = (table: string): boolean => WRITES_RESERVED.has(table) === false;
+
+/**
+ * Whether a table keeps its generated create and delete.
+ *
+ * @param table - Table key.
+ * @returns false for reserved tables, and for those whose rows come and go by hand-written mutations.
+ */
+const generatedCreateDeleteAllowed = (table: string): boolean =>
+  generatedWritesAllowed(table) && CREATE_DELETE_RESERVED.has(table) === false;
 
 /**
  * Adds an empty Mutation root when every generated write is off, so `extend type Mutation` has a target.
@@ -52,12 +76,15 @@ export function createSchema(db: DB): GraphQLSchema {
     prefixes: { insert: 'create', update: 'update', delete: 'delete' },
     // Table keys are plural (`workspaces`). Types and single-row fields are singular (Workspace, workspace).
     typeNameMapper: 'singularize',
-    exclude: { tables: SERVER_TABLES, columns: { workspaceKeys: ['hash'], providers: ['apiKey'] } },
+    exclude: {
+      tables: SERVER_TABLES,
+      columns: { workspaceKeys: ['hash'], providers: ['apiKey'], servers: ['oauth'], serverSecrets: ['value'] },
+    },
     features: {
-      insert: generatedWritesAllowed,
+      insert: generatedCreateDeleteAllowed,
       update: generatedWritesAllowed,
       updateMany: generatedWritesAllowed,
-      delete: generatedWritesAllowed,
+      delete: generatedCreateDeleteAllowed,
       // The hooks read the root field's args, not a nested child's. Stated so nobody turns it on.
       nestedWrites: false,
     },
@@ -68,12 +95,12 @@ export function createSchema(db: DB): GraphQLSchema {
     complexity: true,
     // A stored value such as `least-busy` is no GraphQL name: it is served as `least_busy`, and stored as it was.
     enumValueNameMapper: ({ value }) => value.replaceAll('-', '_'),
-    onWrite: { ...workspaceWriteHooks, ...modelWriteHooks },
+    onWrite: { ...workspaceWriteHooks, ...modelWriteHooks, ...toolWriteHooks },
     onError: mapDatabaseError,
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applyModelsExtension(applyWorkspacesExtension(withAuth));
+  const extended = applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)));
   return applyPermissions(extended, permissions, {
     // A refusal names the field, so a client can tell which call to stop making.
     fallbackError: (_original, _parent, _args, _context, info) =>

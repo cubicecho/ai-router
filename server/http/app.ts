@@ -10,6 +10,8 @@ import { createSchema } from '../graphql/build-schema.ts';
 import { createContextFactory, createGraphQLHandler } from '../graphql/handler.ts';
 import { createModelServices, type ModelServices } from '../models/services.ts';
 import { type ChildIsolation, ChildMode } from '../tools/child-users.ts';
+import { createServerLoginRoutes } from '../tools/oauth/routes.ts';
+import { createToolServices, type ToolServiceParts } from '../tools/services.ts';
 import { checkHealth } from './health.ts';
 import { mountSso } from './sso.ts';
 import { createStaticHandler } from './static.ts';
@@ -38,6 +40,11 @@ export interface AppDeps {
    */
   models?: ModelServices;
   /**
+   * The tools area.
+   * @defaultValue `createToolServices` over this app's snapshot and `children`
+   */
+  tools?: ToolServiceParts;
+  /**
    * What the boot check found about running MCP servers as their own users. Reported on /healthz.
    * @defaultValue shared, with no reason: tests start no servers.
    */
@@ -59,6 +66,8 @@ export interface BuiltApp {
   snapshot: SnapshotHost;
   /** The models area, whose usage recorder boot starts and shutdown stops. */
   models: ModelServices;
+  /** The tools area, whose activity recorder boot starts and whose instances shutdown stops. */
+  tools: ToolServiceParts;
 }
 
 /**
@@ -73,6 +82,7 @@ export async function createApp({
   snapshot,
   limiter = createRateLimiter(),
   models,
+  tools,
   children = { mode: ChildMode.Shared, reason: '' },
   trustProxy = configuredTrustProxy(),
   staticDir,
@@ -84,7 +94,15 @@ export async function createApp({
   const host = authHost ?? (await createAuthHost(db));
   const routes = snapshot ?? (await createSnapshotHost(db));
   const services = models ?? createModelServices({ db, snapshot: routes });
-  const contextFor = createContextFactory({ db, authHost: host, snapshot: routes, limiter, models: services });
+  const toolServices = tools ?? createToolServices({ db, snapshot: routes, isolation: children });
+  const contextFor = createContextFactory({
+    db,
+    authHost: host,
+    snapshot: routes,
+    limiter,
+    models: services,
+    tools: toolServices,
+  });
   const graphql = createGraphQLHandler(createSchema(db), contextFor);
 
   // Yoga reads a body Express already parsed, so the size cap goes here. Over it: 413.
@@ -98,9 +116,11 @@ export async function createApp({
   // Before the static handler, whose fallback would answer both paths with the UI. Always mounted,
   // because a provider can be paired while the router runs.
   mountSso(app, host);
+  // A remote server's login comes back here. The state it carries is the credential, so no session is asked for.
+  app.use(createServerLoginRoutes(toolServices.logins));
   if (staticDir !== undefined) {
     const serveStatic = createStaticHandler(staticDir);
     app.use((request, response) => serveStatic(request, response));
   }
-  return { app, snapshot: routes, models: services };
+  return { app, snapshot: routes, models: services, tools: toolServices };
 }

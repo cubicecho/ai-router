@@ -158,7 +158,10 @@ created (shown once) --> in use --revoke--> deleted
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
 | An agent id is unique and follows the same name rule as providers and servers | the agent id check in `agents/revisions` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
-| No server may be named `ai-router`. The name is kept for the admin server | the server name check in `tools/` |
+| No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
+| A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
+| The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its own folder after the helper switches users | `tools/instance`, `tools/install-folder` |
+| A server's user id, folder, source and login are kept by the router. No API write sets them | `tools/input` `serverUpdateInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks | `agents/policy` |
@@ -218,7 +221,8 @@ Everything about the code comes after `Owner:`.
 - **Workspace:** what one app may run: chosen agents, and how their servers are configured for
   its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
 - **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
-  account's credentials. Owner: `workspace_servers`, with its overrides.
+  account's credentials. Owner: `workspace_servers`, with its overrides; its secret overrides are
+  `server_secrets` rows that name the workspace. `tools/resolve` merges them over the server's.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -246,23 +250,34 @@ Everything about the code comes after `Owner:`.
 - **Registry:** a catalogue of MCP servers users can browse and install from. Owner:
   `tools/registry`; the `registries` table.
 - **Server (MCP server):** one tool provider the router installed or connects to: how to start or
-  reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table, with secret
-  env values in `server_secrets`.
+  reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
+  values and every header value are in `server_secrets`, written by `setServerSecret` and served
+  only by name.
 - **Source:** where a server came from: a registry, npm, PyPI, or added by hand by its address.
   Owner: `servers.source`.
 - **Transport:** how the router reaches a server: a program it starts, or an address it connects
   to. Owner: `servers.transport`; stdio or streamable HTTP.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
-  two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`.
+  two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
+  `__`, so a server's name may hold no `__` and may not end in `_`.
 - **Instance:** a running connection to a server: a base instance shared by everyone, or a
   workspace instance when a workspace overrides that server's settings. A server the router starts
   itself runs as a user of its own, walled off from the router and from other servers. Owner:
-  `tools/instance`; `servers.child_uid` from the range 10000–19999, and the `run-as-child`
+  `tools/instance`; `servers.child_uid` from the range 10000–19999, handed out by the sequence
+  `child_uid_seq`, which never cycles, so no id is handed out twice; and the `run-as-child`
   helper.
-- **Server login:** the login a remote server asks for, which the router keeps for it. Owner:
-  `tools/oauth`; OAuth, the `oauth` column on `servers`.
-- **Activity:** the record of tool calls made through the router, kept for a while. Owner:
-  `tools/activity`; the `activity` table.
+- **Install folder:** a server's own folder and its HOME, made by the server's user under the
+  servers folder, with a name nobody else can guess, and readable by that user only. Owner:
+  `tools/install-folder`; `servers.install_dir`, under `SERVERS_DIR` (default
+  `DATA_DIR/servers`, mode 1733).
+- **Server login:** the login a remote server asks for, which a user starts once and the router
+  keeps for it, refreshing its tokens as they run out. Owner: `tools/oauth`; OAuth, the `oauth`
+  column on `servers`, read from the snapshot; the UI sees only `signed_in` and the `login`
+  status. The login comes back to `/oauth/callback`, and the router names itself by
+  `/oauth/client-metadata.json` to a login that takes that as a client id.
+- **Activity:** the record of tool calls made through the router, kept for a while: which tool,
+  how long, whether it failed. Never a call's arguments or result. Owner: `tools/activity`; the
+  `activity` table, written every few seconds and pruned after 30 days.
 
 ### Agents
 

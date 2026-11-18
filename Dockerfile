@@ -29,6 +29,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends libcap2-bin \
  && setcap cap_setuid,cap_setgid+ep /usr/local/bin/run-as-child \
  && apt-get purge -y libcap2-bin && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
+# uv and uvx, for servers from PyPI: `uvx <package>` fetches and runs one at start, as the server's own
+# user, with uv's cache and Python in that server's folder. Pinned to an exact release.
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /usr/local/bin/
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server server
@@ -40,10 +44,12 @@ COPY --from=builder /app/dist dist
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/data
-# What the router writes besides Postgres: from phase 3, the MCP servers' installs. Owned by node and
-# closed to everyone else before VOLUME, so a new volume starts that way and no server, running as its
-# own uid, can read what the router keeps there.
-RUN mkdir -p /data && chown node:node /data && chmod 0700 /data
+# What the router writes besides Postgres: the MCP servers' folders. Set up before VOLUME, so a new
+# volume starts that way. /data is owned by node, and everyone else may only pass through it to
+# servers/, never list it. servers/ is 1733: a server, running as its own uid, may create its own
+# folder there, but can't list the others or delete one it doesn't own. Each folder is 0700, so no
+# other server can read it either.
+RUN mkdir -p /data/servers && chown node:node /data /data/servers && chmod 0711 /data && chmod 1733 /data/servers
 VOLUME /data
 EXPOSE 3000
 USER node

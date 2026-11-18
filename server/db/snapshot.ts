@@ -1,9 +1,13 @@
 import { asc } from 'drizzle-orm';
+import type { ServerOAuth, ServerTransport } from '../tools/shapes.ts';
 import type { DB } from './client.ts';
 import { poolTargets } from './tables/pool-targets.ts';
 import { type PoolAffinity, type PoolStrategy, pools } from './tables/pools.ts';
 import { providers } from './tables/providers.ts';
+import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
+import { servers } from './tables/servers.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
+import { workspaceServers } from './tables/workspace-servers.ts';
 import { workspaces } from './tables/workspaces.ts';
 
 /** A workspace as the gateways see it. */
@@ -56,6 +60,42 @@ export interface SnapshotPool {
   targets: readonly SnapshotTarget[];
 }
 
+/** One workspace's settings for a server, secrets included. */
+export interface SnapshotServerEntry {
+  /** Merged over the server's env, secret values included. */
+  env: Readonly<Record<string, string>>;
+  /** Merged over the server's headers. */
+  headers: Readonly<Record<string, string>>;
+  /** Replaces a stdio server's arguments. null keeps them. */
+  args: readonly string[] | null;
+  /** Replaces an HTTP server's address. null keeps it. */
+  url: string | null;
+}
+
+/** A server as a run's tool calls see it, secrets included. */
+export interface SnapshotServer {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: ServerTransport;
+  /** Its env, secret values included. */
+  env: Readonly<Record<string, string>>;
+  /** Header values, for a server reached over HTTP. All secret. */
+  headers: Readonly<Record<string, string>>;
+  childUid: number;
+  installDir: string | null;
+  /** null for the router's default. */
+  idleTimeoutMs: number | null;
+  /** null for the router's default. */
+  callTimeoutMs: number | null;
+  /** Whether the router holds a login for it. */
+  signedIn: boolean;
+  /** Its login, tokens included: read on every request an HTTP instance sends, so never from the database. */
+  oauth: ServerOAuth | null;
+  /** By workspace id: the workspaces with an entry for it. */
+  entries: ReadonlyMap<string, SnapshotServerEntry>;
+}
+
 /** Everything requests route by, read once and held in memory. */
 export interface Snapshot {
   /** By id. */
@@ -66,6 +106,8 @@ export interface Snapshot {
   providers: ReadonlyMap<string, SnapshotProvider>;
   /** By name, as a model id names them. */
   pools: ReadonlyMap<string, SnapshotPool>;
+  /** By name, as a tool's name starts. */
+  servers: ReadonlyMap<string, SnapshotServer>;
 }
 
 /** A snapshot with nothing in it. */
@@ -74,6 +116,7 @@ export const EMPTY_SNAPSHOT: Snapshot = Object.freeze({
   keys: new Map(),
   providers: new Map(),
   pools: new Map(),
+  servers: new Map(),
 });
 
 /** Holds the current snapshot, and builds a new one after a write. */
@@ -90,6 +133,59 @@ export interface SnapshotHost {
   rebuild: () => Promise<void>;
 }
 
+/** One secret, keyed by where it belongs. */
+type SecretRow = typeof serverSecrets.$inferSelect;
+
+/**
+ * Builds the servers' part of the snapshot.
+ *
+ * @param serverRows - Every server.
+ * @param secretRows - Every secret, the servers' own and workspaces' overrides.
+ * @param entryRows - Every server entry.
+ * @returns The servers by name, with their secrets and entries merged in.
+ */
+function serversFrom(
+  serverRows: (typeof servers.$inferSelect)[],
+  secretRows: SecretRow[],
+  entryRows: (typeof workspaceServers.$inferSelect)[],
+): Map<string, SnapshotServer> {
+  /** One server's secret values of one kind: its own (workspace null), or one workspace's. */
+  const secretsOf = (serverId: string, workspaceId: string | null, kind: SecretKind): Record<string, string> =>
+    Object.fromEntries(
+      secretRows
+        .filter((row) => row.serverId === serverId && row.workspaceId === workspaceId && row.kind === kind)
+        .map((row) => [row.name, row.value]),
+    );
+  const result = new Map<string, SnapshotServer>();
+  for (const row of serverRows) {
+    const entries = new Map<string, SnapshotServerEntry>();
+    for (const entry of entryRows.filter((candidate) => candidate.serverId === row.id)) {
+      entries.set(entry.workspaceId, {
+        env: { ...entry.env, ...secretsOf(row.id, entry.workspaceId, SecretKind.Env) },
+        headers: secretsOf(row.id, entry.workspaceId, SecretKind.Header),
+        args: entry.args,
+        url: entry.url,
+      });
+    }
+    result.set(row.name, {
+      id: row.id,
+      name: row.name,
+      enabled: row.enabled,
+      transport: row.transport,
+      env: { ...row.env, ...secretsOf(row.id, null, SecretKind.Env) },
+      headers: secretsOf(row.id, null, SecretKind.Header),
+      childUid: row.childUid,
+      installDir: row.installDir,
+      idleTimeoutMs: row.idleTimeoutMs,
+      callTimeoutMs: row.callTimeoutMs,
+      signedIn: row.signedIn,
+      oauth: row.oauth,
+      entries,
+    });
+  }
+  return result;
+}
+
 /**
  * Reads the snapshot from the database.
  *
@@ -97,30 +193,34 @@ export interface SnapshotHost {
  * @returns A new snapshot.
  */
 export async function loadSnapshot(db: DB): Promise<Snapshot> {
-  const [workspaceRows, keyRows, providerRows, poolRows, targetRows] = await Promise.all([
-    db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
-    db
-      .select({
-        keyId: workspaceKeys.id,
-        workspaceId: workspaceKeys.workspaceId,
-        hash: workspaceKeys.hash,
-        expiresAt: workspaceKeys.expiresAt,
-      })
-      .from(workspaceKeys),
-    db
-      .select({
-        id: providers.id,
-        name: providers.name,
-        enabled: providers.enabled,
-        baseUrl: providers.baseUrl,
-        apiKey: providers.apiKey,
-        headers: providers.headers,
-        updatedAt: providers.updatedAt,
-      })
-      .from(providers),
-    db.select().from(pools),
-    db.select().from(poolTargets).orderBy(asc(poolTargets.position)),
-  ]);
+  const [workspaceRows, keyRows, providerRows, poolRows, targetRows, serverRows, secretRows, entryRows] =
+    await Promise.all([
+      db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
+      db
+        .select({
+          keyId: workspaceKeys.id,
+          workspaceId: workspaceKeys.workspaceId,
+          hash: workspaceKeys.hash,
+          expiresAt: workspaceKeys.expiresAt,
+        })
+        .from(workspaceKeys),
+      db
+        .select({
+          id: providers.id,
+          name: providers.name,
+          enabled: providers.enabled,
+          baseUrl: providers.baseUrl,
+          apiKey: providers.apiKey,
+          headers: providers.headers,
+          updatedAt: providers.updatedAt,
+        })
+        .from(providers),
+      db.select().from(pools),
+      db.select().from(poolTargets).orderBy(asc(poolTargets.position)),
+      db.select().from(servers),
+      db.select().from(serverSecrets),
+      db.select().from(workspaceServers),
+    ]);
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
   for (const { poolId, providerId, model } of targetRows) {
@@ -128,6 +228,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     targetsByPool.set(poolId, [...(targetsByPool.get(poolId) ?? []), { providerId, providerName, model }]);
   }
   return {
+    servers: serversFrom(serverRows, secretRows, entryRows),
     workspaces: new Map(workspaceRows.map((row) => [row.id, row])),
     keys: new Map(keyRows.map(({ hash, ...key }) => [hash, key])),
     providers: new Map(providerRows.map((row) => [row.name, row])),

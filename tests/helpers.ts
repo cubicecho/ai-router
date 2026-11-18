@@ -17,6 +17,10 @@ import { Role } from '../server/db/tables/users.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
 import type { UpstreamFetch } from '../server/models/outbound.ts';
 import { createModelServices, type ModelServices } from '../server/models/services.ts';
+import type { ToolServices } from '../server/tools/api.ts';
+import { ChildMode } from '../server/tools/child-users.ts';
+import type { RegistryFetch } from '../server/tools/registry.ts';
+import { createToolServices } from '../server/tools/services.ts';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -36,6 +40,11 @@ export const TEST_IP = '127.0.0.1';
 /** A provider fetch that reaches nothing, for tests that don't call providers. */
 const UNREACHABLE: UpstreamFetch = async (url) => {
   throw new Error(`No provider is reachable in this test (${url}).`);
+};
+
+/** A registry fetch that reaches nothing, for tests that don't browse registries. */
+const NO_REGISTRY: RegistryFetch = async (url) => {
+  throw new Error(`No registry is reachable in this test (${url}).`);
 };
 
 /** Every table in the schema, quoted for a statement that names them all. */
@@ -168,6 +177,8 @@ export interface ClientDeps {
   ip?: string;
   /** @defaultValue the models area over this client's snapshot, reaching no provider */
   models?: ModelServices;
+  /** @defaultValue the tools area over this client's snapshot, sharing the router's user, reaching no registry */
+  tools?: ToolServices;
   /** @defaultValue none */
   headers?: Headers;
 }
@@ -223,6 +234,14 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
   const isFresh = deps.snapshot === undefined;
   const snapshot = deps.snapshot ?? freshSnapshot(db);
   const models = deps.models ?? createModelServices({ db, snapshot, fetch: UNREACHABLE });
+  const tools =
+    deps.tools ??
+    createToolServices({
+      db,
+      snapshot,
+      isolation: { mode: ChildMode.Shared, reason: '' },
+      registryFetch: NO_REGISTRY,
+    });
   const schema = schemas.get(db) ?? createSchema(db);
   schemas.set(db, schema);
 
@@ -237,6 +256,7 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
       snapshot,
       limiter,
       models,
+      tools,
       caller,
       headers,
       ip,

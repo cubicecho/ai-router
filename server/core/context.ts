@@ -5,6 +5,7 @@ import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import type { Role } from '../db/tables/users.ts';
 import type { ModelServices } from '../models/services.ts';
+import type { ToolServices } from '../tools/api.ts';
 
 /** What `Context.ip` holds when the socket reports no address. One shared budget, not none. */
 export const UNKNOWN_IP = 'unknown';
@@ -42,6 +43,8 @@ export interface ContextDeps {
   limiter: RateLimiter;
   /** The models area: providers' model lists, pool load, forwarding and usage. */
   models: ModelServices;
+  /** The tools area: installing, instances, registries and server logins. */
+  tools: ToolServices;
 }
 
 /** What every resolver, generated or hand-written, is handed. */

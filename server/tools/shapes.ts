@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { nameSchema } from '../core/names.ts';
+import { isJoinableServerName } from './naming.ts';
 
 /**
  * The shapes a server is stored and run with, shared by the tables, the installer, instances and
@@ -11,9 +12,13 @@ import { nameSchema } from '../core/names.ts';
 export const RESERVED_SERVER_NAME = 'ai-router';
 
 /** A server's name: the router name rule, minus the reserved name. Tools are named `<server>__<tool>`. */
-export const serverNameSchema = nameSchema('Name').refine((name) => name !== RESERVED_SERVER_NAME, {
-  message: `"${RESERVED_SERVER_NAME}" is kept for the router's own admin server.`,
-});
+export const serverNameSchema = nameSchema('Name')
+  .refine((name) => name !== RESERVED_SERVER_NAME, {
+    message: `"${RESERVED_SERVER_NAME}" is kept for the router's own admin server.`,
+  })
+  .refine(isJoinableServerName, {
+    message: 'A server name may not hold "__" or end in "_": a run names its tools <server>__<tool>.',
+  });
 
 /** Where a server came from. */
 export const SourceType = {
