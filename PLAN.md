@@ -313,8 +313,15 @@ The acceptance check for the first release.
      (the image has no `kill` program). Short commands run under GNU `timeout`, as the child.
 4. **(Dropped.)** An import of llm-router's and mcp-router's configs. Providers, pools and
    servers are added in the UI.
-5. **Agents: store.** Agents and revisions, history and rollback, warnings, and the
+5. **Agents: store. Done.** Agents and revisions, history and rollback, warnings, and the
    `override_policies` table with its one seeded default.
+   - Also built: `workspace_agents` (which agents a workspace's apps may run), the agents in the
+     snapshot for phase 6, and the UI: agents, a JSON editor with Check, history, and a
+     workspace's agents.
+   - An agent's name is its document's `id`, and can't change.
+   - Postgres `jsonb` keeps a document's content but not its key order, so `spec` may not come
+     first when it is shown again.
+   - Not yet: the agent editor beyond JSON (phase 10), drafts and auto-promote (phase 9).
 6. **Agents: runs.** The agents endpoint `/v1`:
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls in process through the models area, so usage
