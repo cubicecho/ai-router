@@ -127,10 +127,18 @@ export const KEY_DEFAULTS: Readonly<KeySettings> = Object.freeze({
   visibleChars: 6,
 });
 
+/** Router names: workspace slugs, providers, pools, and later servers and agents. */
+export interface NameSettings {
+  /** Longest name, in characters. */
+  maxLength: number;
+}
+
+export const NAME_DEFAULTS: Readonly<NameSettings> = Object.freeze({
+  maxLength: 64,
+});
+
 /** Limits on what a workspace may hold. */
 export interface WorkspaceSettings {
-  /** Longest slug, in characters. */
-  maxSlugLength: number;
   /** Longest name, in characters. */
   maxNameLength: number;
   /** Longest description, in characters. */
@@ -142,7 +150,6 @@ export interface WorkspaceSettings {
 }
 
 export const WORKSPACE_DEFAULTS: Readonly<WorkspaceSettings> = Object.freeze({
-  maxSlugLength: 64,
   maxNameLength: 120,
   maxDescriptionLength: 2_000,
   maxKeyNameLength: 120,

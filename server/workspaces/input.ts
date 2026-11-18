@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { WORKSPACE_DEFAULTS } from '../core/defaults.ts';
 import { nameSchema } from '../core/names.ts';
 
-const { maxSlugLength, maxNameLength, maxDescriptionLength, maxKeyNameLength, maxKeyExpiryDays } = WORKSPACE_DEFAULTS;
+const { maxNameLength, maxDescriptionLength, maxKeyNameLength, maxKeyExpiryDays } = WORKSPACE_DEFAULTS;
 
 /** A workspace's columns as a write states them. Partial, since an update's `set` carries only what changed. */
 export const workspaceInput = z
   .object({
-    slug: nameSchema('Slug', maxSlugLength),
+    slug: nameSchema('Slug'),
     name: z.string().trim().min(1, 'Name cannot be empty.').max(maxNameLength, 'Name is too long.'),
     description: z.string().max(maxDescriptionLength, 'Description is too long.'),
   })

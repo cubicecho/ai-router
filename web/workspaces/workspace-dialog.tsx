@@ -11,7 +11,7 @@ import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
 
 /** What a slug may look like: the router's name rule, checked again on the server. */
-const SLUG = /^[a-z][a-z0-9-]*$/;
+const SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 
 /** What the workspace dialog is given. */
 export interface WorkspaceDialogProps {
@@ -74,13 +74,13 @@ export function WorkspaceDialog({ open, onOpenChange, workspace, onSaved }: Work
             form={form}
             name="slug"
             label="Slug"
-            description="Lowercase letters, digits and dashes, such as min-agent."
+            description="Lowercase letters, digits, dots, dashes and underscores, such as min-agent."
             required
             validators={{
               onChange: ({ value }) =>
                 SLUG.test(value.trim())
                   ? undefined
-                  : 'Use lowercase letters, digits and dashes, starting with a letter.',
+                  : 'Use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit.',
             }}
           />
           <InputField

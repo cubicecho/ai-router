@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { readCaller } from '../../server/auth/caller.ts';
 import { CALLER_WORKSPACE, type UserCaller } from '../../server/core/context.ts';
-import { OPERATION_LIMIT_DEFAULTS, WORKSPACE_DEFAULTS } from '../../server/core/defaults.ts';
+import { NAME_DEFAULTS, OPERATION_LIMIT_DEFAULTS, WORKSPACE_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import {
   closeTestDb,
@@ -64,13 +64,13 @@ describe('workspaces', () => {
     expect(createWorkspace).toMatchObject({ slug: 'min-agent', name: 'min-agent', description: '' });
   });
 
-  it.each(['Min-Agent', '1st', 'has space', ''])('refuses the slug %j', async (slug) => {
+  it.each(['Min-Agent', '-first', '.hidden', 'has space', 'a/b', ''])('refuses the slug %j', async (slug) => {
     const { code } = await client.expectError(CREATE, { slug, name: 'x' });
     expect(code).toBe(ErrorCode.BadUserInput);
   });
 
   it('refuses a slug longer than the limit', async () => {
-    const slug = `a${'b'.repeat(WORKSPACE_DEFAULTS.maxSlugLength)}`;
+    const slug = `a${'b'.repeat(NAME_DEFAULTS.maxLength)}`;
     expect((await client.expectError(CREATE, { slug, name: 'x' })).code).toBe(ErrorCode.BadUserInput);
   });
 
@@ -79,6 +79,11 @@ describe('workspaces', () => {
     const { code, message } = await client.expectError(CREATE, { slug: 'min-agent', name: 'two' });
     expect(code).toBe(ErrorCode.BadUserInput);
     expect(message).toContain('already exists');
+  });
+
+  it.each(['llama.cpp', 'gpu_box', '1st-floor'])('accepts the slug %j, as the old routers did', async (slug) => {
+    const { createWorkspace } = await client.expectOk(CREATE, { slug, name: 'x' });
+    expect(createWorkspace.slug).toBe(slug);
   });
 
   it('validates an update too', async () => {
