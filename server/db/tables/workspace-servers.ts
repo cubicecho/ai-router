@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { ADMIN_ROLES, type AdminRole } from '../../core/admin-roles.ts';
 import { childUidInRange, servers } from './servers.ts';
 import { workspaces } from './workspaces.ts';
 
@@ -31,6 +32,8 @@ export const workspaceServers = pgTable(
     childUid: integer('child_uid').notNull().default(sql`nextval('child_uid_seq')`),
     /** Its workspace instance's own folder, made by that uid. Null until the instance first starts. */
     installDir: text('install_dir'),
+    /** For the admin server `ai-router` only: what the workspace's agent runs may do through it. Empty grants nothing. */
+    roles: text('roles').array().$type<AdminRole[]>().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -42,6 +45,10 @@ export const workspaceServers = pgTable(
     index('idx_workspace_servers_server_id').on(table.serverId),
     uniqueIndex('uq_workspace_servers_child_uid').on(table.childUid),
     check('ck_workspace_servers_child_uid_range', childUidInRange(table.childUid)),
+    check(
+      'ck_workspace_servers_roles',
+      sql`${table.roles} <@ array[${sql.raw(ADMIN_ROLES.map((role) => `'${role}'`).join(', '))}]::text[]`,
+    ),
   ],
 );
 
