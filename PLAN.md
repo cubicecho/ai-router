@@ -34,7 +34,7 @@ the order of work and the reasons for it. Phase 1, the scaffold, is built.
 | App tools | The run **waits** for the app's answer and resumes as the same run. A follow-up that answers every handed-back call resumes it, and a partial answer is refused | An app's timeline shows one run with a pause, not a chain of runs |
 | Agent edits | Every save is a **revision**. A user's saves go live. Saves by an app or a run are drafts until a user **promotes** them, by hand or with per-agent **auto-promote** | Agents may edit agents later (the admin server), with every change visible and reversible. Hermes agents rewrite their own `SOUL.md` with no record |
 | Agent loop | `agent-core` `runAgentLoop`, with its `dispatch` calling the tools area's own instances | `agent-mcp-pool` would start a second copy of every server |
-| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core` needs a `fetch` option on its endpoint config for this ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
+| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core`'s endpoint `fetch` option (4.26.0, [agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) does this | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
 | Slim apps | **Apps keep calling `runAgentLoop`, and only the config changes.** It points at `/v1` with the agent's id, and carries an agent flag taken from the `/v1/models` entry (`ai_router.kind: "agent"`). With the flag, the loop forwards the router's run events, keeps its own compaction, preselection and on-demand loading off, and sends an idempotency key on retries ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Apps drop `agent-mcp-pool` and their own loop code, not `agent-core` | `agent-core` is already an OpenAI tool loop, and it keeps a server's tool-call ids as sent, so the app-tool hand-back works as it is. One call site, the same `dispatch` and `onEvent`, and the apps' Runs tabs stay as they are |
 | Run events | `agent-core`'s `RunEvent`, carried unchanged, in chunks written and read by `agent-core`'s own encoder and decoder | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
@@ -356,7 +356,7 @@ The acceptance check for the first release.
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls in process through the models area, so usage
      counts them under the run's workspace and agent
-     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224) lands first);
+     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224), in 4.26.0);
    - `Idempotency-Key`, so a retried request never starts a second run;
    - tool names a model accepts: OpenAI function names are `^[a-zA-Z0-9_-]{1,64}$`, but a
      server name may hold `.` and `<server>__<tool>` may pass 64 characters. Map or refuse them;
@@ -379,7 +379,7 @@ The acceptance check for the first release.
      after 24 hours. A disconnect cancels a run without a key. A run with one goes on to its timeout,
      so the retry the key is for gets the answer.
    - **Elicitation** is declined: the router's MCP client offers no elicitation capability.
-   - **Model calls** go through agent-core's `Endpoint.fetch` (#224). Only endpoints at the
+   - **Model calls** go through agent-core's `Endpoint.fetch` (#224, 4.26.0). Only endpoints at the
      router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
      The forwarder keeps one `fetch` per workspace and agent, so agent-core's client pool and probe
      caches last across runs.

@@ -4,7 +4,6 @@ import {
   type ModelSpec,
   parseSpec,
   type ResolvedAgent,
-  type ResolvedTask,
   resolveAgentSpec,
 } from '@cubicecho/agent-core/spec';
 import type { Snapshot } from '../db/snapshot.ts';
@@ -26,18 +25,8 @@ export const ROUTER_LAYER: AgentSpec = Object.freeze({
   endpoint: Object.freeze({ baseUrl: MODELS_BASE_URL }),
 });
 
-/**
- * An endpoint that may say how its requests are sent.
- *
- * TODO(agent-core#224): `Endpoint.fetch` lands upstream, used for every request agent-core makes to the endpoint,
- * side tasks included. Drop this type for agent-core's own once the dependency is bumped.
- */
-type WithFetch<T> = T & { fetch?: typeof globalThis.fetch };
-
 /** A resolved agent whose router-bound endpoints, its own and its side tasks', carry the run's `fetch`. */
-export type RunConfig = WithFetch<Omit<ResolvedAgent, 'tasks'>> & {
-  tasks: Readonly<Record<string, Omit<ResolvedTask, 'endpoint'> & { endpoint: WithFetch<ResolvedTask['endpoint']> }>>;
-};
+export type RunConfig = ResolvedAgent;
 
 /** An agent's live document could not be read. The router's fault, not the app's. */
 export class UnreadableAgentError extends Error {
