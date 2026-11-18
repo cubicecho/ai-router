@@ -1,5 +1,6 @@
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   integer,
@@ -11,14 +12,40 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { CHILD_DEFAULTS } from '../../core/defaults.ts';
 import type { EnvVarMeta, ServerOAuth, ServerSource, ServerTransport } from '../../tools/shapes.ts';
 
 /** The first and last user ids a server may run as. `docker/run-as-child.c` holds the same two numbers. */
 export const CHILD_UID_RANGE = Object.freeze({ min: 10_000, max: 19_999 });
 
+/** What a server's extra groups may be, as the table checks them: at most `max`, none below `firstGid`. */
+const EXTRA_GROUP_RULES = Object.freeze({
+  firstGid: CHILD_DEFAULTS.firstExtraGid,
+  max: CHILD_DEFAULTS.maxExtraGroups,
+});
+
 /**
- * Hands each server a user id of its own. It never cycles, so an id is never handed out twice and a
- * new server can't find files an old one left behind.
+ * The child range as a Postgres range, both ends included.
+ *
+ * @returns `int4range(min, max, '[]')`.
+ */
+function childIdRange(): SQL {
+  return sql`int4range(${sql.raw(String(CHILD_UID_RANGE.min))}, ${sql.raw(String(CHILD_UID_RANGE.max))}, '[]')`;
+}
+
+/**
+ * The check that a uid column is in the child range.
+ *
+ * @param column - The column.
+ * @returns The check's condition.
+ */
+export function childUidInRange(column: AnyPgColumn): SQL {
+  return sql`${column} between ${sql.raw(String(CHILD_UID_RANGE.min))} and ${sql.raw(String(CHILD_UID_RANGE.max))}`;
+}
+
+/**
+ * Hands each server, and each server entry, a user id of its own. It never cycles, so an id is never
+ * handed out twice and a new server can't find files an old one left behind.
  */
 export const childUidSequence = pgSequence('child_uid_seq', {
   startWith: CHILD_UID_RANGE.min,
@@ -54,6 +81,11 @@ export const servers = pgTable(
     childUid: integer('child_uid').notNull().default(sql`nextval('child_uid_seq')`),
     /** Its own folder, made by its own user. Null until something is installed or started there. */
     installDir: text('install_dir'),
+    /**
+     * Extra groups its programs run with, such as a mounted folder's (`users`, 100). Never a system group, a
+     * child id or the router's own: `tools/input` says so, and `run-as-child` refuses it.
+     */
+    extraGroups: integer('extra_groups').array().notNull().default([]),
     /** A remote server's login: tokens and client. A secret: never served. */
     oauth: jsonb('oauth').$type<ServerOAuth>(),
     /** Whether the router holds a login for it: what the API serves in place of `oauth`. Kept by Postgres. */
@@ -68,9 +100,17 @@ export const servers = pgTable(
     uniqueIndex('uq_servers_name').on(table.name),
     uniqueIndex('uq_servers_child_uid').on(table.childUid),
     check('ck_servers_name_reserved', sql`${table.name} <> 'ai-router'`),
+    check('ck_servers_child_uid_range', childUidInRange(table.childUid)),
     check(
-      'ck_servers_child_uid_range',
-      sql`${table.childUid} between ${sql.raw(String(CHILD_UID_RANGE.min))} and ${sql.raw(String(CHILD_UID_RANGE.max))}`,
+      'ck_servers_extra_groups',
+      sql.join(
+        [
+          sql`cardinality(${table.extraGroups}) <= ${sql.raw(String(EXTRA_GROUP_RULES.max))}`,
+          sql`${sql.raw(String(EXTRA_GROUP_RULES.firstGid))} <= all(${table.extraGroups})`,
+          sql`not (${childIdRange()} @> any(${table.extraGroups}))`,
+        ],
+        sql` and `,
+      ),
     ),
   ],
 );

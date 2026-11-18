@@ -10,6 +10,7 @@ import {
   envMetaOf,
   envOf,
   envToText,
+  groupsToText,
   linesToText,
   MS_PER_SECOND,
   type ServerTransport,
@@ -17,6 +18,7 @@ import {
   serverNameError,
   sourceOf,
   textToEnv,
+  textToGroups,
   textToLines,
   transportOf,
 } from './shapes';
@@ -28,6 +30,8 @@ export interface ServerDialogProps {
   server: ServerFieldsFragment;
   /** The router's timeouts for a server that sets none; null while they load. */
   defaults: { idleTimeoutMs: number; callTimeoutMs: number } | null;
+  /** Whether the viewer is an admin, who alone sets extra groups. */
+  isAdmin: boolean;
 }
 
 /**
@@ -51,6 +55,8 @@ interface ServerUpdate {
   idleTimeoutMs: number | null;
   callTimeoutMs: number | null;
   env: Record<string, string>;
+  /** Sent only by an admin. */
+  extraGroups?: number[];
   transport?: ServerTransport;
 }
 
@@ -78,7 +84,7 @@ function timeoutError(seconds: number | null): string | undefined {
  * Edits a server's settings: its name, whether it takes calls, its timeouts and its env. A server added
  * by hand also has its command or address here; an installed one's is the installer's.
  */
-export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDialogProps) {
+export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: ServerDialogProps) {
   const queryClient = useQueryClient();
   const transport = transportOf(server.transport);
   const isManual = sourceOf(server.source).type === 'manual';
@@ -111,6 +117,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
           ? null
           : server.callTimeoutMs / MS_PER_SECOND,
       env: envToText(envOf(server.env)),
+      extraGroups: groupsToText(server.extraGroups),
       command: transport.type === STDIO ? transport.command : '',
       args: transport.type === STDIO ? linesToText(transport.args) : '',
       url: transport.type === STDIO ? '' : transport.url,
@@ -124,6 +131,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
         idleTimeoutMs: toMs(value.idleSeconds),
         callTimeoutMs: toMs(value.callSeconds),
         env: textToEnv(value.env).env ?? {},
+        ...(isAdmin ? { extraGroups: textToGroups(value.extraGroups).groups ?? [] } : {}),
       };
       if (isManual) {
         set.transport =
@@ -209,6 +217,15 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
                   return secret === undefined ? undefined : `${secret} is a secret: set it under Secrets.`;
                 },
               }}
+            />
+          ) : null}
+          {transport.type === STDIO && isAdmin ? (
+            <InputField
+              form={form}
+              name="extraGroups"
+              label="Extra groups"
+              description="Group ids it also runs with, for a folder mounted from the host, such as 100 (users). Give that folder the group on the host, with g+rwX and g+s."
+              validators={{ onChange: ({ value }) => textToGroups(value).error ?? undefined }}
             />
           ) : null}
           <FieldRow

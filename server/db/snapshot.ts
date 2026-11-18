@@ -67,6 +67,11 @@ export interface SnapshotPool {
 
 /** One workspace's settings for a server, secrets included. */
 export interface SnapshotServerEntry {
+  id: string;
+  /** The uid its workspace instance runs as, with the server's group. */
+  childUid: number;
+  /** Its workspace instance's folder. null until the instance first starts. */
+  installDir: string | null;
   /** Merged over the server's env, secret values included. */
   env: Readonly<Record<string, string>>;
   /** Merged over the server's headers. */
@@ -89,6 +94,8 @@ export interface SnapshotServer {
   headers: Readonly<Record<string, string>>;
   childUid: number;
   installDir: string | null;
+  /** The extra groups its programs run with, for mounted folders. */
+  extraGroups: readonly number[];
   /** null for the router's default. */
   idleTimeoutMs: number | null;
   /** null for the router's default. */
@@ -183,6 +190,9 @@ function serversFrom(
     const entries = new Map<string, SnapshotServerEntry>();
     for (const entry of entryRows.filter((candidate) => candidate.serverId === row.id)) {
       entries.set(entry.workspaceId, {
+        id: entry.id,
+        childUid: entry.childUid,
+        installDir: entry.installDir,
         env: { ...entry.env, ...secretsOf(row.id, entry.workspaceId, SecretKind.Env) },
         headers: secretsOf(row.id, entry.workspaceId, SecretKind.Header),
         args: entry.args,
@@ -198,6 +208,7 @@ function serversFrom(
       headers: secretsOf(row.id, null, SecretKind.Header),
       childUid: row.childUid,
       installDir: row.installDir,
+      extraGroups: row.extraGroups,
       idleTimeoutMs: row.idleTimeoutMs,
       callTimeoutMs: row.callTimeoutMs,
       signedIn: row.signedIn,

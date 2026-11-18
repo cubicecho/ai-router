@@ -178,11 +178,6 @@ export class InstanceManager {
   }
 
   /**
-   * Stops every instance, for shutdown. The manager stays usable: the next call starts its instance again.
-   *
-   * @returns Resolves once every program has exited or been signalled.
-   */
-  /**
    * Lists a server's instances, the base one first.
    *
    * @param serverId - The server.
@@ -208,6 +203,11 @@ export class InstanceManager {
     await held?.instance.stop();
   }
 
+  /**
+   * Stops every instance, for shutdown. The manager stays usable: the next call starts its instance again.
+   *
+   * @returns Resolves once every program has exited or been signalled.
+   */
   async stopAll(): Promise<void> {
     const instances = [...[...this.held.values()].map(({ instance }) => instance), ...this.retiring];
     this.held.clear();

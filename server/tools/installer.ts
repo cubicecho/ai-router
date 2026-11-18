@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { INSTALL_DEFAULTS, type InstallSettings, NAME_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound, upstreamFailed } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { ChildIsolation } from './child-users.ts';
-import { ChildCommandError, type ChildExec, runAsServer, type ServerUser } from './install-folder.ts';
+import { type ChildIsolation, serverChildUser } from './child-users.ts';
+import { ChildCommandError, type ChildExec, homeOf, runAsServer, type ServerUser } from './install-folder.ts';
 import {
   type Registry,
   type RegistryArgument,
@@ -332,7 +332,8 @@ function commandFailure(what: string, error: unknown, timeoutMs: number): unknow
  * UPSTREAM_FAILED when npm fails or overruns, or the installed package.json can't be read.
  *
  * @remarks
- * The router may not be able to enter the server's 0700 folder, so package.json is read by the server's user too.
+ * The router may not enter the server's folder, so package.json is read by the server's user too. Installs run
+ * as the server's own uid and group, with no extra groups, and npm's cache goes in the folder's HOME.
  */
 async function installNpmPackage(
   deps: InstallDeps,
@@ -347,7 +348,13 @@ async function installNpmPackage(
   assertVersion(version);
   const { npmTimeoutMs, readTimeoutMs } = { ...INSTALL_DEFAULTS, ...deps.overrides };
   const { isolation, childUid, installDir, exec, helperPath, overrides = {} } = deps;
-  const user: ServerUser = { isolation, childUid, installDir, exec, helperPath };
+  const user: ServerUser = {
+    isolation,
+    runAs: serverChildUser(childUid),
+    homeDir: homeOf(installDir),
+    exec,
+    helperPath,
+  };
   const spec = `${packageName}@${version ?? NPM_LATEST}`;
   try {
     await runAsServer(

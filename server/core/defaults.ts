@@ -164,14 +164,24 @@ export interface ChildSettings {
   uidMin: number;
   /** The highest uid and gid a server may be given. */
   uidMax: number;
+  /** The lowest extra group a server may hold: everything below is a system group, root and shadow among them. */
+  firstExtraGid: number;
+  /** The highest extra group: the largest positive 32-bit number, so `(gid_t)-1` is never asked for. */
+  maxExtraGid: number;
+  /** Extra groups one server may hold. */
+  maxExtraGroups: number;
   /** How long the boot check may wait on the helper. */
   checkTimeoutMs: number;
 }
 
+/** `docker/run-as-child.c` holds the same range and group rules, and refuses anything else itself. */
 export const CHILD_DEFAULTS: Readonly<ChildSettings> = Object.freeze({
   helperPath: '/usr/local/bin/run-as-child',
   uidMin: 10_000,
   uidMax: 19_999,
+  firstExtraGid: 100,
+  maxExtraGid: 2_147_483_647,
+  maxExtraGroups: 8,
   checkTimeoutMs: 5_000,
 });
 

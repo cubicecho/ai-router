@@ -19,7 +19,7 @@ import { version } from '../core/config.ts';
 import { INSTANCE_DEFAULTS, type InstanceSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { HttpStatus } from '../core/wire.ts';
-import { type ChildIsolation, ChildMode } from './child-users.ts';
+import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 import { type ChildExec, childCommand, childEnv, execChild } from './install-folder.ts';
 import { type ResolvedServer, TRANSPORT_STDIO } from './shapes.ts';
 import { isToolError, toolResultText } from './tool-result.ts';
@@ -640,29 +640,30 @@ export class Instance {
   }
 
   /**
-   * Builds the transport for a stdio program, with the env allowlist and the server's own env, in its install folder.
-   * Isolated, it runs as `run-as-child <uid> env -C <folder> <command> <args…>` and is signalled through the helper.
-   * Shared, spawn starts it in the folder and the router signals it.
+   * Builds the transport for a stdio program, with the env allowlist and the server's own env, in its install folder
+   * with its own HOME. Isolated, it runs as `run-as-child <uid> [-g <gid>] [-G <gids>] -- env -C <folder> <command>
+   * <args…>` and is signalled through the helper as the same user. Shared, spawn starts it in the folder and the
+   * router signals it.
    *
    * @param command - The program.
    * @param args - Its arguments.
    * @param [cwd] - Its folder, relative to the install folder. The install folder itself when absent.
-   * @returns The transport. Throws a refusal when stdio servers are refused, it has no user or folder, or an isolated
-   * command holds `=`, which `env` would read as a variable.
+   * @returns The transport. Throws a refusal when stdio servers are refused, it has no user, install folder or HOME,
+   * or an isolated command holds `=`, which `env` would read as a variable.
    */
   private childTransport(command: string, args: string[], cwd: string | undefined): ChildTransport {
     const { isolation, server } = this;
     if (isolation.mode === ChildMode.Refused) {
       throw new InstanceError(InstanceErrorCode.Refused, server.name, 'was refused', { detail: isolation.reason });
     }
-    const { childUid, installDir } = server;
-    if (childUid === null || installDir === null) {
-      throw new InstanceError(InstanceErrorCode.Refused, server.name, 'has no user or install folder of its own');
+    const { runAs, installDir, homeDir } = server;
+    if (runAs === null || installDir === null || homeDir === null) {
+      throw new InstanceError(InstanceErrorCode.Refused, server.name, 'has no user or folder of its own');
     }
     const folder = path.resolve(installDir, cwd ?? '.');
-    const env = { ...childEnv(installDir), ...server.env };
+    const env = { ...childEnv(homeDir), ...server.env };
     if (isolation.mode === ChildMode.Shared) {
-      const launch = this.launch(childUid, command, args);
+      const launch = this.launch(runAs, command, args);
       return this.transportFor({ ...launch, env, cwd: folder, signal: signalDirectly });
     }
     // The router may not enter another user's folder, so the program moves into it once the helper has switched.
@@ -670,12 +671,12 @@ export class Instance {
     if (holdsAssignment) {
       throw new InstanceError(InstanceErrorCode.Refused, server.name, `has a command holding "${ENV_ASSIGNMENT}"`);
     }
-    const launch = this.launch(childUid, 'env', ['-C', folder, command, ...args]);
+    const launch = this.launch(runAs, 'env', ['-C', folder, command, ...args]);
     return this.transportFor({
       ...launch,
       env,
       cwd: undefined,
-      signal: (child, signal) => this.signalAsChild(childUid, installDir, child, signal),
+      signal: (child, signal) => this.signalAsChild(runAs, homeDir, child, signal),
     });
   }
 
@@ -692,15 +693,15 @@ export class Instance {
   /**
    * Signals an isolated program through the helper, as its own user. A signal that can't be sent is logged.
    *
-   * @param uid - The server's user, which the program runs as.
-   * @param installDir - The server's folder, for the helper's env.
+   * @param runAs - The user the program runs as. Only that uid may signal it.
+   * @param homeDir - The program's HOME, for the helper's env.
    * @param child - The program. The helper execs in place, so its pid is the server's.
    * @param signal - The signal.
    * @returns Resolves once the helper is done.
    */
   private async signalAsChild(
-    uid: number,
-    installDir: string,
+    runAs: ChildUser,
+    homeDir: string,
     child: ChildProcessWithoutNullStreams,
     signal: StopSignal,
   ): Promise<void> {
@@ -708,9 +709,9 @@ export class Instance {
     if (pid === undefined) {
       return;
     }
-    const { command, args } = this.launch(uid, process.execPath, ['-e', KILL_SCRIPT, String(pid), signal]);
+    const { command, args } = this.launch(runAs, process.execPath, ['-e', KILL_SCRIPT, String(pid), signal]);
     try {
-      await this.exec(command, args, { timeout: this.settings.signalTimeoutMs, env: childEnv(installDir) });
+      await this.exec(command, args, { timeout: this.settings.signalTimeoutMs, env: childEnv(homeDir) });
     } catch (error) {
       console.warn(`[tools] could not send ${signal} to "${this.server.name}" (pid ${pid}): ${errorMessage(error)}`);
     }
@@ -719,14 +720,14 @@ export class Instance {
   /**
    * Works out the command line a program runs with under the isolation mode.
    *
-   * @param uid - The server's own user.
+   * @param runAs - The user it runs as.
    * @param command - The program.
    * @param args - Its arguments.
    * @returns The command and arguments to spawn. Throws a refusal when the mode refuses it.
    */
-  private launch(uid: number, command: string, args: string[]): { command: string; args: string[] } {
+  private launch(runAs: ChildUser, command: string, args: string[]): { command: string; args: string[] } {
     try {
-      return childCommand(this.isolation, uid, command, args, this.helperPath);
+      return childCommand(this.isolation, runAs, command, args, this.helperPath);
     } catch (error) {
       throw new InstanceError(InstanceErrorCode.Refused, this.server.name, 'was refused', {
         detail: errorMessage(error),

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { nameSchema } from '../core/names.ts';
+import type { ChildUser } from './child-users.ts';
 import { isJoinableServerName } from './naming.ts';
 
 /**
@@ -132,10 +133,19 @@ export interface ResolvedServer {
     | { type: typeof TRANSPORT_STREAMABLE_HTTP; url: string; headers: Record<string, string> };
   /** The env the program gets on top of the router's allowlist, secret values included. Empty for HTTP. */
   env: Record<string, string>;
-  /** The user id a stdio program runs as. null for a server reached over HTTP. */
-  childUid: number | null;
-  /** The server's own folder, its HOME. null for a server reached over HTTP. */
+  /**
+   * Who a stdio program runs as: the server's uid and group for the base instance, the entry's own uid with the
+   * server's group for a workspace instance, and the server's extra groups either way. null for a server reached over
+   * HTTP.
+   */
+  runAs: ChildUser | null;
+  /** The server's install folder: its packages, and where its program starts. null for a server reached over HTTP. */
   installDir: string | null;
+  /**
+   * The program's HOME: inside the server's folder for the base instance, inside the entry's own for a workspace
+   * instance. null for a server reached over HTTP, and for a workspace instance whose folder isn't made yet.
+   */
+  homeDir: string | null;
   /** Stops an idle stdio program after this long. */
   idleTimeoutMs: number;
   /** How long one tool call may take. */

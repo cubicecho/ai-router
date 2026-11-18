@@ -58,12 +58,24 @@ export interface ServedRegistryPage {
   nextCursor: string | null;
 }
 
+/** A server entry that was deleted, as far as its workspace instance is concerned. */
+export interface DeletedEntry {
+  serverId: string;
+  workspaceId: string;
+  /** The uid its workspace instance ran as. */
+  childUid: number;
+  /** Its instance's folder; null when none was made. */
+  installDir: string | null;
+}
+
 /** The tools area's running parts, as the GraphQL resolvers use them. */
 export interface ToolServices {
   /** Installs or adds a server, and saves it. */
   install(request: InstallServerRequest): Promise<ServedServer>;
-  /** Stops a server's instances, removes its folder, and deletes it. false when there is no such server. */
+  /** Stops a server's instances, removes its folder and its entries' folders, and deletes it. false when there is no such server. */
   remove(serverId: string): Promise<boolean>;
+  /** Stops the workspace instances of entries that were deleted, and removes their folders, each as its own uid. */
+  forgetEntries(entries: readonly DeletedEntry[]): Promise<void>;
   /** Lists a server's tools, starting an instance if none runs. */
   listTools(serverId: string, workspaceId: string | null): Promise<ServedTool[]>;
   /** Calls one tool as a person trying it from the UI, and records the call. */

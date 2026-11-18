@@ -8,25 +8,30 @@ import { CHILD_DEFAULTS, INSTALL_DEFAULTS, type InstallSettings } from '../core/
 import { badInput, conflict, errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { MS_PER_SECOND } from '../core/wire.ts';
-import { type ChildIsolation, ChildMode } from './child-users.ts';
+import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 
 /**
- * A server's own folder: its HOME, where its packages, caches and temp files go.
+ * Servers' folders, and running commands in them as a server's user.
  *
  * `serversDir()` belongs to the router with mode 1733: every child may create an entry in it, but
- * none may list it or delete an entry it doesn't own. A server's folder is `<uid>-<random hex>`,
- * made by the server's own user with mode 0700, so no other child can guess its name, squat it,
- * read it or remove it. The router can't read inside it either, so it reads through the child.
+ * none may list it or delete an entry it doesn't own. A folder is `<uid>-<random hex>`, made by its
+ * own user, so no other child can guess its name, squat it or remove it. The router can't read
+ * inside it either, so it reads through the child.
+ *
+ * Every folder holds `home/`, mode 0700: the HOME of the programs that run as its uid, with their
+ * caches, temp files and whatever they keep. A server's install folder is mode 0750 with the server's
+ * own group, so its workspace instances, which run as their own uids with that group, can read its
+ * packages but not write them, and never see its HOME. A workspace instance's folder is mode 0700.
  */
 
 /** `serversDir()`: owner rwx, everyone else write and search only, sticky. */
 const SERVERS_DIR_MODE = 0o1733;
 /** The permission bits of a mode, setuid, setgid and sticky included. */
 const MODE_BITS = 0o7777;
-/** A server's folder: only its own user may enter it. */
-const FOLDER_MODE = 0o700;
-/** `FOLDER_MODE` as `mkdir -m` reads it. */
-const FOLDER_MODE_ARG = '0700';
+/** What `mkdir -m` makes every folder with: only its own user may enter it. */
+const PRIVATE_MODE_ARG = '0700';
+/** A folder's HOME, inside it. */
+const HOME_NAME = 'home';
 /** A folder name: the uid, a dash, then lowercase hex. */
 const FOLDER_NAME = /^\d+-[0-9a-f]+$/;
 /** The locale every child gets: present on every Linux, and UTF-8. */
@@ -39,6 +44,25 @@ const TIMEOUT_KILLED_EXIT_CODE = 137;
 const TIMED_OUT_EXIT_CODES: readonly unknown[] = [TIMEOUT_EXIT_CODE, TIMEOUT_KILLED_EXIT_CODE];
 /** The radix a file mode is written in. */
 const OCTAL = 8;
+/** What `run-as-child` takes before its command: everything after is the command, even a leading `-`. */
+const END_OF_OPTIONS = '--';
+/** What `-G` separates groups with. */
+const GROUP_SEPARATOR = ',';
+
+/** Which folder: a server's install folder, or a workspace instance's own. */
+export const FolderKind = {
+  /** A server's: its packages, readable by its group, and its HOME. Mode 0750. */
+  Install: 'install',
+  /** A workspace instance's: only its HOME. Mode 0700. */
+  Instance: 'instance',
+} as const;
+export type FolderKind = (typeof FolderKind)[keyof typeof FolderKind];
+
+/** Each kind's mode, as `lstat` reads it and `chmod` takes it. */
+const FOLDER_MODES: Readonly<Record<FolderKind, { mode: number; arg: string }>> = Object.freeze({
+  [FolderKind.Install]: { mode: 0o750, arg: '0750' },
+  [FolderKind.Instance]: { mode: 0o700, arg: PRIVATE_MODE_ARG },
+});
 
 /** How a child command is run: `execFile`, never a shell. */
 export interface ChildExecOptions {
@@ -67,25 +91,27 @@ const execFileAsync = promisify(execFile);
  */
 export const execChild: ChildExec = (command, args, options) => execFileAsync(command, args, options);
 
-/** One server's user, and where it lives. */
+/** Who a command runs as, and the HOME it gets. */
 export interface ServerUser {
   isolation: ChildIsolation;
-  /** The uid the server runs as. */
-  childUid: number;
-  /** The server's folder, as an absolute path. */
-  installDir: string;
+  /** The uid, group and extra groups it runs as. */
+  runAs: ChildUser;
+  /** Its HOME, as an absolute path: a folder's `home/`. */
+  homeDir: string;
   /** Runs the command; `execChild` when absent. */
   exec?: ChildExec;
   /** The helper's path; `runAsChildPath()` when absent. */
   helperPath?: string;
 }
 
-/** What a server's folder is called and where it is. */
+/** What a folder is called and where it is. */
 export interface InstallFolder {
-  /** The folder's name inside `serversDir()`: what `servers.install_dir` keeps. */
+  /** The folder's name inside `serversDir()`: what `servers.install_dir` or `workspace_servers.install_dir` keeps. */
   name: string;
-  /** The absolute path: the server's HOME. */
+  /** The absolute path. */
   path: string;
+  /** Its HOME, inside it. */
+  homeDir: string;
 }
 
 /** What creating or removing a folder may be given instead of the real thing, for tests. */
@@ -96,6 +122,12 @@ export interface FolderOptions {
   helperPath?: string;
   /** Settings that differ from `INSTALL_DEFAULTS`. */
   overrides?: Partial<InstallSettings>;
+}
+
+/** What creating a folder may also be told. */
+export interface CreateFolderOptions extends FolderOptions {
+  /** A server's install folder, or a workspace instance's; `FolderKind.Install` when absent. */
+  kind?: FolderKind;
 }
 
 /** A command run as a server's user that failed or overran. */
@@ -121,45 +153,77 @@ export class ChildCommandError extends Error {
 }
 
 /**
+ * Names a folder's HOME.
+ *
+ * @param folder - The folder, as an absolute path.
+ * @returns `<folder>/home`.
+ */
+export function homeOf(folder: string): string {
+  return path.join(folder, HOME_NAME);
+}
+
+/**
  * The environment every child process gets, and nothing from the router's own.
  *
- * @param installDir - The server's folder, as an absolute path.
- * @returns A fixed PATH and locale, with HOME, TMPDIR and npm's and uv's caches inside the folder.
+ * @param homeDir - Its HOME, as an absolute path.
+ * @returns A fixed PATH and locale, with HOME, TMPDIR and npm's and uv's caches inside HOME.
  */
-export function childEnv(installDir: string): Record<string, string> {
+export function childEnv(homeDir: string): Record<string, string> {
   return {
     PATH: INSTALL_DEFAULTS.childPath,
-    HOME: installDir,
-    TMPDIR: path.join(installDir, 'tmp'),
+    HOME: homeDir,
+    TMPDIR: path.join(homeDir, 'tmp'),
     LANG: CHILD_LOCALE,
-    npm_config_cache: path.join(installDir, '.npm'),
+    npm_config_cache: path.join(homeDir, '.npm'),
     npm_config_update_notifier: 'false',
-    UV_CACHE_DIR: path.join(installDir, '.cache', 'uv'),
-    UV_PYTHON_INSTALL_DIR: path.join(installDir, '.local', 'share', 'uv', 'python'),
-    UV_TOOL_DIR: path.join(installDir, '.local', 'share', 'uv', 'tools'),
+    UV_CACHE_DIR: path.join(homeDir, '.cache', 'uv'),
+    UV_PYTHON_INSTALL_DIR: path.join(homeDir, '.local', 'share', 'uv', 'python'),
+    UV_TOOL_DIR: path.join(homeDir, '.local', 'share', 'uv', 'tools'),
   };
+}
+
+/**
+ * Builds `run-as-child`'s arguments for a user: the uid, `-g` when the group is another id, `-G` when
+ * there are extra groups, then `--`.
+ *
+ * @param runAs - Who the command runs as.
+ * @returns The arguments that come before the command.
+ */
+function helperArgs(runAs: ChildUser): string[] {
+  const { uid, gid, groups } = runAs;
+  return [
+    String(uid),
+    ...(gid === uid ? [] : ['-g', String(gid)]),
+    ...(groups.length === 0 ? [] : ['-G', groups.join(GROUP_SEPARATOR)]),
+    END_OF_OPTIONS,
+  ];
 }
 
 /**
  * Turns a command into the one that runs it as a server's user.
  *
  * @param isolation - What the boot check found.
- * @param uid - The server's uid. Unused when shared.
+ * @param runAs - Who it runs as. Unused when shared.
  * @param command - The program.
  * @param args - Its arguments.
  * @param [helperPath] - Where `run-as-child` is.
- * @returns `run-as-child <uid> <command> <args…>` when isolated, the command as it is when shared.
+ * @returns `run-as-child <uid> [-g <gid>] [-G <gid,…>] -- <command> <args…>` when isolated, the command as it is
+ * when shared.
  * @throws CONFLICT with the boot check's reason when child processes are refused.
+ *
+ * @remarks
+ * The helper itself refuses a uid or group outside its rules, whatever it is asked. The input checks only say so
+ * first, in words.
  */
 export function childCommand(
   isolation: ChildIsolation,
-  uid: number,
+  runAs: ChildUser,
   command: string,
   args: string[],
   helperPath: string = runAsChildPath(),
 ): { command: string; args: string[] } {
   if (isolation.mode === ChildMode.Isolated) {
-    return { command: helperPath, args: [String(uid), command, ...args] };
+    return { command: helperPath, args: [...helperArgs(runAs), command, ...args] };
   }
   if (isolation.mode === ChildMode.Shared) {
     return { command, args: [...args] };
@@ -215,39 +279,39 @@ export async function runAsServer(
   overrides: Partial<InstallSettings> = {},
 ): Promise<string> {
   const { killGraceMs, stderrTailChars } = { ...INSTALL_DEFAULTS, ...overrides };
-  const { isolation, childUid, installDir, exec = execChild, helperPath = runAsChildPath() } = user;
+  const { isolation, runAs, homeDir, exec = execChild, helperPath = runAsChildPath() } = user;
   const isIsolated = isolation.mode === ChildMode.Isolated;
   const bounded = isIsolated
     ? childCommand(
         isolation,
-        childUid,
+        runAs,
         'timeout',
         [`--kill-after=${timeoutDuration(killGraceMs)}`, timeoutDuration(timeoutMs), command, ...args],
         helperPath,
       )
-    : childCommand(isolation, childUid, command, args, helperPath);
+    : childCommand(isolation, runAs, command, args, helperPath);
   const waitMs = isIsolated ? timeoutMs + killGraceMs + killGraceMs : timeoutMs;
   try {
-    const { stdout } = await exec(bounded.command, bounded.args, { timeout: waitMs, env: childEnv(installDir) });
+    const { stdout } = await exec(bounded.command, bounded.args, { timeout: waitMs, env: childEnv(homeDir) });
     return stdout;
   } catch (error) {
     const stderr = isRecord(error) && typeof error.stderr === 'string' ? error.stderr.trim() : '';
     const detail = stderr === '' ? errorMessage(error) : stderr.slice(-stderrTailChars);
-    throw new ChildCommandError(`${command} failed as uid ${childUid}: ${detail}`, isTimeout(error), detail);
+    throw new ChildCommandError(`${command} failed as uid ${runAs.uid}: ${detail}`, isTimeout(error), detail);
   }
 }
 
 /**
- * Refuses a uid the helper would refuse.
+ * Refuses a uid or primary group the helper would refuse.
  *
- * @param childUid - The uid.
+ * @param id - The uid or gid.
  * @throws BAD_USER_INPUT outside the child range.
  */
-function assertChildUid(childUid: number): void {
+function assertChildId(id: number): void {
   const { uidMin, uidMax } = CHILD_DEFAULTS;
-  const isInRange = Number.isInteger(childUid) && childUid >= uidMin && childUid <= uidMax;
+  const isInRange = Number.isInteger(id) && id >= uidMin && id <= uidMax;
   if (isInRange === false) {
-    throw badInput(`${childUid} is not a child uid (${uidMin}–${uidMax}).`);
+    throw badInput(`${id} is not a child id (${uidMin}–${uidMax}).`);
   }
 }
 
@@ -296,9 +360,14 @@ async function ensureServersDir(root: string, isIsolated: boolean): Promise<void
  *
  * @param folder - The folder.
  * @param owner - The uid that must own it, or null to skip that check.
+ * @param kind - Which mode it must have.
  * @returns Why it isn't, or an empty string when it is.
+ *
+ * @remarks
+ * Only the folder itself: the router may not look inside. Its `home/` was made by the same `mkdir`, inside a folder
+ * nobody else could enter yet.
  */
-async function folderProblem(folder: string, owner: number | null): Promise<string> {
+async function folderProblem(folder: string, owner: number | null, kind: FolderKind): Promise<string> {
   const stats = await lstat(folder);
   if (stats.isSymbolicLink() || stats.isDirectory() === false) {
     return 'it is not a directory';
@@ -306,81 +375,97 @@ async function folderProblem(folder: string, owner: number | null): Promise<stri
   if (owner !== null && stats.uid !== owner) {
     return `it is owned by uid ${stats.uid}, not ${owner}`;
   }
-  if ((stats.mode & MODE_BITS) !== FOLDER_MODE) {
-    return `its mode is ${(stats.mode & MODE_BITS).toString(OCTAL)}, not ${FOLDER_MODE_ARG}`;
+  const { mode, arg } = FOLDER_MODES[kind];
+  if ((stats.mode & MODE_BITS) !== mode) {
+    return `its mode is ${(stats.mode & MODE_BITS).toString(OCTAL)}, not ${arg}`;
   }
   return '';
 }
 
 /**
- * Creates a server's folder, as the server's own user, with a name no other child can guess.
+ * Creates a folder, as the user that will run in it, with a name no other child can guess.
  *
  * @param isolation - What the boot check found.
- * @param childUid - The server's uid.
- * @param [options] - The root, the command runner and settings, for tests.
- * @returns The folder's name, for `servers.install_dir`, and its path.
+ * @param runAs - Its user: the server's for its install folder, a workspace instance's for that instance's.
+ * @param [options] - The kind of folder, and the root, the command runner and settings, for tests.
+ * @returns The folder's name, for `install_dir`, its path and its HOME.
  * @throws CONFLICT when child processes are refused, or the folder can't be made or isn't what was asked for.
  *
  * @remarks
- * Isolated: `run-as-child <uid> mkdir -m 0700 <folder> <folder>/tmp`, then the router refuses anything
- * but a real directory owned by that uid. Shared: the router makes it itself. `mkdir` fails on a name
+ * Isolated: `run-as-child <uid> … -- mkdir -m 0700 <folder> <folder>/home <folder>/home/tmp`, then for an install
+ * folder `chmod 0750 <folder>`, so nothing in it is readable before it is all made. The router then refuses anything
+ * but a real directory owned by that uid with that mode. Shared: the router makes it itself. `mkdir` fails on a name
  * that already exists, so nothing made in advance is ever taken over.
  */
 export async function createInstallFolder(
   isolation: ChildIsolation,
-  childUid: number,
-  { root = serversDir(), exec, helperPath, overrides = {} }: FolderOptions = {},
+  runAs: ChildUser,
+  { kind = FolderKind.Install, root = serversDir(), exec, helperPath, overrides = {} }: CreateFolderOptions = {},
 ): Promise<InstallFolder> {
-  assertChildUid(childUid);
+  const { uid } = runAs;
+  assertChildId(uid);
+  assertChildId(runAs.gid);
   if (isolation.mode === ChildMode.Refused) {
     throw conflict(isolation.reason);
   }
   const { folderRandomBytes, folderTimeoutMs } = { ...INSTALL_DEFAULTS, ...overrides };
   const isIsolated = isolation.mode === ChildMode.Isolated;
   await ensureServersDir(root, isIsolated);
-  const name = `${childUid}-${randomBytes(folderRandomBytes).toString('hex')}`;
+  const name = `${uid}-${randomBytes(folderRandomBytes).toString('hex')}`;
   const folder = path.join(root, name);
-  const user: ServerUser = { isolation, childUid, installDir: folder, exec, helperPath };
+  const homeDir = homeOf(folder);
+  const user: ServerUser = { isolation, runAs, homeDir, exec, helperPath };
+  const { arg } = FOLDER_MODES[kind];
   try {
     await runAsServer(
       user,
       'mkdir',
-      ['-m', FOLDER_MODE_ARG, folder, path.join(folder, 'tmp')],
+      ['-m', PRIVATE_MODE_ARG, folder, homeDir, path.join(homeDir, 'tmp')],
       folderTimeoutMs,
       overrides,
     );
+    if (arg !== PRIVATE_MODE_ARG) {
+      await runAsServer(user, 'chmod', [arg, folder], folderTimeoutMs, overrides);
+    }
   } catch (error) {
-    throw conflict(`Could not create a folder for uid ${childUid}: ${errorMessage(error)}`);
+    await removeQuietly(user, folder, folderTimeoutMs, overrides);
+    throw conflict(`Could not create a folder for uid ${uid}: ${errorMessage(error)}`);
   }
-  const problem = await folderProblem(folder, isIsolated ? childUid : null);
+  const problem = await folderProblem(folder, isIsolated ? uid : null, kind);
   if (problem !== '') {
-    await removeQuietly(user, folderTimeoutMs, overrides);
-    throw conflict(`Refused the folder made for uid ${childUid}, because ${problem}.`);
+    await removeQuietly(user, folder, folderTimeoutMs, overrides);
+    throw conflict(`Refused the folder made for uid ${uid}, because ${problem}.`);
   }
-  return { name, path: folder };
+  return { name, path: folder, homeDir };
 }
 
 /**
- * Removes whatever is at a folder's path, as the server's user, and ignores a failure.
+ * Removes whatever is at a folder's path, as its user, and ignores a failure.
  *
- * @param user - The server's user and folder.
+ * @param user - The folder's user.
+ * @param folder - The folder.
  * @param timeoutMs - How long `rm` may take.
  * @param overrides - Settings that differ from `INSTALL_DEFAULTS`.
  */
-async function removeQuietly(user: ServerUser, timeoutMs: number, overrides: Partial<InstallSettings>): Promise<void> {
+async function removeQuietly(
+  user: ServerUser,
+  folder: string,
+  timeoutMs: number,
+  overrides: Partial<InstallSettings>,
+): Promise<void> {
   try {
-    await runAsServer(user, 'rm', ['-rf', user.installDir], timeoutMs, overrides);
+    await runAsServer(user, 'rm', ['-rf', folder], timeoutMs, overrides);
   } catch {
-    // Whatever it is, the server's user couldn't remove it, and it is refused either way.
+    // Whatever it is, its user couldn't remove it, and it is refused either way.
   }
 }
 
 /**
- * Removes a server's folder and everything in it, as the server's own user.
+ * Removes a folder and everything in it, as the user that owns it.
  *
  * @param isolation - What the boot check found.
- * @param childUid - The server's uid.
- * @param name - The folder's name, as `servers.install_dir` keeps it.
+ * @param runAs - Its user, whose uid the folder's name starts with.
+ * @param name - The folder's name, as `install_dir` keeps it.
  * @param [options] - The root, the command runner and settings, for tests.
  * @throws BAD_USER_INPUT for a name that isn't that uid's folder. CONFLICT when child processes are
  * refused, or the folder can't be removed.
@@ -391,16 +476,17 @@ async function removeQuietly(user: ServerUser, timeoutMs: number, overrides: Par
  */
 export async function removeInstallFolder(
   isolation: ChildIsolation,
-  childUid: number,
+  runAs: ChildUser,
   name: string,
   { root = serversDir(), exec, helperPath, overrides = {} }: FolderOptions = {},
 ): Promise<void> {
-  const folder = installFolderPath(name, childUid, root);
+  const { uid } = runAs;
+  const folder = installFolderPath(name, uid, root);
   if (isolation.mode === ChildMode.Refused) {
     throw conflict(isolation.reason);
   }
   const { folderTimeoutMs } = { ...INSTALL_DEFAULTS, ...overrides };
-  const user: ServerUser = { isolation, childUid, installDir: folder, exec, helperPath };
+  const user: ServerUser = { isolation, runAs, homeDir: homeOf(folder), exec, helperPath };
   let isDirectory: boolean;
   try {
     const stats = await lstat(folder);
@@ -422,6 +508,6 @@ export async function removeInstallFolder(
   try {
     await runAsServer(user, 'rm', ['-rf', folder], folderTimeoutMs, overrides);
   } catch (error) {
-    throw conflict(`Could not remove the folder of uid ${childUid}: ${errorMessage(error)}`);
+    throw conflict(`Could not remove the folder of uid ${uid}: ${errorMessage(error)}`);
   }
 }

@@ -25,6 +25,44 @@ export interface ChildIsolation {
   reason: string;
 }
 
+/**
+ * Who a child process runs as: what `run-as-child` is asked to switch to.
+ *
+ * @remarks
+ * A base instance and its installs run as the server's uid and group. A workspace instance runs as
+ * its entry's own uid with the server's group, so it can read the server's install folder and
+ * nothing else of it. Either may hold the server's extra groups, for a mounted folder.
+ */
+export interface ChildUser {
+  /** From the child range. */
+  uid: number;
+  /** The primary group, from the child range: the server's own. */
+  gid: number;
+  /** Extra groups, such as a mounted folder's. Never a system group, a child id or the router's own. */
+  groups: readonly number[];
+}
+
+/**
+ * The user a server's own programs run as: its uid, and its group of the same number.
+ *
+ * @param uid - The server's uid.
+ * @param [groups] - Its extra groups.
+ * @returns The user.
+ */
+export function serverChildUser(uid: number, groups: readonly number[] = []): ChildUser {
+  return { uid, gid: uid, groups: [...groups] };
+}
+
+/**
+ * Lists the groups the router itself holds, which no child may be given.
+ *
+ * @returns Its real and effective group and its supplementary groups. Empty where the platform has no group ids.
+ */
+export function routerGroups(): number[] {
+  const held = [process.getgid?.(), process.getegid?.(), ...(process.getgroups?.() ?? [])];
+  return held.filter((gid) => gid !== undefined);
+}
+
 /** What the check needs, so a test can stand in for the helper. */
 export interface ChildCheckOptions {
   /** The helper's path. */

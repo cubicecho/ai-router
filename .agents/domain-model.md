@@ -5,10 +5,10 @@ terms, and only these, in code, tests, docs and reviews.
 
 **Phases 1 to 3 are built:** sign-in, roles, workspaces, keys, the snapshot, the models area
 (providers, pools, forwarding, usage) and the tools area (registries, servers, secrets, server
-entries, install folders, instances, server login, activity) describe the code as it is, except
-shared groups and a user id per workspace instance. **Phase 5 is built too:** agents, revisions,
-history and rollback, warnings, the seeded override policy, and which workspaces may run which
-agents. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
+entries, install folders, shared groups, instances and their user ids, server login, activity)
+describe the code as it is. **Phase 5 is built too:** agents, revisions, history and rollback,
+warnings, the seeded override policy, and which workspaces may run which agents. Every other entry
+is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
 
@@ -60,7 +60,7 @@ Dependencies point one way:
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. Given the admin server, it may write what that server's permission levels allow |
-| MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its own install folder and the env it is given |
+| MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
 
 ## Lifecycles
@@ -131,7 +131,9 @@ starting --timeout or exit--> failed --backoff--> starting
 - **Base instance:** a server's shared instance.
 - **Workspace instance:** started separately for a workspace that overrides that server's env,
   args, headers or URL, and used by every agent run that workspace starts. So one agent can work
-  on each workspace's own account.
+  on each workspace's own account. A stdio one runs as its entry's own user id, with a folder of
+  its own made on its first call. Deleting the entry, the workspace or the server stops it and
+  removes that folder.
 
 ### Workspace key
 
@@ -152,10 +154,12 @@ created (shown once) --> in use --revoke--> deleted
 | Keys are created, listed and revoked only from a session, never with a key. Any user may do it | `graphql/permissions` |
 | Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
 | A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1` or `/runs` | `auth/caller` |
-| Only an admin sets secrets and settings, and grants or removes the admin role | `graphql/permissions` |
+| Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code | `graphql/permissions`; `checkServerUpdate` in `tools/hooks` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
+| Each workspace instance runs as a user id of its own, never handed out twice, with its server's group, so it can read its server's install folder but not write it, and no other instance of that server, base or workspace, can read its environment, HOME or signal it | `workspace_servers.child_uid` from `child_uid_seq`; `tools/resolve`, `tools/install-folder`; `scripts/check-children.sh` |
+| A child's groups are exactly its primary group, from the child range, and its server's extra groups. No extra group is a system group (below 100, so never root or shadow), a child id (another server's group), or one the router holds, and a server holds at most 8. The helper itself refuses anything else | `docker/run-as-child.c`; `tools/input` `extraGroupsInput` and `ck_servers_extra_groups` say so first |
 | The router itself holds no capabilities. The helper is the only binary with any, holds only `CAP_SETUID` and `CAP_SETGID`, and only the router's group may run it | the Dockerfile |
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app | `agents/routes`, `http/app` |
@@ -164,8 +168,8 @@ created (shown once) --> in use --revoke--> deleted
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
 | No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
-| The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its own folder after the helper switches users | `tools/instance`, `tools/install-folder` |
-| A server's user id, folder, source and login are kept by the router. No API write sets them | `tools/input` `serverUpdateInput`, strict; servers are created and removed only by hand-written mutations |
+| The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
+| A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks | `agents/policy` |
@@ -267,14 +271,24 @@ Everything about the code comes after `Owner:`.
   `__`, so a server's name may hold no `__` and may not end in `_`.
 - **Instance:** a running connection to a server: a base instance shared by everyone, or a
   workspace instance when a workspace overrides that server's settings. A server the router starts
-  itself runs as a user of its own, walled off from the router and from other servers. Owner:
-  `tools/instance`; `servers.child_uid` from the range 10000–19999, handed out by the sequence
-  `child_uid_seq`, which never cycles, so no id is handed out twice; and the `run-as-child`
-  helper.
-- **Install folder:** a server's own folder and its HOME, made by the server's user under the
-  servers folder, with a name nobody else can guess, and readable by that user only. Owner:
-  `tools/install-folder`; `servers.install_dir`, under `SERVERS_DIR` (default
-  `DATA_DIR/servers`, mode 1733).
+  itself runs as a user of its own, walled off from the router and from other servers: the base
+  instance as the server's uid and group, a workspace instance as its entry's own uid with the
+  server's group, so it can read the server's packages and no other instance can read its
+  environment. Both hold the server's shared groups. Owner: `tools/instance`, `tools/resolve`;
+  `servers.child_uid` and `workspace_servers.child_uid`, from the range 10000–19999, handed out by
+  the sequence `child_uid_seq`, which never cycles, so no id is handed out twice; and the
+  `run-as-child` helper.
+- **Install folder:** a server's own folder, made by the server's user under the servers folder,
+  with a name nobody else can guess: its packages, mode 0750 with the server's own group, so its
+  workspace instances may read but not write it, and inside it `home/`, mode 0700, the base
+  instance's HOME. A workspace instance has a folder of its own, mode 0700, made by its uid on its
+  first call, whose `home/` is its HOME; it still starts in the server's install folder. Owner:
+  `tools/install-folder`; `servers.install_dir` and `workspace_servers.install_dir`, under
+  `SERVERS_DIR` (default `DATA_DIR/servers`, mode 1733).
+- **Shared group:** an extra group a server's instances run with, such as `users` (100), so they
+  can reach a folder mounted from the host that belongs to that group. Never a system group, a
+  child id or the router's own, and at most 8. Owner: `servers.extra_groups`, checked by
+  `tools/input` and refused by `run-as-child` itself.
 - **Server login:** the login a remote server asks for, which a user starts once and the router
   keeps for it, refreshing its tokens as they run out. Owner: `tools/oauth`; OAuth, the `oauth`
   column on `servers`, read from the snapshot; the UI sees only `signed_in` and the `login`

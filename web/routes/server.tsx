@@ -21,6 +21,7 @@ import {
   describeTimeout,
   envMetaOf,
   envOf,
+  groupsToText,
   STDIO,
   sourceOf,
   transportOf,
@@ -110,7 +111,13 @@ export function ServerRoute() {
                       label="Runs as user"
                       value={String(record.childUid)}
                       valueClassName="font-mono"
-                      hint="Its own, walled off from the router and from other servers."
+                      hint="Its own, walled off from the router and from other servers. A workspace's instance has one of its own."
+                    />
+                    <PropertyRow
+                      label="Extra groups"
+                      value={record.extraGroups.length === 0 ? 'None' : groupsToText(record.extraGroups)}
+                      valueClassName="font-mono"
+                      hint="For folders mounted from the host that belong to one of these groups."
                     />
                   </>
                 ) : (
@@ -177,6 +184,7 @@ export function ServerRoute() {
             onOpenChange={setIsEditing}
             server={record}
             defaults={defaults ?? null}
+            isAdmin={isAdmin}
           />
         </>
       }

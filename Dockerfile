@@ -47,8 +47,9 @@ ENV DATA_DIR=/data
 # What the router writes besides Postgres: the MCP servers' folders. Set up before VOLUME, so a new
 # volume starts that way. /data is owned by node, and everyone else may only pass through it to
 # servers/, never list it. servers/ is 1733: a server, running as its own uid, may create its own
-# folder there, but can't list the others or delete one it doesn't own. Each folder is 0700, so no
-# other server can read it either.
+# folder there, but can't list the others or delete one it doesn't own. A server's folder is 0750
+# with its own group, readable only by its workspace instances, and each HOME inside a folder is
+# 0700, so no other server can read either.
 RUN mkdir -p /data/servers && chown node:node /data /data/servers && chmod 0711 /data && chmod 1733 /data/servers
 VOLUME /data
 EXPOSE 3000

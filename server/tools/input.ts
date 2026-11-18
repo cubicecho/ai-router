@@ -1,8 +1,11 @@
 import { z } from 'zod';
-import { TOOL_CONFIG_DEFAULTS } from '../core/defaults.ts';
+import { CHILD_DEFAULTS, TOOL_CONFIG_DEFAULTS } from '../core/defaults.ts';
 import { nameSchema } from '../core/names.ts';
 import { SecretKind } from '../db/tables/server-secrets.ts';
+import { routerGroups } from './child-users.ts';
 import { serverNameSchema, serverTransportSchema } from './shapes.ts';
+
+const { uidMin, uidMax, firstExtraGid, maxExtraGid, maxExtraGroups } = CHILD_DEFAULTS;
 
 const {
   maxEnvVars,
@@ -56,6 +59,27 @@ export const argsInput = z
   )
   .max(maxArgs, `At most ${maxArgs} arguments.`);
 
+/**
+ * A server's extra groups, by the rules `run-as-child` enforces itself, so a person reads why before the helper
+ * refuses to start the server.
+ */
+export const extraGroupsInput = z
+  .array(
+    z
+      .number()
+      .int('A group id is a whole number.')
+      .min(firstExtraGid, `Groups below ${firstExtraGid} are the system's own, root and shadow among them.`)
+      .max(maxExtraGid, `A group id is at most ${maxExtraGid}.`)
+      .refine((gid) => gid < uidMin || gid > uidMax, {
+        error: `Groups ${uidMin}–${uidMax} belong to servers: holding one would open another server's folder.`,
+      })
+      .refine((gid) => routerGroups().includes(gid) === false, {
+        error: "That is one of the router's own groups.",
+      }),
+  )
+  .max(maxExtraGroups, `At most ${maxExtraGroups} extra groups.`)
+  .refine((groups) => new Set(groups).size === groups.length, { error: 'A group is listed twice.' });
+
 /** A timeout a server sets for itself. Null for the router's default. */
 const timeoutInput = z
   .number()
@@ -93,6 +117,7 @@ export const serverUpdateInput = z
     envMeta: z.record(z.string(), z.unknown()),
     idleTimeoutMs: timeoutInput,
     callTimeoutMs: timeoutInput,
+    extraGroups: extraGroupsInput,
     // Set by drizzle on every update.
     updatedAt: z.unknown(),
   })
