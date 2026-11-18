@@ -19,7 +19,7 @@ export function createServerLoginStore(db: DB, snapshot: SnapshotHost): ServerLo
       if (server === undefined || server.transport.type !== TRANSPORT_STREAMABLE_HTTP) {
         return null;
       }
-      return { name: server.name, url: server.transport.url, oauth: server.oauth };
+      return { name: server.name, url: server.transport.url, oauth: server.oauth, headers: server.headers };
     },
     async save(serverId, oauth) {
       await db.update(servers).set({ oauth }).where(eq(servers.id, serverId));

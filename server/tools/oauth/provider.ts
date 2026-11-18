@@ -23,6 +23,8 @@ export interface StoredServerLogin {
   url: string;
   /** Its login as stored, null when it has none. */
   oauth: ServerOAuth | null;
+  /** The header secrets its base instance sends. The first knock carries them, and nothing sent to its login does. */
+  headers: Readonly<Record<string, string>>;
 }
 
 /** Where server logins are kept: the `servers.oauth` column, which is never served. */

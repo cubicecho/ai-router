@@ -50,6 +50,10 @@ interface Upstream {
   valid: Set<string>;
   registrations: Record<string, unknown>[];
   tokenRequests: Record<string, string>[];
+  /** A value /mcp wants in `x-gate` before it answers at all, as a proxy in front of a server might. */
+  gate: string | null;
+  /** The paths a request carrying `x-gate` was sent to. */
+  gatedPaths: string[];
   /** Plays the person at the login page: a code for what the router asked. */
   authorize(authorizationUrl: string): { code: string; state: string; params: URLSearchParams };
   close(): Promise<void>;
@@ -75,6 +79,8 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
     valid: new Set(),
     registrations: [],
     tokenRequests: [],
+    gate: null,
+    gatedPaths: [],
     authorize(authorizationUrl) {
       const params = new URL(authorizationUrl).searchParams;
       const code = randomUUID();
@@ -88,6 +94,12 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 
+  app.use((req, _res, next) => {
+    if (req.headers['x-gate'] !== undefined) {
+      upstream.gatedPaths.push(req.path);
+    }
+    next();
+  });
   app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
     res.json({ resource: upstream.url, authorization_servers: [origin] });
   });
@@ -144,6 +156,10 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
     });
   });
   app.post('/mcp', express.json(), async (req, res) => {
+    if (upstream.gate !== null && req.headers['x-gate'] !== upstream.gate) {
+      res.status(HttpStatus.Forbidden).end();
+      return;
+    }
     const bearer = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
     if (upstream.valid.has(bearer) === false) {
       res
@@ -172,7 +188,7 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
  * @returns The store, and the row it keeps.
  */
 function memoryStore(url: string, oauth: ServerOAuth | null = null): ServerLoginStore & { row: StoredServerLogin } {
-  const row: StoredServerLogin = { name: 'protected', url, oauth };
+  const row: StoredServerLogin = { name: 'protected', url, oauth, headers: {} };
   return {
     row,
     async load(serverId) {
@@ -490,6 +506,17 @@ describe('server login', () => {
       hasClientSecret: false,
       scope: null,
     });
+  });
+
+  it("knocks with the server's headers, and sends none of them to its login", async () => {
+    const { store, service } = await setUp('register');
+    upstream.gate = 'planted-gate';
+    store.row.headers = { 'x-gate': 'planted-gate' };
+
+    const started = await service.start(SERVER_ID);
+
+    expect(started.authorizationUrl).toBeTruthy();
+    expect(upstream.gatedPaths).toEqual(['/mcp']);
   });
 
   it('refuses to start a login for a server that does not ask for one', async () => {

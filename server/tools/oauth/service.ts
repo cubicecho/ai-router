@@ -397,7 +397,7 @@ export class ServerLoginService {
   private async challenge(server: StoredServerLogin): Promise<{ resourceMetadataUrl?: URL; scope?: string }> {
     let response: Response;
     try {
-      response = await this.knock(server.url);
+      response = await this.knock(server);
     } catch (cause) {
       throw upstreamFailed(`Could not reach server "${server.name}": ${errorMessage(cause)}`);
     }
@@ -412,13 +412,14 @@ export class ServerLoginService {
   /**
    * Sends a server an `initialize` with no token, and reads only the status and headers.
    *
-   * @param url - The server's address.
+   * @param server - The server: its address, and the headers its instances send, since one may want a header before
+   * it answers 401.
    * @returns The response, its body already discarded.
    */
-  private async knock(url: string): Promise<Response> {
-    const response = await this.timedFetch(url, {
+  private async knock(server: StoredServerLogin): Promise<Response> {
+    const response = await this.timedFetch(server.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: { ...server.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 0,
