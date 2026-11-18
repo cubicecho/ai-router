@@ -21,6 +21,7 @@ import { ArrowLeft, Pencil, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { UsageSection } from '@/models/usage-section';
+import { RecentRunsSection } from '@/runs/recent-runs-section';
 import { WorkspaceServersSection } from '@/tools/workspace-servers-section';
 import { KeyDialog } from '@/workspaces/key-dialog';
 import { WorkspaceDialog } from '@/workspaces/workspace-dialog';
@@ -152,6 +153,11 @@ export function WorkspaceRoute() {
             }
           />
           <WorkspaceServersSection workspaceId={record.id} isAdmin={me.data?.me.role === Role.Admin} />
+          <RecentRunsSection
+            where={{ workspaceId: { eq: record.id } }}
+            search={{ workspace: record.id }}
+            hide="workspace"
+          />
           <UsageSection
             rows={usage.data?.usageCounts ?? []}
             groupBy={(row) => `${row.providerName}/${row.model}`}
