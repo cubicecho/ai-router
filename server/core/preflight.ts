@@ -6,10 +6,10 @@ import {
   configuredAuthSecret,
   databaseUrl,
   describeWeakSecret,
+  isPostgresUrl,
   isProduction,
   OIDC_CLIENT_AUTH_METHODS,
   secureLocalNet,
-  usesPostgres,
 } from './config.ts';
 import { isPrivateHost } from './hosts.ts';
 
@@ -25,8 +25,11 @@ function fatal(message: string): never {
 }
 
 const url = databaseUrl();
-if (url.includes('://') && usesPostgres(url) === false && url.startsWith('memory://') === false) {
-  fatal(`DATABASE_URL must be a postgres:// URL, or unset for PGlite under DATA_DIR. Got ${url.split('://')[0]}://.`);
+if (url === '') {
+  fatal('DATABASE_URL is required. Copy .env.example to .env, then run `npm run db:up` for a local Postgres.');
+}
+if (isPostgresUrl(url) === false) {
+  fatal('DATABASE_URL must be a postgres:// URL. The router runs on Postgres; PGlite is for tests only.');
 }
 
 if (isProduction()) {

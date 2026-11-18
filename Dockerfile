@@ -40,8 +40,9 @@ COPY --from=builder /app/dist dist
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/data
-# Owned by node and closed to everyone else before VOLUME, so a new volume starts that way and no
-# MCP server, running as its own uid, can read the database.
+# What the router writes besides Postgres: from phase 3, the MCP servers' installs. Owned by node and
+# closed to everyone else before VOLUME, so a new volume starts that way and no server, running as its
+# own uid, can read what the router keeps there.
 RUN mkdir -p /data && chown node:node /data && chmod 0700 /data
 VOLUME /data
 EXPOSE 3000

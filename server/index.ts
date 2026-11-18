@@ -13,26 +13,10 @@ import { ChildMode, checkChildIsolation } from './tools/child-users.ts';
 /** Every interface. The container's port mapping decides who can reach it. */
 const LISTEN_HOST = '0.0.0.0';
 
-/**
- * Opens the database, or exits with a sentence: a second router on a PGlite directory stops here.
- *
- * @returns The database.
- */
-function openOrExit() {
-  try {
-    return openDatabase();
-  } catch (error) {
-    console.error(`[db] ${errorMessage(error)}`);
-    process.exit(1);
-  }
-}
-
-const database = openOrExit();
+const database = openDatabase();
 console.log(`[db] ${database.location}`);
 try {
-  if (database.isPostgres) {
-    await waitForDatabase(database.db, { connectTimeoutMs: dbConnectTimeoutMs() });
-  }
+  await waitForDatabase(database.db, { connectTimeoutMs: dbConnectTimeoutMs() });
   // Before migrating: a second router on the same database must stop here, not race this one.
   await database.claim();
   // At boot, so `docker compose up` on a fresh volume is the whole install.

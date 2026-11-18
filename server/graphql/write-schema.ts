@@ -6,8 +6,8 @@ import { ROOT } from '../core/config.ts';
 import { openDatabase } from '../db/client.ts';
 import { createSchema } from './build-schema.ts';
 
-// Building the schema runs no query, so a throwaway database in memory is enough.
-const database = openDatabase('memory://');
+// Building the schema runs no query, and node-postgres connects only for one, so any URL will do.
+const database = openDatabase('postgres://codegen@127.0.0.1:1/codegen');
 const outputDir = path.join(ROOT, '__generated__');
 await mkdir(outputDir, { recursive: true });
 await writeFile(path.join(outputDir, 'schema.graphql'), printSchema(createSchema(database.db)), 'utf-8');

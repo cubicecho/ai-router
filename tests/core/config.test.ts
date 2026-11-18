@@ -1,14 +1,11 @@
-import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEV_SECRET,
-  dataDir,
   describeWeakSecret,
   envFlag,
+  isPostgresUrl,
   PLACEHOLDER_SECRET,
-  ROOT,
   trustProxy,
-  usesPostgres,
 } from '../../server/core/config.ts';
 import { AUTH_DEFAULTS } from '../../server/core/defaults.ts';
 
@@ -62,22 +59,12 @@ describe('envFlag', () => {
   });
 });
 
-describe('the database', () => {
-  it.each(['postgres://a@b/c', 'postgresql://a@b/c'])('treats %s as Postgres', (url) => {
-    expect(usesPostgres(url)).toBe(true);
+describe('isPostgresUrl', () => {
+  it.each(['postgres://a@b/c', 'postgresql://a@b/c'])('accepts %s', (url) => {
+    expect(isPostgresUrl(url)).toBe(true);
   });
 
-  it.each(['', 'memory://', '/var/lib/pg'])('treats %j as PGlite', (url) => {
-    expect(usesPostgres(url)).toBe(false);
-  });
-
-  it('keeps data in the checkout when DATA_DIR is unset', () => {
-    vi.stubEnv('DATA_DIR', '');
-    expect(dataDir()).toBe(path.join(ROOT, 'data'));
-  });
-
-  it('keeps data where DATA_DIR says', () => {
-    vi.stubEnv('DATA_DIR', '/data');
-    expect(dataDir()).toBe('/data');
+  it.each(['', 'memory://', '/var/lib/pg', 'mysql://a@b/c'])('refuses %j', (url) => {
+    expect(isPostgresUrl(url)).toBe(false);
   });
 });

@@ -56,9 +56,6 @@ jobs:
     env:
       # Preflight rejects short or default secrets in production. CI-only, never deployed.
       BETTER_AUTH_SECRET: ci-only-0123456789abcdef0123456789abcdef
-    strategy:
-      matrix:
-        compose: [docker-compose.yml, docker-compose.postgres.yml]
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -71,13 +68,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Start the stack
-        run: docker compose -f ${{ matrix.compose }} up -d --no-build --wait --wait-timeout 180
+        run: docker compose up -d --no-build --wait --wait-timeout 180
       - name: /healthz answers, with stdio servers isolated
         run: |
           curl -fsS http://127.0.0.1:3000/healthz | tee health.json
           grep -q '"children":"isolated"' health.json
       - name: A child user is boxed in
-        run: docker compose -f ${{ matrix.compose }} exec -T ai-router sh scripts/check-children.sh
+        run: docker compose exec -T ai-router sh scripts/check-children.sh
       - name: Logs
         if: failure()
-        run: docker compose -f ${{ matrix.compose }} logs
+        run: docker compose logs

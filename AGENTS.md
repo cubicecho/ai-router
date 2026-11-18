@@ -39,7 +39,8 @@ roles:
 - Workspace keys are the router's own `workspace_keys` table, not better-auth's api-key plugin:
   only each key's SHA-256 is stored, and keys are checked against the snapshot.
 - zod and Vitest.
-- PGlite under `DATA_DIR/pg` by default, or Postgres when `DATABASE_URL` is a `postgres://` URL.
+- Postgres, always: `DATABASE_URL` is required. PGlite runs only in the tests. `npm run db:up`
+  starts a local Postgres for development (`docker-compose.dev.yml`).
 - Docker on `node:26-slim`, with `run-as-child` (`docker/run-as-child.c`) built in.
 
 One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the same folders as
@@ -48,7 +49,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `server/` folder | Holds | May import |
 | --- | --- | --- |
 | `core/` | config, defaults, wire constants, errors, validation, name rules, preflight, context | nothing here, except types for `context.ts` |
-| `db/` | the client, the lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
+| `db/` | the Postgres client, the advisory lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
 | `auth/` | better-auth, keys, the caller, roles, the trusted-network sign-in, rate limiting, and their GraphQL fields | `core`, `db`, `sso`, `graphql/object-type`, `http/sso` (for its path) |
 | `sso/` | pairing with an OIDC provider from the UI | `core`, `db`, `auth` |
 | `models/` | providers, pools, the `/bare/v1` proxy, usage, `ModelScope` (phase 2) | `core`, `db`, `auth` |
@@ -67,7 +68,8 @@ lint rule is planned.
 ```bash
 npm run dev          # server (watch) + Vite
 npm run check        # codegen, biome, tsc
-npm test             # vitest on PGlite
+npm run db:up        # a local Postgres for development, on 127.0.0.1:5440
+npm test             # vitest on PGlite, in memory
 npm run db:generate  # a migration after a schema change; commit it
 npm run db:migrate   # apply migrations to DATABASE_URL (boot does this too)
 npm run codegen      # print the schema, then the UI's types
@@ -126,7 +128,7 @@ non-negotiables apply on top of these.
   `scripts/check-children.sh`, which CI runs against the image.
 - **The gateways route from the snapshot.** They never query the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
-  owns a database: PGlite's lockfile, or a Postgres advisory lock taken at boot, so a second
+  owns a database: a Postgres advisory lock taken at boot, so a second
   router refuses to start.
 
 ### Agents

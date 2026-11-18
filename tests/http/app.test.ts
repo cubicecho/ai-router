@@ -21,7 +21,7 @@ import {
   type TestDb,
 } from '../helpers.ts';
 
-// The app production runs, against PGlite, over a real socket: routing order, masking, the limits,
+// The app production runs, over a real socket and against PGlite in place of Postgres: routing order, masking, the limits,
 // the body cap and the Authorization header, which in-process `graphql()` never sees.
 
 const INDEX = '<!doctype html><title>ai-router</title>';

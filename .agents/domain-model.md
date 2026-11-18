@@ -200,7 +200,7 @@ created (shown once) --> in use --revoke--> deleted
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included | `agents/revisions`, which stores the `jsonb` as received |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
-| The gateways route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; PGlite's lockfile, or a Postgres advisory lock taken at boot |
+| The gateways route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent | `models/usage` |
 
 ## Glossary

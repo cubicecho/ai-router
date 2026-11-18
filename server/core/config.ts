@@ -10,10 +10,8 @@ const TRUTHY = ['1', 'true', 'yes'];
 const FALSY = ['0', 'false', 'no'];
 /** A hop count: digits only. */
 const HOP_COUNT = /^\d+$/;
-/** A `DATABASE_URL` that names a Postgres server rather than a PGlite store. */
+/** A `DATABASE_URL` that names a Postgres server. */
 const POSTGRES_URL = /^postgres(ql)?:\/\//;
-/** Where `DATA_DIR` points when unset: `data/` in the checkout, gitignored. */
-const DEV_DATA_DIR = 'data';
 
 /** The repository root, where package.json, drizzle/ and dist/ sit. */
 export const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -81,17 +79,7 @@ export function isProduction(): boolean {
 }
 
 /**
- * Where the router keeps what it writes: the PGlite store, and later the servers' installs.
- *
- * @returns `DATA_DIR`, or `data/` in the checkout.
- */
-export function dataDir(): string {
-  const configured = process.env.DATA_DIR?.trim() ?? '';
-  return configured === '' ? path.join(ROOT, DEV_DATA_DIR) : configured;
-}
-
-/**
- * The database to open: a `postgres://` URL, a PGlite store, or empty for PGlite under `DATA_DIR`.
+ * The Postgres server to use. Preflight refuses anything but a `postgres://` URL.
  *
  * @returns `DATABASE_URL`, or an empty string.
  */
@@ -100,12 +88,12 @@ export function databaseUrl(): string {
 }
 
 /**
- * Whether the database is a Postgres server rather than PGlite in this process.
+ * Whether a URL names a Postgres server.
  *
- * @param [url] - The database URL to judge.
+ * @param url - The database URL to judge.
  * @returns true for a `postgres://` or `postgresql://` URL.
  */
-export function usesPostgres(url = databaseUrl()): boolean {
+export function isPostgresUrl(url: string): boolean {
   return POSTGRES_URL.test(url);
 }
 

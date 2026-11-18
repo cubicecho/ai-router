@@ -61,12 +61,14 @@ describe('preflight', () => {
     expect(stderr).toContain('OIDC_CLIENT_AUTH must be one of');
   });
 
-  it('passes PGlite, with DATABASE_URL unset', () => {
-    expect(runPreflight({ DATABASE_URL: '' })).toEqual({ status: 0, stderr: '' });
+  it('refuses to start with no DATABASE_URL', () => {
+    const { status, stderr } = runPreflight({ DATABASE_URL: '' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('DATABASE_URL is required');
   });
 
-  it('refuses a DATABASE_URL in another scheme', () => {
-    const { status, stderr } = runPreflight({ DATABASE_URL: 'mysql://a@b/c' });
+  it.each(['mysql://a@b/c', 'memory://', '/var/lib/pg'])('refuses a DATABASE_URL that is not Postgres: %s', (url) => {
+    const { status, stderr } = runPreflight({ DATABASE_URL: url });
     expect(status).toBe(1);
     expect(stderr).toContain('DATABASE_URL must be a postgres:// URL');
   });
