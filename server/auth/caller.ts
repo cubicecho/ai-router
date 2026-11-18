@@ -1,4 +1,4 @@
-import { CALLER_USER, CALLER_WORKSPACE, type Caller, type UserCaller } from '../core/context.ts';
+import { CALLER_USER, CALLER_WORKSPACE, type Caller, type UserCaller, type WorkspaceCaller } from '../core/context.ts';
 import { forbidden, unauthenticated } from '../core/errors.ts';
 import type { Snapshot } from '../db/snapshot.ts';
 import { type Auth, sessionUser } from './better-auth.ts';
@@ -68,19 +68,33 @@ export interface CallerSources {
  * A bearer is tried as a key first, then as a session token.
  */
 export async function readCaller({ auth, snapshot, now }: CallerSources, headers: Headers): Promise<Caller | null> {
-  const { bearer, apiKey } = presented(headers);
-  const candidate = apiKey ?? bearer;
-  if (candidate !== null) {
-    const key = findKey(snapshot, candidate, now);
-    if (key !== null) {
-      return { kind: CALLER_WORKSPACE, workspaceId: key.workspaceId, keyId: key.keyId };
-    }
+  const workspace = readWorkspaceCaller(snapshot, headers, now);
+  if (workspace !== null) {
+    return workspace;
   }
+  const { bearer, apiKey } = presented(headers);
   if (apiKey !== null || bearer === null) {
     return null;
   }
   const user = await sessionUser(auth, headers);
   return user === null ? null : { kind: CALLER_USER, ...user };
+}
+
+/**
+ * Reads the app a request is from, by its workspace key alone. For the doors only apps use, where a session is
+ * never read, on a trusted network too.
+ *
+ * @param snapshot - What keys are checked against.
+ * @param headers - The request's headers.
+ * @param now - The time to judge a key's expiry by.
+ * @returns The workspace for a live key, or null.
+ * @throws {@link ConflictingKeysError} When the request sends two different keys.
+ */
+export function readWorkspaceCaller(snapshot: Snapshot, headers: Headers, now: Date): WorkspaceCaller | null {
+  const { bearer, apiKey } = presented(headers);
+  const candidate = apiKey ?? bearer;
+  const key = candidate === null ? null : findKey(snapshot, candidate, now);
+  return key === null ? null : { kind: CALLER_WORKSPACE, workspaceId: key.workspaceId, keyId: key.keyId };
 }
 
 /**

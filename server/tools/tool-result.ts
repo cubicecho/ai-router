@@ -14,13 +14,12 @@ export function isToolError(result: CallToolResult): boolean {
 }
 
 /**
- * Reads what a tool said, as one line of text for an error message.
+ * Reads what a tool said, as the model reads it.
  *
  * @param result - What `tools/call` answered.
- * @returns The text blocks and embedded text resources joined, else the structured content as JSON, else a fixed
- * message.
+ * @returns The text blocks and embedded text resources joined, else the structured content as JSON, else empty.
  */
-export function toolResultText(result: CallToolResult): string {
+export function toolResultContent(result: CallToolResult): string {
   const parts = result.content.flatMap((block) => {
     if (block.type === 'text') {
       return [block.text];
@@ -34,5 +33,16 @@ export function toolResultText(result: CallToolResult): string {
   if (text !== '') {
     return text;
   }
-  return result.structuredContent === undefined ? SILENT_FAILURE : JSON.stringify(result.structuredContent);
+  return result.structuredContent === undefined ? '' : JSON.stringify(result.structuredContent);
+}
+
+/**
+ * Reads what a tool said, as one line of text for an error message.
+ *
+ * @param result - What `tools/call` answered.
+ * @returns What `toolResultContent` reads, else a fixed message.
+ */
+export function toolResultText(result: CallToolResult): string {
+  const content = toolResultContent(result);
+  return content === '' ? SILENT_FAILURE : content;
 }

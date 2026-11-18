@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
+import { validateRunsSearch } from '@/runs/search';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -63,6 +64,20 @@ const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents/$agentId',
   component: lazyRouteComponent(() => import('@/routes/agent'), 'AgentRoute'),
+});
+
+// Not `/runs`, which is the apps' API: a key reads its runs there from phase 7.
+const runsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agent-runs',
+  validateSearch: validateRunsSearch,
+  component: lazyRouteComponent(() => import('@/routes/runs'), 'RunsRoute'),
+});
+
+const runRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agent-runs/$runId',
+  component: lazyRouteComponent(() => import('@/routes/run'), 'RunRoute'),
 });
 
 const workspacesRoute = createRoute({
@@ -127,6 +142,8 @@ export const router = createRouter({
       indexRoute,
       agentsRoute,
       agentRoute,
+      runsRoute,
+      runRoute,
       workspacesRoute,
       workspaceRoute,
       providersRoute,

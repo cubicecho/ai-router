@@ -1,3 +1,4 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ServerRow } from '../db/tables/servers.ts';
 import type { ServerLoginService } from './oauth/service.ts';
 
@@ -29,6 +30,15 @@ export interface ServedTool {
   title: string | null;
   description: string | null;
   inputSchema: unknown;
+}
+
+/** The agent run a tool call is made for, which its activity is recorded under. */
+export interface RunToolCall {
+  agentId: string;
+  agentName: string;
+  runId: string;
+  /** Abandons the call: the server is told it was cancelled. */
+  signal?: AbortSignal;
 }
 
 /** One running or stopped connection to a server. */
@@ -78,8 +88,14 @@ export interface ToolServices {
   forgetEntries(entries: readonly DeletedEntry[]): Promise<void>;
   /** Lists a server's tools, starting an instance if none runs. */
   listTools(serverId: string, workspaceId: string | null): Promise<ServedTool[]>;
-  /** Calls one tool as a person trying it from the UI, and records the call. */
-  callTool(serverId: string, workspaceId: string | null, tool: string, args: Record<string, unknown>): Promise<unknown>;
+  /** Calls one tool, for a person trying it from the UI or for an agent run, and records the call. */
+  callTool(
+    serverId: string,
+    workspaceId: string | null,
+    tool: string,
+    args: Record<string, unknown>,
+    run?: RunToolCall,
+  ): Promise<CallToolResult>;
   /** A server's instances, base first. */
   instanceStates(serverId: string): ServedInstance[];
   /** Stops an instance, so the next call starts it again. */

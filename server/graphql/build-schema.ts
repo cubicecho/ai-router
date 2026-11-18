@@ -3,6 +3,7 @@ import { applyPermissions } from '@vantreeseba/graphql-casl';
 import { GraphQLObjectType, GraphQLSchema } from 'graphql';
 import { agentWriteHooks } from '../agents/hooks.ts';
 import { applyAgentsExtension } from '../agents/resolvers.ts';
+import { applyRunsExtension } from '../agents/run-resolvers.ts';
 import { applyBetterAuthExtension } from '../auth/endpoints.ts';
 import { applyAuthExtension } from '../auth/resolvers.ts';
 import { OPERATION_LIMIT_DEFAULTS } from '../core/defaults.ts';
@@ -23,7 +24,7 @@ const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
- * usage, secrets and activity.
+ * usage, secrets, activity and runs.
  */
 const WRITES_RESERVED = new Set<string>([
   'users',
@@ -34,6 +35,7 @@ const WRITES_RESERVED = new Set<string>([
   'activity',
   'agentRevisions',
   'overridePolicies',
+  'runs',
 ]);
 
 /** Tables whose rows are created by hand-written mutations: `installServer`, `createAgent`. */
@@ -90,7 +92,14 @@ export function createSchema(db: DB): GraphQLSchema {
     typeNameMapper: 'singularize',
     exclude: {
       tables: SERVER_TABLES,
-      columns: { workspaceKeys: ['hash'], providers: ['apiKey'], servers: ['oauth'], serverSecrets: ['value'] },
+      columns: {
+        workspaceKeys: ['hash'],
+        providers: ['apiKey'],
+        servers: ['oauth'],
+        serverSecrets: ['value'],
+        // A fingerprint of an app's request: of no use to a person, and a way to test a guess at what it said.
+        runs: ['requestHash'],
+      },
     },
     features: {
       insert: allowedUnless(CREATE_RESERVED),
@@ -112,7 +121,9 @@ export function createSchema(db: DB): GraphQLSchema {
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth))));
+  const extended = applyRunsExtension(
+    applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
+  );
   return applyPermissions(extended, permissions, {
     // A refusal names the field, so a client can tell which call to stop making.
     fallbackError: (_original, _parent, _args, _context, info) =>

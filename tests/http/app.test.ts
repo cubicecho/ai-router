@@ -98,10 +98,16 @@ describe('app', () => {
     expect(await response.text()).toBe(INDEX);
   });
 
-  it.each(['/v1/models', '/mcp', '/runs/x'])('never answers %s with the UI', async (path) => {
+  it.each(['/mcp', '/runs/x'])('never answers %s with the UI', async (path) => {
     const response = await fetch(`${base}${path}`);
     expect(response.status).toBe(HttpStatus.NotFound);
     expect(await response.text()).not.toContain(INDEX);
+  });
+
+  it('answers /v1 without a key in the OpenAI envelope, never with the UI', async () => {
+    const response = await fetch(`${base}/v1/models`);
+    expect(response.status).toBe(HttpStatus.Unauthorized);
+    expect(await response.json()).toMatchObject({ error: { code: 'invalid_api_key' } });
   });
 
   it('answers a signed-in person', async () => {

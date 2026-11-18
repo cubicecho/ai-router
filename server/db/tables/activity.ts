@@ -17,10 +17,10 @@ export const activity = pgTable(
     workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
     /** Null for a call no workspace made, such as a user trying a tool in the UI. */
     workspaceName: text('workspace_name'),
-    /** The agent whose run made the call. Filled from phase 6. */
+    /** The agent whose run made the call. */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name'),
-    /** The run, from phase 6. */
+    /** The run that made the call. No foreign key: activity outlives the run's record. */
     runId: uuid('run_id'),
     /** The tool's own name at the server. */
     tool: text('tool').notNull(),

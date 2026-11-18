@@ -428,3 +428,37 @@ export const AGENT_CONFIG_DEFAULTS: Readonly<AgentConfigSettings> = Object.freez
   maxDocumentBytes: 262_144,
   maxMessageLength: 500,
 });
+
+/** Agent runs on the agents endpoint, and their records. */
+export interface RunSettings {
+  /** How long one run may take, from its start to its answer, before it fails. */
+  timeoutMinutes: number;
+  /** How long a finished run's `Idempotency-Key` keeps answering with that run. After it, the key starts a new one. */
+  idempotencyHours: number;
+  /** How many days a finished run's record is kept. */
+  retentionDays: number;
+  /** How often old runs and spent keys are cleared. */
+  pruneEveryHours: number;
+  /** Largest JSON body /v1 accepts, as `express.json` reads it. A long conversation is bigger than a GraphQL operation. */
+  bodyLimit: string;
+  /** How often a quiet stream is sent a comment, so a proxy doesn't close it while a tool runs. */
+  heartbeatSeconds: number;
+  /** Characters in an `Idempotency-Key`. */
+  maxIdempotencyKeyLength: number;
+  /** Characters in a request's `user`. */
+  maxUserLength: number;
+  /** Characters of a failure's message kept on the run. */
+  maxErrorLength: number;
+}
+
+export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
+  timeoutMinutes: 30,
+  idempotencyHours: 24,
+  retentionDays: 30,
+  pruneEveryHours: 6,
+  bodyLimit: '8mb',
+  heartbeatSeconds: 15,
+  maxIdempotencyKeyLength: 255,
+  maxUserLength: 256,
+  maxErrorLength: 2_000,
+});

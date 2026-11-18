@@ -1,16 +1,15 @@
 import { and, isNotNull, lt, sql } from 'drizzle-orm';
 import { USAGE_DEFAULTS, type UsageSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { MS_PER_DAY, MS_PER_SECOND } from '../core/wire.ts';
+import { MS_PER_DAY, MS_PER_HOUR, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { existingIds } from '../db/existing-ids.ts';
+import { agents } from '../db/tables/agents.ts';
 import { providers } from '../db/tables/providers.ts';
 import { type NewUsageCount, usageCounts } from '../db/tables/usage-counts.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import type { ReportedUsage } from './usage-reader.ts';
 
-/** Milliseconds in one hour. */
-const MS_PER_HOUR = 3_600_000;
 /** Characters of an ISO timestamp that are its date, `YYYY-MM-DD`. */
 const ISO_DATE_LENGTH = 10;
 
@@ -140,13 +139,20 @@ export function createUsageRecorder(
         workspaces.id,
         rows.map((row) => row.workspaceId),
       );
-      // A provider or workspace deleted since the call keeps its name here, and loses its id.
+      const liveAgents = await existingIds(
+        db,
+        agents,
+        agents.id,
+        rows.map((row) => row.agentId),
+      );
+      // A provider, workspace or agent deleted since the call keeps its name here, and loses its id.
       await addCounts(
         db,
         rows.map((row) => ({
           ...row,
           providerId: liveProviders.has(row.providerId ?? '') ? row.providerId : null,
           workspaceId: liveWorkspaces.has(row.workspaceId ?? '') ? row.workspaceId : null,
+          agentId: liveAgents.has(row.agentId ?? '') ? row.agentId : null,
         })),
       );
     } catch (error) {

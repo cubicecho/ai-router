@@ -34,7 +34,7 @@ the order of work and the reasons for it. Phase 1, the scaffold, is built.
 | App tools | The run **waits** for the app's answer and resumes as the same run. A follow-up that answers every handed-back call resumes it, and a partial answer is refused | An app's timeline shows one run with a pause, not a chain of runs |
 | Agent edits | Every save is a **revision**. A user's saves go live. Saves by an app or a run are drafts until a user **promotes** them, by hand or with per-agent **auto-promote** | Agents may edit agents later (the admin server), with every change visible and reversible. Hermes agents rewrite their own `SOUL.md` with no record |
 | Agent loop | `agent-core` `runAgentLoop`, with its `dispatch` calling the tools area's own instances | `agent-mcp-pool` would start a second copy of every server |
-| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core` needs a `fetch` option on its endpoint config for this ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
+| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core`'s endpoint `fetch` option (4.26.0, [agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) does this | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
 | Slim apps | **Apps keep calling `runAgentLoop`, and only the config changes.** It points at `/v1` with the agent's id, and carries an agent flag taken from the `/v1/models` entry (`ai_router.kind: "agent"`). With the flag, the loop forwards the router's run events, keeps its own compaction, preselection and on-demand loading off, and sends an idempotency key on retries ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Apps drop `agent-mcp-pool` and their own loop code, not `agent-core` | `agent-core` is already an OpenAI tool loop, and it keeps a server's tool-call ids as sent, so the app-tool hand-back works as it is. One call site, the same `dispatch` and `onEvent`, and the apps' Runs tabs stay as they are |
 | Run events | `agent-core`'s `RunEvent`, carried unchanged, in chunks written and read by `agent-core`'s own encoder and decoder | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
@@ -352,15 +352,37 @@ The acceptance check for the first release.
    - Postgres `jsonb` keeps a document's content but not its key order, so `spec` may not come
      first when it is shown again.
    - Not yet: the agent editor beyond JSON (phase 10), drafts and auto-promote (phase 9).
-6. **Agents: runs.** The agents endpoint `/v1`:
+6. **Agents: runs. Done.** The agents endpoint `/v1`:
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls in process through the models area, so usage
      counts them under the run's workspace and agent
-     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224) lands first);
+     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224), in 4.26.0);
    - `Idempotency-Key`, so a retried request never starts a second run;
    - tool names a model accepts: OpenAI function names are `^[a-zA-Z0-9_-]{1,64}$`, but a
      server name may hold `.` and `<server>__<tool>` may pass 64 characters. Map or refuse them;
    - the runs table, `X-Run-Id`, the `runEvents` subscription, and usage per agent.
+
+   Notes:
+   - **Keys only.** `/v1` reads workspace keys and never a session, on a trusted network too.
+   - **Refused for now:** `tools`, `tool_choice` and tool history (400, "app tools aren't
+     supported yet"). `ai_router.progress` is accepted and does nothing until phase 7.
+   - **`ai_router.servers`** is how a request narrows the agent's servers (`narrowServers`).
+   - **Strict fields.** Any field the router doesn't read itself is an override, refused unless
+     the policy's `sampling` lists it. The seeded policy names both `repetition_penalty` (vLLM) and
+     `repeat_penalty` (llama.cpp). A field sent as `null` counts as not sent.
+   - **The answer** is every turn's text, a blank line between turns, as streamed. Reasoning is
+     not sent: progress events carry it in phase 7.
+   - **Streams** send their headers, with `X-Run-Id`, at once, a comment every 15 s while quiet,
+     and a failure as an `error` data line.
+   - **Idempotency.** The hash leaves out `stream` and `stream_options`. A failed or cancelled run
+     is answered again with its error (500, or 409 for cancelled), never run again. Keys are freed
+     after 24 hours. A disconnect cancels a run without a key. A run with one goes on to its timeout,
+     so the retry the key is for gets the answer.
+   - **Elicitation** is declined: the router's MCP client offers no elicitation capability.
+   - **Model calls** go through agent-core's `Endpoint.fetch` (#224, 4.26.0). Only endpoints at the
+     router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
+     The forwarder keeps one `fetch` per workspace and agent, so agent-core's client pool and probe
+     caches last across runs.
 7. **Agents: app tools, progress events and conversations.**
    - **App tools:** waiting runs, kept on the `runs` row and resumed by the call ids they handed
      back.
@@ -423,13 +445,14 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
-  app's MCP client, but an agent run has no MCP client to forward to. Options for phase 3 or 6:
-  refuse it, or hand it to the app as a progress event and wait, like an app tool.
+  app's MCP client, but an agent run has no MCP client to forward to. Phase 6 declines it. Later:
+  hand it to the app as a progress event and wait, like an app tool.
 
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels
-  it. That's right for chat, but a Friday job shouldn't die with its connection. The later
+  it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one
+  survives a dropped connection. The later
   option is to start a run, get its id, and fetch the result afterwards, as Hermes's Runs API
   and A2A tasks do. Proposed: not in v1. Make sure the router's, proxies' and apps' timeouts
   allow long streams.
