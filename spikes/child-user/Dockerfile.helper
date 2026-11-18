@@ -1,0 +1,18 @@
+# Spike, round two: a purpose-built helper that can only switch into the child id range.
+FROM debian:trixie-slim AS helper
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+COPY run-as-child.c /src/run-as-child.c
+RUN gcc -O2 -Wall -Wextra -Werror -o /run-as-child /src/run-as-child.c
+
+FROM node:26-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libcap2-bin && rm -rf /var/lib/apt/lists/*
+COPY --from=helper /run-as-child /usr/local/bin/run-as-child
+RUN chown root:node /usr/local/bin/run-as-child \
+ && chmod 0750 /usr/local/bin/run-as-child \
+ && setcap cap_setuid,cap_setgid+ep /usr/local/bin/run-as-child \
+ && apt-get purge -y libcap2-bin && apt-get autoremove -y
+RUN mkdir -p /data/config /data/installs/a /data/installs/b \
+ && chown node:node /data /data/config && chmod 0700 /data/config \
+ && chown 10001:10001 /data/installs/a && chown 10002:10002 /data/installs/b \
+ && chmod 0700 /data/installs/a /data/installs/b
+USER node

@@ -169,7 +169,8 @@ created (shown once) --> in use --revoke--> deleted
 | Only an admin sets secrets and settings, and grants or removes the admin role | `graphql/permissions` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
-| An MCP child process cannot read the database, its files or the router's environment | `tools/instance` spawns children as a separate user. The mechanism is phase 1's spike |
+| An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
+| The router itself holds no capabilities. The helper is the only binary with any, holds only `CAP_SETUID` and `CAP_SETGID`, and only the router's group may run it | the Dockerfile |
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. The bare models endpoint lists and forwards only models and pools. Neither answers for the other's names | `agents/routes`, `models/routes` |
 | On the bare models endpoint, a model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
@@ -280,7 +281,10 @@ Everything about the code comes after `Owner:`.
   two servers' tools never clash. Resources and prompts are named the same way. Owner:
   `tools/naming`; `<server>__<tool>` on `/bare/mcp`, unprefixed on `/bare/mcp/<server>`.
 - **Instance:** a running connection to a server: a base instance shared by everyone, or a
-  workspace instance when a workspace overrides that server's settings. Owner: `tools/instance`.
+  workspace instance when a workspace overrides that server's settings. A server the router starts
+  itself runs as a user of its own, walled off from the router and from other servers. Owner:
+  `tools/instance`; `servers.child_uid` from the range 10000–19999, and the `run-as-child`
+  helper.
 - **Server login:** the login a remote server asks for, which the router keeps for it. Owner:
   `tools/oauth`; OAuth, the `oauth` column on `servers`.
 - **Activity:** the record of tool calls made through the router, kept for a while. Owner:

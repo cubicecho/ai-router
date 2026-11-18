@@ -39,7 +39,7 @@ the order of work and the reasons for it. Nothing is built yet.
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
 | Admin tools | Later, as a built-in **admin server**, `ai-router`, built with `@cubicecho/graphql-mcp`. It's the only way in: a workspace gets it through a server entry with permission levels, and an agent must name it. There's no separate `/admin/mcp` | It answers "why did Friday's run fail?" and lets agents draft agents. With only workspace keys, a second door would need a second set of permission checks |
 | Discovery | **Later.** The AI Catalog, Server and Agent Cards, and LAN announce and discovery are not in the first pass. When they come, the public catalog names only the router's endpoints, and the agents and servers behind them are listed only to a key | Simpler first pass. mcp-router serves its catalog and cards to anyone, which here would show every agent and server on the network |
-| Untrusted code | MCP child processes run as a separate user that cannot read the database files or the router's environment | A combined router puts every provider key next to code installed from npm and PyPI |
+| Untrusted code | **Each MCP server runs as its own user, through a purpose-built helper, `run-as-child`** (`spikes/child-user/`). The helper is the only thing in the image with any capability, and holds only `CAP_SETUID` and `CAP_SETGID`. It switches only into the id range 10000–19999, never root or the router. It drops every capability, sets no-new-privileges and then runs the server. The router itself holds none. Install scripts (`npm install`, `uvx`) run as the server's user too | A combined router puts every provider key next to code installed from npm and PyPI. The phase 0 spike showed the simpler options fail or overreach. With `USER node`, Docker gives the router no capabilities at all, so it can't switch users itself. A general `setpriv` with those capabilities lets the router become root with full capabilities |
 
 ## Prior art
 
@@ -266,10 +266,19 @@ The check for phases 5–8.
    - **Workspaces:** the tables and keys.
    - **UI:** the web shell on cubeui with GraphQL codegen.
    - **Release:** CI's three jobs and the Docker image.
-   - **Spike:** running a child process as a separate user while the router runs as `USER node`.
+   - **Child isolation:** build `run-as-child` into the image from the spike's source.
+     - **Preflight:** at boot, check that the helper can switch into the range. If it can't, refuse
+       to start stdio servers with an error that says why. Running the container with
+       `no-new-privileges` turns file capabilities off, which is the case the spike found.
+     - **Running outside Docker:** without the helper (`npm run dev` on a laptop), children run
+       as the router's own user, with a warning at boot. That's refused when
+       `NODE_ENV=production`.
+     - **CI:** the boot job runs the spike's checks against the real image.
 2. **Models.** Port llm-router onto tables: providers, pools, balancer and affinity, the
    `/bare/v1` proxy, model listing, the usage table, the GraphQL admin and its UI pages.
-3. **Tools.** Port mcp-router: registries, the installer, servers and their secrets, instances
+3. **Tools.** Port mcp-router: registries, the installer (running as the server's user), servers
+   and their secrets, each server's user id from the child range and its own install folder
+   (mode 0700), instances
    (as the child user), MCP sessions, `/bare/mcp` and `/bare/mcp/<server>`, forwarding form
    elicitation to the client as mcp-router does, server login,
    activity, and the UI pages. mcp-router's discovery is left for later.
@@ -336,13 +345,11 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
-- **The child-user mechanism.** The standard runs the container as `USER node`, and a process
-  running as `node` cannot start children as another user. The options are:
-  - keep `CAP_SETUID` and `CAP_SETGID` and drop everything else;
-  - use a small helper that is allowed to switch users;
-  - run MCP children in a sidecar container from the same image.
-
-  Phase 1's spike decides.
+- **Workspace instances of one server share its user id.** So the household A and household B
+  instances of `actual` could read each other's environment, and with it each other's budget
+  credentials. The spike showed that separate user ids can't read each other's `/proc/<pid>/environ`.
+  Proposed for phase 3: a user id per instance, with the group set to the server's own group so
+  every instance can still read the server's install folder.
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels

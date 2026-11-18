@@ -110,8 +110,11 @@ non-negotiables apply on top of these.
 ### Untrusted code and the snapshot
 
 - **MCP child processes are untrusted.** Spawn them with argument arrays and never a shell
-  string. Give them an env allowlist plus their own `env`, never `process.env`. Run them as the
-  child user, who cannot read `DATA_DIR/pg` or the router's environment.
+  string. Give them an env allowlist plus their own `env`, never `process.env`. Start every one
+  through `run-as-child <servers.child_uid> <command…>`, and the installer's `npm install` and
+  `uvx` too, since install scripts are code. Never give the router or node a capability, and
+  never swap the helper for a general tool like `setpriv`: with `CAP_SETUID`, that can become
+  root. The helper's source and checks are in `spikes/child-user/`.
 - **The gateways route from the snapshot.** They never query the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: PGlite's lockfile, or a Postgres advisory lock taken at boot, so a second
