@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import type { RunRowFieldsFragment } from '@/__generated__/graphql';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RunStatusBadge } from './run-status-badge';
-import { durationOf, formatDuration, formatTokens, RunStatus, shortError, startedOf } from './shapes';
+import { durationOf, formatDuration, formatTokens, isOpen, shortError, startedOf } from './shapes';
 
 /** A column a phone leaves out, so the run, its agent and its status fit without scrolling sideways. */
 const WIDE_ONLY = 'hidden md:table-cell';
@@ -75,7 +75,7 @@ export function RunsTable({ rows, now, caption, hideAgent = false, hideWorkspace
       </TableHeader>
       <TableBody>
         {rows.map((run) => {
-          const isRunning = run.status === RunStatus.Running;
+          const isRunning = isOpen(run.status);
           return (
             <TableRow key={run.id}>
               <TableHead className="whitespace-nowrap font-normal text-xs">
@@ -98,8 +98,8 @@ export function RunsTable({ rows, now, caption, hideAgent = false, hideWorkspace
                 {isRunning ? <span className="text-foreground/60"> so far</span> : null}
               </TableCell>
               <TableCell className={`${WIDE_ONLY} whitespace-nowrap text-right text-xs`}>
-                {/* The row's counts are written when the run ends. */}
-                {isRunning ? <span className="text-foreground/60">When it ends</span> : formatTokens(run)}
+                {formatTokens(run)}
+                {isRunning ? <span className="text-foreground/60"> so far</span> : null}
               </TableCell>
               <TableCell className="text-xs">
                 <span className="grid justify-items-start gap-1">
