@@ -96,7 +96,7 @@ export interface Forwarder {
    * Builds the `fetch` a run's endpoint uses, answering `MODELS_BASE_URL` in process.
    *
    * @param attribution - Who the run's calls count under.
-   * @returns A `fetch` for the run.
+   * @returns A `fetch` for the run: the same one for every run with the same attribution.
    */
   fetchFor(attribution: Attribution): typeof globalThis.fetch;
 }
@@ -417,7 +417,10 @@ export function createForwarder({
     return Response.json({ object: 'list', data: [...pools, ...perProvider.flat()] });
   };
 
-  const fetchFor = (attribution: Attribution): typeof globalThis.fetch => {
+  /** One `fetch` per attribution, so agent-core's client pool and probe caches, which it keys by `fetch`, last across runs. */
+  const fetches = new Map<string, typeof globalThis.fetch>();
+
+  const makeFetch = (attribution: Attribution): typeof globalThis.fetch => {
     return async (input, init) => {
       const request = new Request(input, init);
       const isOurs = request.url.startsWith(`${MODELS_BASE_URL}/`);
@@ -446,6 +449,18 @@ export function createForwarder({
         sessionId: request.headers.get(SESSION_HEADER) ?? undefined,
       });
     };
+  };
+
+  const fetchFor = (attribution: Attribution): typeof globalThis.fetch => {
+    const { workspaceId, workspaceName, agentId, agentName } = attribution;
+    const key = JSON.stringify([workspaceId, workspaceName, agentId, agentName]);
+    const known = fetches.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    const made = makeFetch(attribution);
+    fetches.set(key, made);
+    return made;
   };
 
   return { forward, listModels, fetchFor };

@@ -16,7 +16,7 @@ export const usageCounts = pgTable(
     workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
     /** Null for calls no workspace made, such as a user trying a model in the UI. */
     workspaceName: text('workspace_name'),
-    /** The agent whose run made the calls. Filled from phase 6. */
+    /** The agent whose run made the calls. */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name'),
     providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'set null' }),

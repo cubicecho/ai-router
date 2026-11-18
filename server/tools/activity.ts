@@ -5,6 +5,7 @@ import { MS_PER_DAY, MS_PER_HOUR, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { existingIds } from '../db/existing-ids.ts';
 import { activity, type NewActivityRow } from '../db/tables/activity.ts';
+import { agents } from '../db/tables/agents.ts';
 import { servers } from '../db/tables/servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 
@@ -15,7 +16,7 @@ export interface ToolCallRecord {
   /** null for a call no workspace made. */
   workspaceId: string | null;
   workspaceName: string | null;
-  /** null until phase 6, and for a call no agent made. */
+  /** null for a call no agent run made, such as a person trying a tool. */
   agentId?: string | null;
   agentName?: string | null;
   runId?: string | null;
@@ -94,12 +95,19 @@ export function createActivityRecorder(
         workspaces.id,
         taken.map((row) => row.workspaceId),
       );
-      // A server or workspace deleted since the call keeps its name here, and loses its id.
+      const liveAgents = await existingIds(
+        db,
+        agents,
+        agents.id,
+        taken.map((row) => row.agentId),
+      );
+      // A server, workspace or agent deleted since the call keeps its name here, and loses its id.
       await db.insert(activity).values(
         taken.map((row) => ({
           ...row,
           serverId: liveServers.has(row.serverId ?? '') ? row.serverId : null,
           workspaceId: liveWorkspaces.has(row.workspaceId ?? '') ? row.workspaceId : null,
+          agentId: liveAgents.has(row.agentId ?? '') ? row.agentId : null,
         })),
       );
     } catch (error) {

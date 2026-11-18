@@ -14,6 +14,7 @@ import { type ActivityRecorder, createActivityRecorder } from './activity.ts';
 import type {
   DeletedEntry,
   InstallServerRequest,
+  RunToolCall,
   ServedInstance,
   ServedRegistryPage,
   ServedServer,
@@ -379,6 +380,7 @@ export function createToolServices({
     workspaceId: string | null,
     tool: string,
     args: Record<string, unknown>,
+    run?: RunToolCall,
   ): Promise<CallToolResult> => {
     const resolved = await resolve(serverId, workspaceId);
     const workspace = workspaceId === null ? undefined : snapshot.current().workspaces.get(workspaceId);
@@ -389,13 +391,21 @@ export function createToolServices({
         serverName: resolved.name,
         workspaceId: workspace?.id ?? null,
         workspaceName: workspace?.slug ?? null,
+        agentId: run?.agentId ?? null,
+        agentName: run?.agentName ?? null,
+        runId: run?.runId ?? null,
         tool,
         durationMs: Math.round(performance.now() - startedAt),
         ok,
         error,
       });
     try {
-      const result = await instances.callTool(resolved, tool, args);
+      const result = await instances.callTool(
+        resolved,
+        tool,
+        args,
+        run?.signal === undefined ? {} : { signal: run.signal },
+      );
       record(result.isError !== true, result.isError === true ? 'The tool answered an error.' : null);
       return result;
     } catch (error) {
