@@ -205,7 +205,6 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
             )}
           </form.Subscribe>
           <form.SubmitButton
-            variant={isNew ? 'info' : 'positive'}
             requireChanges={isNew === false}
             loadingLabel="Saving…"
             content={isNew ? 'Add agent' : 'Save revision'}

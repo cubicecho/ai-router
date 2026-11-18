@@ -91,11 +91,7 @@ export function WorkspaceDialog({ open, onOpenChange, workspace, onSaved }: Work
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
-          <form.SubmitButton
-            variant={isEdit ? 'positive' : 'info'}
-            requireChanges={isEdit}
-            content={isEdit ? 'Save changes' : 'Create workspace'}
-          />
+          <form.SubmitButton requireChanges={isEdit} content={isEdit ? 'Save changes' : 'Create workspace'} />
         </>
       )}
     />
