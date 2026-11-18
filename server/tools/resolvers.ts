@@ -10,6 +10,7 @@ import { serverSecrets } from '../db/tables/server-secrets.ts';
 import { servers } from '../db/tables/servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
+import { selectedId } from '../graphql/selected-id.ts';
 import type { InstallServerRequest } from './api.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
@@ -220,22 +221,6 @@ function loginOf(server: SnapshotServer) {
 }
 
 /**
- * Reads the id a field on Server needs.
- *
- * @param parent - The server as the generated resolver answered it.
- * @param field - The field asking, for the message.
- * @returns The server's id.
- * @throws BAD_USER_INPUT when the query didn't select it. A generated read returns only the columns a query
- * selected, adding the key only when it selected none, so a field it doesn't know can't count on the id.
- */
-function selectedId(parent: { id?: string }, field: string): string {
-  if (parent.id === undefined) {
-    throw badInput(`Select the server's id alongside ${field}.`);
-  }
-  return parent.id;
-}
-
-/**
  * Reads a server's row as the API serves it.
  *
  * @param ctx - The request.
@@ -265,12 +250,12 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
   const serverFields = objectType(extended, 'Server').getFields();
 
   serverFields.login.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) => {
-    const server = serverById(ctx, selectedId(parent, 'login'));
+    const server = serverById(ctx, selectedId(parent, 'server', 'login'));
     return server.transport.type === TRANSPORT_STREAMABLE_HTTP ? loginOf(server) : null;
   };
 
   serverFields.instances.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) =>
-    ctx.tools.instanceStates(selectedId(parent, 'instances'));
+    ctx.tools.instanceStates(selectedId(parent, 'server', 'instances'));
 
   queries.serverDefaults.resolve = () => ({
     idleTimeoutMs: INSTANCE_DEFAULTS.idleTimeoutMs,

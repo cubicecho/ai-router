@@ -6,6 +6,7 @@ import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound } from '../core/errors.ts';
 import { runs } from '../db/tables/runs.ts';
 import { objectType } from '../graphql/object-type.ts';
+import { selectedId } from '../graphql/selected-id.ts';
 
 const { eventPageSize, maxEventPageSize } = RUN_DEFAULTS;
 
@@ -116,15 +117,13 @@ export function applyRunsExtension(schema: GraphQLSchema): GraphQLSchema {
 
   const runFields = objectType(extended, 'Run').getFields();
   runFields.events.resolve = async (parent: { id?: string }, args: EventsArgs, ctx: Context) => {
-    if (parent.id === undefined) {
-      throw badInput("Select the run's id alongside events.");
-    }
+    const runId = selectedId(parent, 'run', 'events');
     const limit = args.limit ?? eventPageSize;
     const isInRange = limit >= 1 && limit <= maxEventPageSize;
     if (isInRange === false) {
       throw badInput(`events: limit is 1 to ${maxEventPageSize}.`);
     }
-    const events = await ctx.runs.bus.events(parent.id, args.afterSeq ?? 0, limit);
+    const events = await ctx.runs.bus.events(runId, args.afterSeq ?? 0, limit);
     return args.folded === true ? fold(events) : events;
   };
 
