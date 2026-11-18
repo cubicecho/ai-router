@@ -278,7 +278,7 @@ The check for phases 5–8.
    `/bare/v1` proxy, model listing, the usage table, the GraphQL admin and its UI pages.
 3. **Tools.** Port mcp-router: registries, the installer (running as the server's user), servers
    and their secrets, each server's user id from the child range and its own install folder
-   (mode 0700), instances
+   (mode 0700), shared groups for servers that use mounted folders (below), instances
    (as the child user), MCP sessions, `/bare/mcp` and `/bare/mcp/<server>`, forwarding form
    elicitation to the client as mcp-router does, server login,
    activity, and the UI pages. mcp-router's discovery is left for later.
@@ -345,6 +345,19 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
+- **Mounted folders, such as a filesystem server's shared folder.** A host folder belongs to the
+  host's user, and a server's own user id can't read it. mcp-router only manages because it runs
+  as root. Planned for phase 3, to spike first:
+  - **Shared groups (the built-in answer).** A server's settings list extra groups, such as
+    `users` (gid 100), and `run-as-child` adds them when it starts the server.
+    - **On the host, once:** give the folder that group, make it group-writable (`g+rwX`) and
+      set the group bit on its folders (`g+s`). Many NAS boxes already do this.
+    - **What the helper refuses:** gid 0, `shadow` (42) and the router's own group, and more
+      than a few groups. That keeps the router isolated.
+  - **More isolation, documented:** run the server in its own container with the folder
+    mounted, and add it to the router as a remote server.
+  - **Ruled out:** running the server as the host user's id. Inside the container that's 1000,
+    which is the router's own id.
 - **Workspace instances of one server share its user id.** So the household A and household B
   instances of `actual` could read each other's environment, and with it each other's budget
   credentials. The spike showed that separate user ids can't read each other's `/proc/<pid>/environ`.
