@@ -26,9 +26,11 @@ export function UsersRoute() {
   });
   const remove = useMutation({ mutationFn: (id: string) => request(DeleteUserDocument, { id }), onSuccess: refresh });
   const rows = users.data?.users ?? [];
+  const adminCount = rows.filter((user) => user.role === Role.Admin).length;
 
   return (
     <PageLayout
+      width="prose"
       title="Users"
       description="Anyone your sign-in provider lets through can sign in. Admins may also set secrets, settings and roles."
       contentSlot={
@@ -39,29 +41,37 @@ export function UsersRoute() {
             contentSlot={rows.map((user) => {
               const isAdmin = user.role === Role.Admin;
               const isMe = user.id === me.data?.me.id;
+              // The router refuses to demote or delete the last admin, so the page doesn't offer it.
+              const isOnlyAdmin = isAdmin && adminCount === 1;
               return (
                 <ListItem
                   key={user.id}
                   title={user.name ?? user.email}
-                  description={user.email}
+                  description={
+                    isOnlyAdmin
+                      ? `${user.email} · The only admin: make someone else admin to change this one.`
+                      : user.email
+                  }
                   meta={isAdmin ? <Badge>Admin</Badge> : undefined}
                   actionSlot={
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        loading={setRole.isPending && setRole.variables?.id === user.id}
-                        onClick={() => setRole.mutate({ id: user.id, role: isAdmin ? Role.User : Role.Admin })}
-                        content={isAdmin ? 'Make user' : 'Make admin'}
-                      />
-                      <ConfirmButton
-                        size="sm"
-                        title={isMe ? 'Delete your own account?' : `Delete ${user.name ?? user.email}?`}
-                        description="They are signed out everywhere. They can sign in again if your provider still lets them."
-                        onConfirm={() => remove.mutate(user.id)}
-                        content="Delete"
-                      />
-                    </>
+                    isOnlyAdmin ? undefined : (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          loading={setRole.isPending && setRole.variables?.id === user.id}
+                          onClick={() => setRole.mutate({ id: user.id, role: isAdmin ? Role.User : Role.Admin })}
+                          content={isAdmin ? 'Make user' : 'Make admin'}
+                        />
+                        <ConfirmButton
+                          size="sm"
+                          title={isMe ? 'Delete your own account?' : `Delete ${user.name ?? user.email}?`}
+                          description="They are signed out everywhere. They can sign in again if your provider still lets them."
+                          onConfirm={() => remove.mutate(user.id)}
+                          content="Delete"
+                        />
+                      </>
+                    )
                   }
                 />
               );

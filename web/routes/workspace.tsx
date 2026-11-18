@@ -95,7 +95,7 @@ export function WorkspaceRoute() {
   }
 
   const makeKey = (
-    <Button variant="info" size="sm" iconSlot={<Plus />} onClick={() => setIsMakingKey(true)} content="New key" />
+    <Button variant="positive" size="sm" iconSlot={<Plus />} onClick={() => setIsMakingKey(true)} content="New key" />
   );
   return (
     <PageLayout

@@ -112,10 +112,11 @@ export function ProviderRoute() {
               <>
                 <PropertyRow
                   label="Name"
-                  value={<code>{record.name}</code>}
+                  value={record.name}
+                  valueClassName="font-mono"
                   hint="Agents name its models as name/model."
                 />
-                <PropertyRow label="Base URL" value={<code>{record.baseUrl}</code>} />
+                <PropertyRow label="Base URL" value={record.baseUrl} valueClassName="font-mono" />
                 <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
                 <PropertyRow
                   label="API key"
@@ -134,7 +135,7 @@ export function ProviderRoute() {
                   }
                 />
                 {headers.map(([name, value]) => (
-                  <PropertyRow key={name} label={name} value={<code>{value}</code>} hint="Extra header" />
+                  <PropertyRow key={name} label={name} value={value} valueClassName="font-mono" hint="Extra header" />
                 ))}
               </>
             }

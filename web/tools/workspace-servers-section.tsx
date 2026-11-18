@@ -76,7 +76,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
   const secretsOf = (serverId: string) =>
     (entries.data?.serverSecrets ?? []).filter((secret) => secret.serverId === serverId).map((secret) => secret.name);
   const add = (
-    <Button variant="info" size="sm" iconSlot={<Plus />} onClick={() => setEditing(null)} content="Add server" />
+    <Button variant="positive" size="sm" iconSlot={<Plus />} onClick={() => setEditing(null)} content="Add server" />
   );
 
   return (

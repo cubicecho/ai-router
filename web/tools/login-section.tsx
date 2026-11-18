@@ -161,7 +161,7 @@ export function LoginSection({ server, isAdmin }: LoginSectionProps) {
             />
           ) : null}
           <Button
-            variant={login.signedIn ? 'outline' : 'info'}
+            variant={login.signedIn ? 'outline' : 'positive'}
             size="sm"
             iconSlot={<KeyRound />}
             loading={signIn.isPending}

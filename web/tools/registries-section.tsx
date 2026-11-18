@@ -24,7 +24,7 @@ export function RegistriesSection() {
   });
   const rows = registries.data?.registries ?? [];
   const add = (
-    <Button variant="info" size="sm" iconSlot={<Plus />} onClick={() => setEditing(null)} content="New registry" />
+    <Button variant="positive" size="sm" iconSlot={<Plus />} onClick={() => setEditing(null)} content="New registry" />
   );
 
   return (

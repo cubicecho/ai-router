@@ -19,10 +19,11 @@ export function AgentsRoute() {
   const [isAdding, setIsAdding] = useState(false);
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => request(AgentsDocument) });
   const rows = agents.data?.agents ?? [];
-  const add = <Button variant="info" iconSlot={<Plus />} onClick={() => setIsAdding(true)} content="New agent" />;
+  const add = <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsAdding(true)} content="New agent" />;
 
   return (
     <PageLayout
+      width="prose"
       title="Agents"
       description="A model, a prompt and tools, defined once. An app picks one as its model, by its name."
       actionSlot={rows.length > 0 ? add : undefined}

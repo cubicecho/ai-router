@@ -38,7 +38,7 @@ function PairProvider() {
           required
           validators={{ onChange: ({ value }) => (value.trim() === '' ? 'Paste the setup URL.' : undefined) }}
         />
-        <form.SubmitButton variant="info" content="Connect provider" />
+        <form.SubmitButton content="Connect provider" />
       </FormElement>
     </form.AppForm>
   );

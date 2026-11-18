@@ -138,7 +138,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
               onChange={(event) => setModel(event.target.value)}
             />
             <Button
-              variant="info-outline"
+              variant="positive-outline"
               iconSlot={<Plus />}
               disabled={canAdd === false}
               onClick={add}

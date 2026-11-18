@@ -21,10 +21,13 @@ export function ServersRoute() {
   const [isInstalling, setIsInstalling] = useState(false);
   const servers = useQuery({ queryKey: ['servers'], queryFn: () => request(ServersDocument) });
   const rows = servers.data?.servers ?? [];
-  const add = <Button variant="info" iconSlot={<Plus />} onClick={() => setIsInstalling(true)} content="Add server" />;
+  const add = (
+    <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsInstalling(true)} content="Add server" />
+  );
 
   return (
     <PageLayout
+      width="prose"
       title="Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
       actionSlot={rows.length > 0 ? add : undefined}

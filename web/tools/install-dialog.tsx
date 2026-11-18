@@ -349,7 +349,6 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
           <form.SubmitButton
-            variant="info"
             disabled={from === 'registry' && chosen === null}
             loadingLabel="Installing…"
             content={isManual ? 'Add server' : 'Install'}

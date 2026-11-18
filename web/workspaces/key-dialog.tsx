@@ -59,7 +59,8 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
             />
             <CodeBlock content={secret} wrap actionSlot={<CopyButton value={secret} label="Copy key" />} />
             <p className="text-foreground/60 text-sm">
-              Apps send it as <code>Authorization: Bearer</code> or <code>x-api-key</code>.
+              Apps send it as <code className="font-mono">Authorization: Bearer</code> or{' '}
+              <code className="font-mono">x-api-key</code>.
             </p>
           </div>
         }
@@ -105,7 +106,7 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
       footerActionsSlot={(dismiss) => (
         <>
           <Button variant="outline" onClick={dismiss} content="Cancel" />
-          <form.SubmitButton variant="info" content="Create key" />
+          <form.SubmitButton content="Create key" />
         </>
       )}
     />

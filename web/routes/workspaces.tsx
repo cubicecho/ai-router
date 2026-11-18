@@ -31,11 +31,12 @@ export function WorkspacesRoute() {
   const workspaces = useQuery({ queryKey: ['workspaces'], queryFn: () => request(WorkspacesDocument) });
   const rows = workspaces.data?.workspaces ?? [];
   const create = (
-    <Button variant="info" iconSlot={<Plus />} onClick={() => setIsCreating(true)} content="New workspace" />
+    <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsCreating(true)} content="New workspace" />
   );
 
   return (
     <PageLayout
+      width="prose"
       title="Workspaces"
       description="What each app sees: the agents, models and servers it may use, and the keys it calls with."
       actionSlot={rows.length > 0 ? create : undefined}

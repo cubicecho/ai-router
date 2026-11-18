@@ -117,7 +117,7 @@ export function TryToolDialog({ open, onOpenChange, serverId, serverName, tool }
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Close" />
-          <form.SubmitButton variant="info" loadingLabel="Calling…" content="Call it" />
+          <form.SubmitButton loadingLabel="Calling…" content="Call it" />
         </>
       )}
     />

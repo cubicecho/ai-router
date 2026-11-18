@@ -68,7 +68,7 @@ export function WorkspaceAgentDialog({ open, onOpenChange, workspaceId, choices 
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
-          <form.SubmitButton variant="info" content="Add agent" />
+          <form.SubmitButton content="Add agent" />
         </>
       )}
     />

@@ -93,7 +93,12 @@ export function PoolRoute() {
           <PropertyList
             contentSlot={
               <>
-                <PropertyRow label="Name" value={<code>{record.name}</code>} hint="What an agent names as its model." />
+                <PropertyRow
+                  label="Name"
+                  value={record.name}
+                  valueClassName="font-mono"
+                  hint="What an agent names as its model."
+                />
                 <PropertyRow
                   label="Picks a target"
                   value={STRATEGIES.find((strategy) => strategy.value === record.strategy)?.label}

@@ -18,10 +18,13 @@ export function ProvidersRoute() {
   const [isAdding, setIsAdding] = useState(false);
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => request(ProvidersDocument) });
   const rows = providers.data?.providers ?? [];
-  const add = <Button variant="info" iconSlot={<Plus />} onClick={() => setIsAdding(true)} content="New provider" />;
+  const add = (
+    <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsAdding(true)} content="New provider" />
+  );
 
   return (
     <PageLayout
+      width="prose"
       title="Providers"
       description="The model servers agents call. An agent names a model as <provider>/<model>."
       actionSlot={rows.length > 0 ? add : undefined}

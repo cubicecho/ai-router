@@ -31,10 +31,13 @@ export function PoolsRoute() {
   const [isCreating, setIsCreating] = useState(false);
   const pools = useQuery({ queryKey: ['pools'], queryFn: () => request(PoolsDocument) });
   const rows = pools.data?.pools ?? [];
-  const create = <Button variant="info" iconSlot={<Plus />} onClick={() => setIsCreating(true)} content="New pool" />;
+  const create = (
+    <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsCreating(true)} content="New pool" />
+  );
 
   return (
     <PageLayout
+      width="prose"
       title="Pools"
       description="One model name served by several targets. An agent names a pool as its model."
       actionSlot={rows.length > 0 ? create : undefined}

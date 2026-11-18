@@ -61,7 +61,7 @@ export function SecretsSection({ serverId, serverName, transport, secrets, envMe
   const kind: SecretKind = transport.type === STDIO ? 'env' : 'header';
   const add = isAdmin ? (
     <Button
-      variant="info"
+      variant="positive"
       size="sm"
       iconSlot={<Plus />}
       onClick={() => setTarget({ kind, name: '', isSet: false })}

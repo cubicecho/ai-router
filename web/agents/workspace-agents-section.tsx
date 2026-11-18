@@ -40,7 +40,7 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
   const choices = (entries.data?.agents ?? []).filter((agent) => taken.has(agent.id) === false);
   const add = (
     <Button
-      variant="info"
+      variant="positive"
       size="sm"
       iconSlot={<Plus />}
       onClick={() => setIsAdding(true)}
