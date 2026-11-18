@@ -15,6 +15,7 @@ import {
   createTestDb,
   createUser,
   createWorkspaceWithKey,
+  freeGroups,
   resetTestDb,
   type TestClient,
   type TestDb,
@@ -82,8 +83,7 @@ async function addServer(name: string, http = false) {
  * @returns The groups, none of them refused on its own.
  */
 function nineGroups(): number[] {
-  const first = 200;
-  return Array.from({ length: CHILD_DEFAULTS.maxExtraGroups + 1 }, (_, index) => first + index);
+  return freeGroups(CHILD_DEFAULTS.maxExtraGroups + 1);
 }
 
 beforeAll(async () => {
@@ -127,7 +127,7 @@ describe('servers', () => {
 
   it('take extra groups by the helper’s rules, and say why one is refused', async () => {
     const { id } = await addServer('files');
-    const set = { extraGroups: [CHILD_DEFAULTS.firstExtraGid, 2000] };
+    const set = { extraGroups: freeGroups(2) };
     await asAdmin.expectOk(UPDATE_SERVER, { id, set });
     const [stored] = await db.select().from(servers).where(eq(servers.id, id));
     expect(stored?.extraGroups).toEqual(set.extraGroups);
@@ -139,7 +139,7 @@ describe('servers', () => {
       [[CHILD_DEFAULTS.uidMin + 5], 'belong to servers'],
       [[CHILD_DEFAULTS.uidMax], 'belong to servers'],
       [[process.getgid?.() ?? 0], 'router'],
-      [[100, 100], 'twice'],
+      [[freeGroups(1)[0], freeGroups(1)[0]], 'twice'],
       [nineGroups(), `At most ${CHILD_DEFAULTS.maxExtraGroups}`],
     ];
     for (const [extraGroups, why] of refused) {
@@ -151,7 +151,7 @@ describe('servers', () => {
 
   it('are set by an admin only: a group can open host folders to the server', async () => {
     const { id } = await addServer('files');
-    const { code } = await asUser.expectError(UPDATE_SERVER, { id, set: { extraGroups: [100] } });
+    const { code } = await asUser.expectError(UPDATE_SERVER, { id, set: { extraGroups: freeGroups(1) } });
     expect(code).toBe(ErrorCode.Forbidden);
     await asUser.expectOk(UPDATE_SERVER, { id, set: { enabled: false } });
   });

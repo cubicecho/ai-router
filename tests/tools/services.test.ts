@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { UserCaller } from '../../server/core/context.ts';
-import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost, type SnapshotHost } from '../../server/db/snapshot.ts';
 import { activity } from '../../server/db/tables/activity.ts';
@@ -21,6 +20,7 @@ import {
   createTestDb,
   createUser,
   createWorkspaceWithKey,
+  freeGroups,
   resetTestDb,
   type TestClient,
   type TestDb,
@@ -314,12 +314,12 @@ describe('a workspace instance', () => {
     const [before] = tools.instances.list(server.id);
     await createClient(db, await createUser(db, 'admin@example.com', Role.Admin), { snapshot, tools }).expectOk(
       SET_GROUPS,
-      { id: server.id, extraGroups: [CHILD_DEFAULTS.firstExtraGid] },
+      { id: server.id, extraGroups: freeGroups(1) },
     );
     await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
     const [after] = tools.instances.list(server.id);
     expect(after).not.toBe(before);
-    expect(after?.server.runAs?.groups).toEqual([CHILD_DEFAULTS.firstExtraGid]);
+    expect(after?.server.runAs?.groups).toEqual(freeGroups(1));
   });
 });
 

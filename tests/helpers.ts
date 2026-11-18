@@ -12,6 +12,7 @@ import { hashKey, mintKey } from '../server/auth/keys.ts';
 import { createRateLimiter, type RateLimiter } from '../server/auth/rate-limit.ts';
 import type { OidcConfig } from '../server/core/config.ts';
 import { CALLER_USER, CALLER_WORKSPACE, type Caller, type Context, type UserCaller } from '../server/core/context.ts';
+import { CHILD_DEFAULTS } from '../server/core/defaults.ts';
 import { relations } from '../server/db/relations.ts';
 import * as dbSchema from '../server/db/schema.ts';
 import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
@@ -21,7 +22,7 @@ import { createSchema } from '../server/graphql/build-schema.ts';
 import type { UpstreamFetch } from '../server/models/outbound.ts';
 import { createModelServices, type ModelServices } from '../server/models/services.ts';
 import type { ToolServices } from '../server/tools/api.ts';
-import { ChildMode } from '../server/tools/child-users.ts';
+import { ChildMode, routerGroups } from '../server/tools/child-users.ts';
 import type { RegistryFetch } from '../server/tools/registry.ts';
 import { createToolServices } from '../server/tools/services.ts';
 
@@ -319,4 +320,22 @@ export function portOf(server: Server): number {
     throw new Error('The test server is not listening on a TCP port.');
   }
   return address.port;
+}
+
+/**
+ * Picks group ids a server may be given here: the lowest the helper takes that the test process doesn't hold. A CI
+ * runner's user is in `users` (100), which the router rightly refuses as one of its own.
+ *
+ * @param count - How many.
+ * @returns That many distinct ids, lowest first.
+ */
+export function freeGroups(count: number): number[] {
+  const held = new Set(routerGroups());
+  const free: number[] = [];
+  for (let gid = CHILD_DEFAULTS.firstExtraGid; free.length < count; gid += 1) {
+    if (held.has(gid) === false) {
+      free.push(gid);
+    }
+  }
+  return free;
 }
