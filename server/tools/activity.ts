@@ -1,15 +1,12 @@
 import { lt } from 'drizzle-orm';
 import { ACTIVITY_DEFAULTS, type ActivitySettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { MS_PER_DAY, MS_PER_SECOND } from '../core/wire.ts';
+import { MS_PER_DAY, MS_PER_HOUR, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { existingIds } from '../db/existing-ids.ts';
 import { activity, type NewActivityRow } from '../db/tables/activity.ts';
 import { servers } from '../db/tables/servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
-
-/** Milliseconds in one hour. */
-const MS_PER_HOUR = 3_600_000;
 
 /** One finished tool call, as the router records it. Never its arguments or result. */
 export interface ToolCallRecord {

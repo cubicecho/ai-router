@@ -1,7 +1,7 @@
 import { and, isNotNull, lt, sql } from 'drizzle-orm';
 import { USAGE_DEFAULTS, type UsageSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { MS_PER_DAY, MS_PER_SECOND } from '../core/wire.ts';
+import { MS_PER_DAY, MS_PER_HOUR, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { existingIds } from '../db/existing-ids.ts';
 import { providers } from '../db/tables/providers.ts';
@@ -9,8 +9,6 @@ import { type NewUsageCount, usageCounts } from '../db/tables/usage-counts.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import type { ReportedUsage } from './usage-reader.ts';
 
-/** Milliseconds in one hour. */
-const MS_PER_HOUR = 3_600_000;
 /** Characters of an ISO timestamp that are its date, `YYYY-MM-DD`. */
 const ISO_DATE_LENGTH = 10;
 
