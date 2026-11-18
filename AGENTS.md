@@ -13,8 +13,9 @@ ai-router gives every app on a network **agents**, through one address and one k
 llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`) stay in service. Their model and
 tool code is the reference to port from, not a dependency.
 
-**Status: phase 1, the scaffold.** Sign-in, roles, workspaces and their keys, the snapshot and the
-child-user check exist. Models, tools and agents come in the phases after it (`PLAN.md`).
+**Status: phases 1 to 3 and 5 to 7 are built:** the scaffold, models, tools, agents and their
+revisions, and runs on `/v1` with app tools, progress events, run records at `/runs` and
+conversations. Consumers (phase 8) and the admin server (phase 9) come next (`PLAN.md`).
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
@@ -170,7 +171,8 @@ non-negotiables apply on top of these.
   ai-router-specific client.
 - **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
   second run.
-- **Run events are `agent-core`'s `RunEvent`, unchanged,** written with `agent-core`'s encoder. That's what `min-agent`,
+- **Run events are `agent-core`'s `RunEvent`, unchanged,** as JSON: agent-core has no encoder for them. The router
+  numbers them itself and never restarts `seq`, across a wait or a restart. That's what `min-agent`,
   `task_server` and telos already render, so progress chunks, `run_events` rows and
   `/runs/<id>/events` all carry it as it is. A progress chunk has empty `choices`, like OpenAI's
   usage chunk, so standard clients skip it. A key reads only its own workspace's runs.

@@ -9,7 +9,7 @@ Define "Personal Finance" once. Then chat with it in `min-agent`, and have `task
 every Friday, with the same prompt, tools and RAG behind both.
 
 The concepts and rules are in [`.agents/domain-model.md`](.agents/domain-model.md). This file is
-the order of work and the reasons for it. Phase 1, the scaffold, is built.
+the order of work and the reasons for it. Phases 1 to 3 and 5 to 7 are built.
 
 ## Decisions
 
@@ -36,7 +36,7 @@ the order of work and the reasons for it. Phase 1, the scaffold, is built.
 | Agent loop | `agent-core` `runAgentLoop`, with its `dispatch` calling the tools area's own instances | `agent-mcp-pool` would start a second copy of every server |
 | A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core`'s endpoint `fetch` option (4.26.0, [agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) does this | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
 | Slim apps | **Apps keep calling `runAgentLoop`, and only the config changes.** It points at `/v1` with the agent's id, and carries an agent flag taken from the `/v1/models` entry (`ai_router.kind: "agent"`). With the flag, the loop forwards the router's run events, keeps its own compaction, preselection and on-demand loading off, and sends an idempotency key on retries ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Apps drop `agent-mcp-pool` and their own loop code, not `agent-core` | `agent-core` is already an OpenAI tool loop, and it keeps a server's tool-call ids as sent, so the app-tool hand-back works as it is. One call site, the same `dispatch` and `onEvent`, and the apps' Runs tabs stay as they are |
-| Run events | `agent-core`'s `RunEvent`, carried unchanged, in chunks written and read by `agent-core`'s own encoder and decoder | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
+| Run events | `agent-core`'s `RunEvent`, carried unchanged, as JSON. `agent-core` has no encoder or decoder of its own for them (found in phase 7) | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
 | Admin tools | Later, as a built-in **admin server**, `ai-router`, built with `@cubicecho/graphql-mcp`. It's the only way in: a workspace gets it through a server entry with permission levels, and an agent must name it. There's no separate `/admin/mcp` | It answers "why did Friday's run fail?" and lets agents draft agents. With only workspace keys, a second door would need a second set of permission checks |
 | Discovery | **Later.** The AI Catalog, Agent Cards, and LAN announce and discovery are not in the first pass. When they come, the public catalog names only the router's endpoint, and the agents behind it are listed only to a key | Simpler first pass. mcp-router serves its catalog and cards to anyone, which here would show every agent on the network |
@@ -383,12 +383,57 @@ The acceptance check for the first release.
      router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
      The forwarder keeps one `fetch` per workspace and agent, so agent-core's client pool and probe
      caches last across runs.
-7. **Agents: app tools, progress events and conversations.**
+7. **Agents: app tools, progress events and conversations. Done.**
    - **App tools:** waiting runs, kept on the `runs` row and resumed by the call ids they handed
      back.
    - **Progress events:** `RunEvent`s in the stream, plus `/runs/<id>` and `/runs/<id>/events`,
-     stored in `run_events`, written with `agent-core`'s encoder.
+     stored in `run_events`.
    - **Conversations.**
+
+   Notes:
+   - **Handing back.** An app tool is a `hostTools` entry whose dispatch answers with a stand-in
+     and agent-core's `end`, so the loop stops after the step; the agent's own calls in that step
+     still run. The app gets an ordinary answer, `finish_reason: "tool_calls"`, streamed or not.
+     agent-core keeps a server's call ids, so the router mints the handed-back ids itself
+     (`freshCallId`) and renames those calls in the answer, the events and the stored transcript.
+     A repeated identical app call is handed back too (`dedupeToolCalls` skips app tools).
+   - **Resuming.** A request whose trailing `tool` messages answer a waiting run's calls, matched
+     by those ids within the key's workspace and the named agent, resumes it under the same run
+     id. Every call must be answered, and nothing else. The run keeps its revision and layers:
+     host and task text may be repeated or left out, and different text is refused; the resume's
+     sampling and servers are ignored. Its `tools` replace the stored app tools when it sends any.
+   - **Restarts.** A waiting run keeps its transcript, loaded tools, layers and the app's tools in
+     `runs.resume`, so it survives a restart: a resume rebuilds the loop from them. Only `running`
+     runs fail at boot. The token ledger isn't carried, so a resumed stretch starts a new epoch.
+   - **Timeouts.** `RUN_DEFAULTS.waitTimeoutHours` (24) expires a waiting run, checked every 5
+     minutes and on a late answer, which gets 409 `run_expired`. The run timeout counts each
+     stretch's running time, not the wait.
+   - **Name clashes are refused:** an app tool named like one of the agent's own tools gets a 400
+     naming both, before the run is recorded, as are names the loop keeps (`load_tools`,
+     `call_tool`, `record_artifact`). `tool_choice` may only be `auto`; legacy `functions` are
+     refused.
+   - **Idempotency.** A run answers to the key of its latest request: a resume takes over the key
+     it sends (or clears it), so a retry of the resume gets its answer. A retry of an earlier
+     request after a later one resumed the run is not recognised.
+   - **Events.** The router numbers events itself, carrying on after the last stored one, since a
+     waiting run outlives agent-core's in-memory bus and must never restart `seq`. agent-core's
+     `stamp` isn't exported, so the router fills the same defaults. Every event is stored, token
+     deltas included, written every 250 ms in batches, and `/runs/<id>/events` replays every one;
+     `Run.events(folded: true)` joins text and reasoning deltas with agent-core's `fold`. A
+     follower gets stored events, then live ones, with no gap and no repeat, and rejoins with
+     `Last-Event-ID`. Following a waiting run keeps the stream open through the wait.
+   - **Progress.** Events of this request's stretch of the run, as chunks with empty `choices`
+     or `ai_router: { runId, events }`. A repeated `Idempotency-Key` answers without them.
+   - **Token counts** are written as each turn's usage arrives, so a running run shows them.
+   - **Conversations.** A row per workspace and app id, bound to the agent it started with, with
+     the transcript of its last completed run (tool calls included) and its host text. With
+     history, a request sends only new user or system messages; assistant or tool messages are
+     refused, except the tool answers that resume its waiting run. One run at a time, held by a
+     partial unique index; an overlap gets 409 `conversation_busy`. A failed run leaves the history
+     as it was. Idle 72 hours, then pruned unless a run of it is going; its runs stay, naming none.
+   - **GraphQL:** `Run.events(afterSeq, limit, folded)` in the `LiveRunEvent` shape, `runEvents`
+     replaying stored events (with `afterSeq`), `Run.conversation`, `Conversation.runs`, and the
+     statuses `waiting` and `expired`. `run_events` itself isn't generated.
 8. **Consumers.** Each one keeps calling `runAgentLoop`, with a config pointed at `/v1` and the
    agent flag set ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223) lands
    first). Each shows the router's events in the timeline it already has:
@@ -445,8 +490,12 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
-  app's MCP client, but an agent run has no MCP client to forward to. Phase 6 declines it. Later:
-  hand it to the app as a progress event and wait, like an app tool.
+  app's MCP client, but an agent run has no MCP client to forward to. Phases 6 and 7 decline it.
+  Phase 7's waiting runs make the later option cheap: hand the request back like an app tool
+  call (an `ai_router` elicitation tool the app answers), and resume as the same run. It needs a
+  way for the router's MCP client to hold the request open across the wait, or to answer it
+  declined and retry the tool call once the app answers. Worth doing when `min-agent` has a
+  server that asks.
 
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.

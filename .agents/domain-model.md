@@ -9,7 +9,8 @@ entries, install folders, shared groups, instances and their user ids, server lo
 describe the code as it is. **Phase 5 is built too:** agents, revisions, history and rollback,
 warnings, the seeded override policy, and which workspaces may run which agents. **So is phase 6:** runs on the
 agents endpoint `/v1` (layers, the override policy, reach, tool names, dispatch, model calls in process, the `runs`
-table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). Every other entry
+table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). **So is phase 7:** app tools and waiting
+runs, progress events, stored run events and the run records at `/runs`, and conversations. Every other entry
 is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
