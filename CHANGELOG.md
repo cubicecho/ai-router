@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/cubicecho/ai-router/compare/v0.1.1...v0.1.2) (2026-11-18)
+
+### Bug Fixes
+
+* **tools:** starting a server login sends the server's header secrets ([073226f](https://github.com/cubicecho/ai-router/commit/073226f2604dd3317ed171d1f28b7e62b02b3b4e))
+
 ## [0.1.1](https://github.com/cubicecho/ai-router/compare/v0.1.0...v0.1.1) (2026-11-18)
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 {
   "name": "ai-router",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "license": "MIT",
   "description": "Agents, models and tools for every app on a network, through one address and one key per app.",
