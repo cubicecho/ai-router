@@ -10,6 +10,7 @@ import {
   envMetaOf,
   envOf,
   envToText,
+  groupsToText,
   linesToText,
   MS_PER_SECOND,
   type ServerTransport,
@@ -17,6 +18,7 @@ import {
   serverNameError,
   sourceOf,
   textToEnv,
+  textToGroups,
   textToLines,
   transportOf,
 } from './shapes';
@@ -51,6 +53,7 @@ interface ServerUpdate {
   idleTimeoutMs: number | null;
   callTimeoutMs: number | null;
   env: Record<string, string>;
+  extraGroups: number[];
   transport?: ServerTransport;
 }
 
@@ -111,6 +114,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
           ? null
           : server.callTimeoutMs / MS_PER_SECOND,
       env: envToText(envOf(server.env)),
+      extraGroups: groupsToText(server.extraGroups),
       command: transport.type === STDIO ? transport.command : '',
       args: transport.type === STDIO ? linesToText(transport.args) : '',
       url: transport.type === STDIO ? '' : transport.url,
@@ -124,6 +128,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
         idleTimeoutMs: toMs(value.idleSeconds),
         callTimeoutMs: toMs(value.callSeconds),
         env: textToEnv(value.env).env ?? {},
+        extraGroups: textToGroups(value.extraGroups).groups ?? [],
       };
       if (isManual) {
         set.transport =
@@ -209,6 +214,15 @@ export function ServerDialog({ open, onOpenChange, server, defaults }: ServerDia
                   return secret === undefined ? undefined : `${secret} is a secret: set it under Secrets.`;
                 },
               }}
+            />
+          ) : null}
+          {transport.type === STDIO ? (
+            <InputField
+              form={form}
+              name="extraGroups"
+              label="Extra groups"
+              description="Group ids it also runs with, for a folder mounted from the host, such as 100 (users). Give that folder the group on the host, with g+rwX and g+s."
+              validators={{ onChange: ({ value }) => textToGroups(value).error ?? undefined }}
             />
           ) : null}
           <FieldRow

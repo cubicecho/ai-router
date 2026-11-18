@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
-import { type ChildIsolation, ChildMode } from '../../server/tools/child-users.ts';
-import { type ChildExec, childEnv, execChild } from '../../server/tools/install-folder.ts';
+import { type ChildIsolation, ChildMode, serverChildUser } from '../../server/tools/child-users.ts';
+import { type ChildExec, childEnv, execChild, homeOf } from '../../server/tools/install-folder.ts';
 import {
   Instance,
   InstanceError,
@@ -35,11 +35,11 @@ const running: Instance[] = [];
 
 beforeAll(async () => {
   installDir = await realpath(await mkdtemp(path.join(tmpdir(), 'ai-router-instance-')));
-  await mkdir(path.join(installDir, 'tmp'));
+  await mkdir(path.join(homeOf(installDir), 'tmp'), { recursive: true });
   helperDir = await mkdtemp(path.join(tmpdir(), 'ai-router-helper-'));
   helperPath = path.join(helperDir, 'run-as-child');
-  // Runs the command without switching users: what the real helper does, minus setuid.
-  await writeFile(helperPath, '#!/bin/sh\nshift\nexec "$@"\n');
+  // Runs the command after `--` without switching users: what the real helper does, minus setuid.
+  await writeFile(helperPath, '#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n');
   await chmod(helperPath, 0o755);
   http = await startHttpFixture();
 });
@@ -84,8 +84,9 @@ function stdioServer(overrides: Partial<ResolvedServer> = {}, args: string[] = [
     workspaceId: null,
     transport: { type: TRANSPORT_STDIO, command: process.execPath, args: [FIXTURE, ...args] },
     env: { FIXTURE_GREETING: 'hello' },
-    childUid: CHILD_DEFAULTS.uidMin,
+    runAs: serverChildUser(CHILD_DEFAULTS.uidMin),
     installDir,
+    homeDir: homeOf(installDir),
     idleTimeoutMs: 60_000,
     callTimeoutMs: 10_000,
     ...overrides,
@@ -105,8 +106,9 @@ function httpServer(headers: Record<string, string> = {}): ResolvedServer {
     workspaceId: 'workspace-1',
     transport: { type: TRANSPORT_STREAMABLE_HTTP, url: http.url, headers },
     env: {},
-    childUid: null,
+    runAs: null,
     installDir: null,
+    homeDir: null,
     idleTimeoutMs: 60_000,
     callTimeoutMs: 10_000,
   };
@@ -261,7 +263,7 @@ describe('a stdio instance', () => {
     const server = stdioServer();
     const instance = track(server);
     const env: unknown = JSON.parse(textOf(await instance.callTool('env', {})));
-    expect(env).toEqual({ ...childEnv(installDir), ...server.env });
+    expect(env).toEqual({ ...childEnv(homeOf(installDir)), ...server.env });
     expect(env).not.toHaveProperty('AI_ROUTER_PLANTED_SECRET');
     expect(textOf(await instance.callTool('cwd', {}))).toBe(installDir);
   });
@@ -303,10 +305,52 @@ describe('stopping a stdio program', () => {
     expect(calls).toEqual([
       {
         command: helperPath,
-        args: [String(CHILD_DEFAULTS.uidMin), process.execPath, '-e', expect.any(String), pid, 'SIGTERM'],
+        args: [String(CHILD_DEFAULTS.uidMin), '--', process.execPath, '-e', expect.any(String), pid, 'SIGTERM'],
       },
     ]);
     expect(isRunning(Number(pid))).toBe(false);
+  });
+
+  it('runs a workspace instance as its own uid with the server’s groups, in the server’s folder with its own HOME', async () => {
+    const calls: { command: string; args: string[] }[] = [];
+    const exec: ChildExec = (command, args, options) => {
+      calls.push({ command, args });
+      return execChild(command, args, options);
+    };
+    const homeDir = path.join(installDir, 'workspace-home');
+    await mkdir(path.join(homeDir, 'tmp'), { recursive: true });
+    const { uidMin } = CHILD_DEFAULTS;
+    const server = stdioServer(
+      { workspaceId: 'workspace-1', runAs: { uid: uidMin + 1, gid: uidMin, groups: [100, 2000] }, homeDir },
+      ['--linger'],
+    );
+    const instance = new Instance(server, { isolation: ISOLATED, exec, helperPath }, { closeGraceMs: 100 });
+    running.push(instance);
+    expect(textOf(await instance.callTool('cwd', {}))).toBe(installDir);
+    const env: unknown = JSON.parse(textOf(await instance.callTool('env', {})));
+    expect(env).toMatchObject({ HOME: homeDir, TMPDIR: path.join(homeDir, 'tmp') });
+    const pid = textOf(await instance.callTool('pid', {}));
+
+    await instance.stop();
+    expect(calls[0]?.args).toEqual([
+      String(uidMin + 1),
+      '-g',
+      String(uidMin),
+      '-G',
+      '100,2000',
+      '--',
+      process.execPath,
+      '-e',
+      expect.any(String),
+      pid,
+      'SIGTERM',
+    ]);
+  });
+
+  it('refuses a workspace instance whose folder is not made yet', async () => {
+    const instance = track(stdioServer({ workspaceId: 'workspace-1', homeDir: null }));
+    const error = await instanceErrorOf(instance.start());
+    expect(error.code).toBe(InstanceErrorCode.Refused);
   });
 
   it('refuses an isolated command that env would read as a variable', async () => {

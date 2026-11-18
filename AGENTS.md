@@ -117,11 +117,14 @@ non-negotiables apply on top of these.
 
 - **MCP child processes are untrusted.** Spawn them with argument arrays and never a shell
   string. Give them an env allowlist plus their own `env`, never `process.env`. Start every one
-  through `run-as-child <servers.child_uid> <command…>`, and the installer's `npm install` and
-  `uvx` too, since install scripts are code. Never give the router or node a capability, and
+  through `run-as-child <uid> [-g <gid>] [-G <gids>] -- <command…>` (`childCommand`), and the
+  installer's `npm install` and `uvx` too, since install scripts are code. A workspace instance
+  is its entry's uid with the server's gid. Never give the router or node a capability, and
   never swap the helper for a general tool like `setpriv`: with `CAP_SETUID`, that can become
-  root. The helper's source is `docker/run-as-child.c`, and its checks are
-  `scripts/check-children.sh`, which CI runs against the image.
+  root. Group rules (no system group, child id or router group as an extra group) live in the
+  helper itself; node only repeats them for a friendly error. The helper's source is
+  `docker/run-as-child.c`, and its checks are `scripts/check-children.sh`, which CI runs against
+  the image.
 - **Requests route from the snapshot.** Keys, and later agents, providers and servers, are read
   from it, never from the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process

@@ -298,15 +298,45 @@ The acceptance check for the first release.
      against a fake OpenAI server on loopback (streams, provider errors passed through,
      unreachable, the timeout, the caller aborting, a lease released on every path); the secrets
      test with a planted provider key.
-3. **Tools**, internal: what agent runs call. Port mcp-router's registries, the installer
+3. **Tools. Done**, internal: what agent runs call. Port mcp-router's registries, the installer
    (running as the server's user), servers and their secrets, each server's user id from the
-   child range and its own install folder (mode 0700), shared groups for servers that use mounted
-   folders (below), instances (as the child user), server login, activity, and the UI pages.
-   mcp-router's own MCP endpoint, its sessions and its discovery are not ported.
-   - **Built:** everything above but shared groups. Checked in the image: a real npm server
-     installed, listed, called and deleted as uid 10000, with the router refused its folder.
-   - **Left:** shared groups, and a user id per workspace instance (both below). Both change
-     `run-as-child`, so they go together, after a spike.
+   child range and its own install folder, shared groups for servers that use mounted folders,
+   a user id per workspace instance, instances (as the child user), server login, activity, and
+   the UI pages. mcp-router's own MCP endpoint, its sessions and its discovery are not ported.
+   - **Built and checked in the image:** a real npm server installed, listed, called and deleted
+     as uid 10000, with the router refused its folder; and `scripts/check-children.sh` for the
+     helper's group rules, a shared folder, and workspace instances.
+   - **`run-as-child <uid> [-g <gid>] [-G <gid>,…] [--] <command> …`.** The helper itself refuses
+     a uid or `-g` outside the child range, an extra group below 100 (root, shadow and every
+     other system group), in the child range (another server's), or held by its caller (the
+     router's own), a repeated group or option, more than 8 groups, and anything that isn't plain
+     decimal. It sets exactly those groups, drops every capability, sets `no_new_privs`, and sets
+     umask 022, so nothing a child makes is writable by its group unless it says so. Node checks
+     the same rules in `tools/input`, so the UI says why first, and `ck_servers_extra_groups`
+     holds them in the table.
+   - **Shared groups, for a mounted folder.** A server's settings list extra groups
+     (`servers.extra_groups`), such as `users` (100). Its instances run with them; its installs
+     don't need them and run without. On the host, once: `chgrp -R users <folder>`,
+     `chmod -R g+rwX <folder>`, and `find <folder> -type d -exec chmod g+s {} +`, so new files
+     keep the group. With umask 022 a file the server creates is 0644, readable by the group but
+     not writable: give the folder a default ACL (`setfacl -d -m g::rwX <folder>`) when the host's
+     users must edit what the server writes. The group never reaches the server's own folder,
+     which has the server's own group. For more isolation, run the server in its own container
+     with the folder mounted, and add it as a remote server. Running it as the host user's id is
+     ruled out: inside the container that's 1000, the router's own.
+   - **A user id per workspace instance.** A server entry gets `workspace_servers.child_uid` from
+     the same `child_uid_seq` when it is created, never reused. Its workspace instance runs as
+     that uid with the server's uid as its primary group and the server's extra groups, so two
+     workspaces' instances of one server can't read each other's `/proc/<pid>/environ` (their
+     credentials) or signal each other, and the base instance can't read theirs.
+   - **Folders.** Every folder is `<uid>-<random hex>` and holds `home/` (0700), the HOME of the
+     programs that run as its uid. A server's install folder is 0750 with the server's own group:
+     its packages, which its workspace instances can read but not write. Its `home/` is the base
+     instance's alone. A workspace instance gets a 0700 folder of its own
+     (`workspace_servers.install_dir`), made by its own uid on its first call, and starts in the
+     server's install folder with that HOME. Deleting the entry, its workspace or its server stops
+     the instance and removes the folder as its uid. Folders made before this change have no
+     `home/`: reinstall those servers.
    - **How a child is handled without capabilities:** the router can't enter a child's folder or
      signal it. A child changes into its folder itself (`env -C` after the helper), and is
      stopped by closing its stdin, then by `process.kill` run through the helper as its own uid
@@ -389,24 +419,6 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   app's MCP client, but an agent run has no MCP client to forward to. Options for phase 3 or 6:
   refuse it, or hand it to the app as a progress event and wait, like an app tool.
 
-- **Mounted folders, such as a filesystem server's shared folder.** A host folder belongs to the
-  host's user, and a server's own user id can't read it. mcp-router only manages because it runs
-  as root. Planned for phase 3, to spike first:
-  - **Shared groups (the built-in answer).** A server's settings list extra groups, such as
-    `users` (gid 100), and `run-as-child` adds them when it starts the server.
-    - **On the host, once:** give the folder that group, make it group-writable (`g+rwX`) and
-      set the group bit on its folders (`g+s`). Many NAS boxes already do this.
-    - **What the helper refuses:** gid 0, `shadow` (42) and the router's own group, and more
-      than a few groups. That keeps the router isolated.
-  - **More isolation, documented:** run the server in its own container with the folder
-    mounted, and add it to the router as a remote server.
-  - **Ruled out:** running the server as the host user's id. Inside the container that's 1000,
-    which is the router's own id.
-- **Workspace instances of one server share its user id.** So the household A and household B
-  instances of `actual` could read each other's environment, and with it each other's budget
-  credentials. The spike showed that separate user ids can't read each other's `/proc/<pid>/environ`.
-  Proposed for phase 3: a user id per instance, with the group set to the server's own group so
-  every instance can still read the server's install folder.
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels

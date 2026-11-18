@@ -1,0 +1,217 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c4736ff7-56e7-47f0-b5ba-ebe4ff95124d",
+  "prevIds": [
+    "bca7f498-5ef7-4acf-af5f-276abafcab05"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "servers",
+        "extra_groups"
+      ],
+      "writes": [
+        "s|col|public.servers.extra_groups",
+        "n|col|public.servers.extra_groups",
+        "e|col|public.servers.extra_groups"
+      ],
+      "reads": [
+        "n|tbl|public.servers",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "workspace_servers",
+        "child_uid"
+      ],
+      "writes": [
+        "s|col|public.workspace_servers.child_uid",
+        "n|col|public.workspace_servers.child_uid",
+        "e|col|public.workspace_servers.child_uid"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "workspace_servers",
+        "install_dir"
+      ],
+      "writes": [
+        "s|col|public.workspace_servers.install_dir",
+        "n|col|public.workspace_servers.install_dir",
+        "e|col|public.workspace_servers.install_dir"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_servers",
+        "uq_workspace_servers_child_uid"
+      ],
+      "writes": [
+        "s|idx|public.uq_workspace_servers_child_uid",
+        "n|idx|public.uq_workspace_servers_child_uid",
+        "e|idx|public.uq_workspace_servers_child_uid",
+        "n|rel|public.uq_workspace_servers_child_uid"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public",
+        "n|col|public.workspace_servers.child_uid"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "servers"
+      ],
+      "writes": [
+        "s|ck|public.servers.ck_servers_extra_groups",
+        "n|ck|public.servers.ck_servers_extra_groups",
+        "e|ck|public.servers.ck_servers_extra_groups",
+        "n|con|public.servers.ck_servers_extra_groups"
+      ],
+      "reads": [
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.servers.extra_groups"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_servers"
+      ],
+      "writes": [
+        "s|ck|public.workspace_servers.ck_workspace_servers_child_uid_range",
+        "n|ck|public.workspace_servers.ck_workspace_servers_child_uid_range",
+        "e|ck|public.workspace_servers.ck_workspace_servers_child_uid_range",
+        "n|con|public.workspace_servers.ck_workspace_servers_child_uid_range"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public",
+        "n|col|public.workspace_servers.child_uid"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "servers",
+        "name": "extra_groups",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 1,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "child_uid",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "nextval('child_uid_seq')",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "install_dir",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "uq_workspace_servers_child_uid",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "child_uid",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "servers",
+        "name": "ck_servers_extra_groups",
+        "value": "cardinality(\"extra_groups\") <= 8 and 100 <= all(\"extra_groups\") and not (int4range(10000, 19999, '[]') @> any(\"extra_groups\"))",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "ck_workspace_servers_child_uid_range",
+        "value": "\"child_uid\" between 10000 and 19999",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

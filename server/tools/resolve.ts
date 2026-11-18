@@ -1,5 +1,6 @@
 import type { SnapshotServer, SnapshotServerEntry } from '../db/snapshot.ts';
-import { installFolderPath } from './install-folder.ts';
+import type { ChildUser } from './child-users.ts';
+import { homeOf, installFolderPath } from './install-folder.ts';
 import { type ResolvedServer, TRANSPORT_STDIO } from './shapes.ts';
 
 /** The timeouts a server gets when it sets none of its own. */
@@ -24,6 +25,33 @@ function overridesSomething(entry: SnapshotServerEntry): boolean {
 }
 
 /**
+ * Names the path of a stored folder.
+ *
+ * @param name - The folder's name, or null when none is made.
+ * @param uid - Its owner, whose uid the name starts with.
+ * @param [root] - Where folders are.
+ * @returns The absolute path, or null.
+ */
+function folderPath(name: string | null, uid: number, root?: string): string | null {
+  return name === null ? null : installFolderPath(name, uid, root);
+}
+
+/**
+ * Finds the entry a workspace's runs use an instance of their own for.
+ *
+ * @param server - The server, from the snapshot.
+ * @param workspaceId - The workspace whose run calls it, or null.
+ * @returns Its entry when it overrides something; undefined when the base instance is used.
+ */
+export function workspaceInstanceEntry(
+  server: SnapshotServer,
+  workspaceId: string | null,
+): SnapshotServerEntry | undefined {
+  const found = workspaceId === null ? undefined : server.entries.get(workspaceId);
+  return found !== undefined && overridesSomething(found) ? found : undefined;
+}
+
+/**
  * Works out what an instance of a server runs with: the base instance, or one workspace's, with that
  * workspace's entry merged over the server's settings.
  *
@@ -35,7 +63,9 @@ function overridesSomething(entry: SnapshotServerEntry): boolean {
  * @returns What `tools/instance` starts or connects to.
  *
  * @remarks
- * Env and headers merge, the workspace's winning. Arguments and the address replace the server's.
+ * Env and headers merge, the workspace's winning. Arguments and the address replace the server's. A stdio workspace
+ * instance runs as its entry's own uid, with the server's group and extra groups, in the server's install folder,
+ * with the entry's folder as its HOME.
  */
 export function resolveServer(
   server: SnapshotServer,
@@ -43,8 +73,7 @@ export function resolveServer(
   defaults: ServerTimeouts,
   root?: string,
 ): ResolvedServer {
-  const found = workspaceId === null ? undefined : server.entries.get(workspaceId);
-  const entry = found !== undefined && overridesSomething(found) ? found : undefined;
+  const entry = workspaceInstanceEntry(server, workspaceId);
   const common = {
     id: server.id,
     name: server.name,
@@ -54,6 +83,13 @@ export function resolveServer(
   };
   const { transport } = server;
   if (transport.type === TRANSPORT_STDIO) {
+    const runAs: ChildUser = {
+      uid: entry?.childUid ?? server.childUid,
+      gid: server.childUid,
+      groups: [...server.extraGroups],
+    };
+    const installDir = folderPath(server.installDir, server.childUid, root);
+    const ownFolder = entry === undefined ? installDir : folderPath(entry.installDir, entry.childUid, root);
     return {
       ...common,
       transport: {
@@ -63,8 +99,9 @@ export function resolveServer(
         ...(transport.cwd === undefined ? {} : { cwd: transport.cwd }),
       },
       env: { ...server.env, ...entry?.env },
-      childUid: server.childUid,
-      installDir: server.installDir === null ? null : installFolderPath(server.installDir, server.childUid, root),
+      runAs,
+      installDir,
+      homeDir: ownFolder === null ? null : homeOf(ownFolder),
     };
   }
   return {
@@ -75,7 +112,8 @@ export function resolveServer(
       headers: { ...server.headers, ...entry?.headers },
     },
     env: {},
-    childUid: null,
+    runAs: null,
     installDir: null,
+    homeDir: null,
   };
 }

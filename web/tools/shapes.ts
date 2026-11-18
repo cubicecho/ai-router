@@ -228,6 +228,64 @@ export function textToEnv(text: string): ParsedEnv {
   return { env, error: null };
 }
 
+/** What a server's extra groups may be. The router, and `run-as-child` itself, refuse the same. */
+const EXTRA_GROUP_RULES = Object.freeze({
+  /** Below this are the system's groups, root and shadow among them. */
+  firstGid: 100,
+  /** The highest group id. */
+  maxGid: 2_147_483_647,
+  /** Servers' own ids: holding one would open another server's folder. */
+  childMin: 10_000,
+  childMax: 19_999,
+  /** How many a server may hold. */
+  max: 8,
+});
+/** What separates group ids as typed: commas or spaces. */
+const GROUP_SEPARATOR = /[\s,]+/;
+/** One group id as typed. */
+const GROUP_ID = /^\d+$/;
+
+/** What reading group ids from text found. */
+export type ParsedGroups = { groups: number[]; error: null } | { groups: null; error: string };
+
+/**
+ * Writes a server's extra groups for editing.
+ *
+ * @param groups - The group ids, as the API lists them.
+ * @returns Them, comma-separated.
+ */
+export function groupsToText(groups: readonly (number | null)[]): string {
+  return groups.filter((gid) => gid !== null).join(', ');
+}
+
+/**
+ * Reads a server's extra groups from text, by the router's rules, ignoring blanks.
+ *
+ * @param text - Group ids, separated by commas or spaces.
+ * @returns The ids, or why they can't be.
+ */
+export function textToGroups(text: string): ParsedGroups {
+  const { firstGid, maxGid, childMin, childMax, max } = EXTRA_GROUP_RULES;
+  const groups: number[] = [];
+  for (const part of text.split(GROUP_SEPARATOR).filter((piece) => piece !== '')) {
+    const gid = Number(part);
+    if (GROUP_ID.test(part) === false || gid > maxGid) {
+      return { groups: null, error: `"${part}" is not a group id.` };
+    }
+    if (gid < firstGid) {
+      return { groups: null, error: `Groups below ${firstGid} are the system's own, root and shadow among them.` };
+    }
+    if (gid >= childMin && gid <= childMax) {
+      return { groups: null, error: `Groups ${childMin}–${childMax} belong to servers.` };
+    }
+    if (groups.includes(gid)) {
+      return { groups: null, error: `${gid} is listed twice.` };
+    }
+    groups.push(gid);
+  }
+  return groups.length > max ? { groups: null, error: `At most ${max} extra groups.` } : { groups, error: null };
+}
+
 /** A server's name: the router's name rule, and what a run needs to join it to a tool's. */
 export const SERVER_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 

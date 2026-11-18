@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
-import { type ChildIsolation, ChildMode } from '../../server/tools/child-users.ts';
+import { type ChildIsolation, ChildMode, serverChildUser } from '../../server/tools/child-users.ts';
+import { homeOf } from '../../server/tools/install-folder.ts';
 import { InstanceError, InstanceErrorCode, InstanceState } from '../../server/tools/instance.ts';
 import { InstanceManager, serverFingerprint } from '../../server/tools/instances.ts';
 import { type ResolvedServer, TRANSPORT_STDIO, TRANSPORT_STREAMABLE_HTTP } from '../../server/tools/shapes.ts';
@@ -23,7 +24,7 @@ let manager: InstanceManager;
 
 beforeAll(async () => {
   installDir = await realpath(await mkdtemp(path.join(tmpdir(), 'ai-router-instances-')));
-  await mkdir(path.join(installDir, 'tmp'));
+  await mkdir(path.join(homeOf(installDir), 'tmp'), { recursive: true });
   http = await startHttpFixture();
 });
 
@@ -49,8 +50,9 @@ function stdioServer(overrides: Partial<ResolvedServer> = {}): ResolvedServer {
     workspaceId: null,
     transport: { type: TRANSPORT_STDIO, command: process.execPath, args: [FIXTURE] },
     env: { FIXTURE_GREETING: 'hello' },
-    childUid: CHILD_DEFAULTS.uidMin,
+    runAs: serverChildUser(CHILD_DEFAULTS.uidMin),
     installDir,
+    homeDir: homeOf(installDir),
     idleTimeoutMs: 60_000,
     callTimeoutMs: 10_000,
     ...overrides,
@@ -69,8 +71,9 @@ function httpServer(): ResolvedServer {
     workspaceId: null,
     transport: { type: TRANSPORT_STREAMABLE_HTTP, url: http.url, headers: {} },
     env: {},
-    childUid: null,
+    runAs: null,
     installDir: null,
+    homeDir: null,
     idleTimeoutMs: 60_000,
     callTimeoutMs: 10_000,
   };

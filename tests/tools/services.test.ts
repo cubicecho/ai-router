@@ -1,21 +1,26 @@
-import { access, mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
+import { access, mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { UserCaller } from '../../server/core/context.ts';
+import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost, type SnapshotHost } from '../../server/db/snapshot.ts';
 import { activity } from '../../server/db/tables/activity.ts';
 import { registries } from '../../server/db/tables/registries.ts';
 import { Role } from '../../server/db/tables/users.ts';
+import { workspaceServers } from '../../server/db/tables/workspace-servers.ts';
 import { ChildMode } from '../../server/tools/child-users.ts';
+import { homeOf } from '../../server/tools/install-folder.ts';
 import { createToolServices, type ToolServiceParts } from '../../server/tools/services.ts';
 import {
   closeTestDb,
   createClient,
   createTestDb,
   createUser,
+  createWorkspaceWithKey,
   resetTestDb,
   type TestClient,
   type TestDb,
@@ -32,8 +37,21 @@ const TOOLS = 'query ($id: UUID!) { serverTools(id: $id) { name description } }'
 const TRY = `mutation ($id: UUID!, $tool: String!, $arguments: JSON) {
   tryServerTool(id: $id, tool: $tool, arguments: $arguments)
 }`;
+const TRY_IN = `mutation ($id: UUID!, $workspaceId: UUID, $tool: String!, $arguments: JSON) {
+  tryServerTool(id: $id, workspaceId: $workspaceId, tool: $tool, arguments: $arguments)
+}`;
 const INSTANCES = '{ servers { id name instances { workspaceId state inFlight } } }';
 const DELETE = 'mutation ($id: UUID!) { deleteServer(id: $id) }';
+const CREATE_ENTRY = `mutation ($values: CreateWorkspaceServerInput!) {
+  createWorkspaceServer(values: $values) { id childUid }
+}`;
+const DELETE_ENTRY = 'mutation ($id: UUID!) { deleteWorkspaceServer(where: { id: { eq: $id } }) { id } }';
+const DELETE_WORKSPACE = 'mutation ($id: UUID!) { deleteWorkspace(where: { id: { eq: $id } }) { id } }';
+const SET_GROUPS = `mutation ($id: UUID!, $extraGroups: [Int!]!) {
+  updateServer(where: { id: { eq: $id } }, set: { extraGroups: $extraGroups }) { id }
+}`;
+/** The mode bits a test compares. */
+const MODE_BITS = 0o7777;
 const BROWSE = `query ($registryId: UUID!, $search: String) {
   registryServers(registryId: $registryId, search: $search) {
     servers { name title choices { selector kind identifier version } } nextCursor
@@ -134,12 +152,12 @@ describe('a server added by hand', () => {
     expect(message).toContain("Select the server's id");
   });
 
-  it('runs in its own folder, with nothing of the router in its env', async () => {
+  it('runs in its own folder, with its HOME inside, and nothing of the router in its env', async () => {
     const server = await addFixture();
     const { tryServerTool } = await asUser.expectOk(TRY, { id: server.id, tool: 'cwd' });
     expect(tryServerTool.content[0].text).toBe(path.join(root, server.installDir));
     const env = JSON.parse((await asUser.expectOk(TRY, { id: server.id, tool: 'env' })).tryServerTool.content[0].text);
-    expect(env.HOME).toBe(path.join(root, server.installDir));
+    expect(env.HOME).toBe(homeOf(path.join(root, server.installDir)));
     expect(env).not.toHaveProperty('DATABASE_URL');
     expect(env).not.toHaveProperty('BETTER_AUTH_SECRET');
   });
@@ -204,6 +222,101 @@ describe('a server added by hand', () => {
       },
     );
     expect((await asUser.expectError(TOOLS, { id: server.id })).code).toBe(ErrorCode.BadUserInput);
+  });
+});
+
+describe('a workspace instance', () => {
+  /**
+   * Adds the fixture and a workspace whose entry for it overrides its env.
+   *
+   * @returns The server, the workspace and the entry.
+   */
+  async function addEntry() {
+    const server = await addFixture();
+    const { workspaceId } = await createWorkspaceWithKey(db, 'household-a');
+    const { createWorkspaceServer: entry } = await asUser.expectOk(CREATE_ENTRY, {
+      values: { workspaceId, serverId: server.id, env: { FIXTURE_GREETING: 'household a' } },
+    });
+    return { server, workspaceId, entry };
+  }
+
+  /**
+   * Reads an entry's folder, as the router recorded it.
+   *
+   * @param entryId - The entry.
+   * @returns Its folder's name, or null.
+   */
+  async function entryFolder(entryId: string): Promise<string | null> {
+    const [row] = await db.select().from(workspaceServers).where(eq(workspaceServers.id, entryId));
+    return row?.installDir ?? null;
+  }
+
+  it('runs as the entry’s own uid, in the server’s folder, with a HOME of its own made on first use', async () => {
+    const { server, workspaceId, entry } = await addEntry();
+    expect(entry.childUid).toBeGreaterThan(server.childUid);
+    expect(await entryFolder(entry.id)).toBeNull();
+
+    const cwd = await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    expect(cwd.tryServerTool.content[0].text).toBe(path.join(root, server.installDir));
+    const folder = await entryFolder(entry.id);
+    expect(folder).toMatch(new RegExp(`^${entry.childUid}-[0-9a-f]{16}$`));
+    const { tryServerTool } = await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'env' });
+    const env = JSON.parse(tryServerTool.content[0].text);
+    expect(env).toMatchObject({ HOME: homeOf(path.join(root, folder ?? '')), FIXTURE_GREETING: 'household a' });
+    expect((await stat(path.join(root, folder ?? ''))).mode & MODE_BITS).toBe(0o700);
+
+    const { servers } = await asUser.expectOk(INSTANCES);
+    expect(servers[0].instances).toEqual([{ workspaceId, state: 'ready', inFlight: 0 }]);
+  });
+
+  it('makes one folder however many first calls arrive at once', async () => {
+    const { server, workspaceId, entry } = await addEntry();
+    await Promise.all(
+      [1, 2, 3].map(() =>
+        asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'echo', arguments: { text: 'x' } }),
+      ),
+    );
+    expect((await readdir(root)).filter((name) => name.startsWith(`${entry.childUid}-`))).toEqual([
+      await entryFolder(entry.id),
+    ]);
+  });
+
+  it('is stopped and its folder removed when its entry is deleted', async () => {
+    const { server, workspaceId, entry } = await addEntry();
+    await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    const folder = path.join(root, (await entryFolder(entry.id)) ?? '');
+    await asUser.expectOk(DELETE_ENTRY, { id: entry.id });
+    expect(tools.instances.list(server.id).map((instance) => instance.server.workspaceId)).toEqual([]);
+    await expect(access(folder)).rejects.toThrow();
+    await access(path.join(root, server.installDir));
+  });
+
+  it('has its folder removed when its workspace is deleted', async () => {
+    const { server, workspaceId, entry } = await addEntry();
+    await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    const folder = path.join(root, (await entryFolder(entry.id)) ?? '');
+    await asUser.expectOk(DELETE_WORKSPACE, { id: workspaceId });
+    await expect(access(folder)).rejects.toThrow();
+  });
+
+  it('has its folder removed with its server', async () => {
+    const { server, workspaceId, entry } = await addEntry();
+    await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    const folder = path.join(root, (await entryFolder(entry.id)) ?? '');
+    await asUser.expectOk(DELETE, { id: server.id });
+    await expect(access(folder)).rejects.toThrow();
+    await expect(access(path.join(root, server.installDir))).rejects.toThrow();
+  });
+
+  it('is replaced when its server’s extra groups change', async () => {
+    const { server, workspaceId } = await addEntry();
+    await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    const [before] = tools.instances.list(server.id);
+    await asUser.expectOk(SET_GROUPS, { id: server.id, extraGroups: [CHILD_DEFAULTS.firstExtraGid] });
+    await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
+    const [after] = tools.instances.list(server.id);
+    expect(after).not.toBe(before);
+    expect(after?.server.runAs?.groups).toEqual([CHILD_DEFAULTS.firstExtraGid]);
   });
 });
 

@@ -1,16 +1,18 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, conflict, errorMessage, notFound, upstreamFailed } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import type { DB } from '../db/client.ts';
-import type { SnapshotHost, SnapshotServer } from '../db/snapshot.ts';
+import type { SnapshotHost, SnapshotServer, SnapshotServerEntry } from '../db/snapshot.ts';
 import { registries } from '../db/tables/registries.ts';
 import { SecretKind, serverSecrets } from '../db/tables/server-secrets.ts';
 import { servers } from '../db/tables/servers.ts';
+import { workspaceServers } from '../db/tables/workspace-servers.ts';
 import { type ActivityRecorder, createActivityRecorder } from './activity.ts';
 import type {
+  DeletedEntry,
   InstallServerRequest,
   ServedInstance,
   ServedRegistryPage,
@@ -18,22 +20,23 @@ import type {
   ServedTool,
   ToolServices,
 } from './api.ts';
-import type { ChildIsolation } from './child-users.ts';
+import { type ChildIsolation, serverChildUser } from './child-users.ts';
 import { envInput, transportInput } from './input.ts';
-import { createInstallFolder, type FolderOptions, removeInstallFolder } from './install-folder.ts';
+import { createInstallFolder, FolderKind, type FolderOptions, removeInstallFolder } from './install-folder.ts';
 import { deriveServerName, installServer } from './installer.ts';
 import { InstanceError } from './instance.ts';
 import { InstanceManager } from './instances.ts';
 import { createServerLoginStore } from './login-store.ts';
 import { ServerLoginService } from './oauth/service.ts';
 import { RegistryClient, type RegistryFetch, type RegistryServerEntry } from './registry.ts';
-import { resolveServer } from './resolve.ts';
+import { resolveServer, workspaceInstanceEntry } from './resolve.ts';
 import {
   type ResolvedServer,
   type ServerSource,
   SourceType,
   serverNameSchema,
   serverSourceSchema,
+  TRANSPORT_STDIO,
   TRANSPORT_STREAMABLE_HTTP,
 } from './shapes.ts';
 
@@ -145,31 +148,90 @@ export function createToolServices({
     return found;
   };
 
-  const resolve = (serverId: string, workspaceId: string | null): ResolvedServer => {
+  /**
+   * Removes a folder as its owner, logging rather than failing: a folder left behind is never handed to another
+   * server, since its uid never is.
+   *
+   * @param ownerUid - Its owner, whose uid its name starts with.
+   * @param name - The folder's name.
+   */
+  const discardFolder = async (ownerUid: number, name: string): Promise<void> => {
+    try {
+      await removeInstallFolder(isolation, serverChildUser(ownerUid), name, folders);
+    } catch (error) {
+      console.error(`[tools] could not remove folder ${name}: ${errorMessage(error)}`);
+    }
+  };
+
+  /** Folders being made for workspace instances, by entry id, so two first calls make one. */
+  const makingFolders = new Map<string, Promise<void>>();
+
+  /**
+   * Makes a workspace instance's own folder, as its own uid, and records it on the entry.
+   *
+   * @param server - The server.
+   * @param entry - The workspace's entry for it, which has no folder yet.
+   * @returns Resolves once the folder is recorded and the snapshot rebuilt. A folder made for an entry deleted
+   * meanwhile is removed again.
+   */
+  const makeEntryFolder = async (server: SnapshotServer, entry: SnapshotServerEntry): Promise<void> => {
+    const runAs = { uid: entry.childUid, gid: server.childUid, groups: [...server.extraGroups] };
+    const folder = await createInstallFolder(isolation, runAs, { ...folders, kind: FolderKind.Instance });
+    const saved = await db
+      .update(workspaceServers)
+      .set({ installDir: folder.name })
+      .where(and(eq(workspaceServers.id, entry.id), isNull(workspaceServers.installDir)))
+      .returning({ id: workspaceServers.id });
+    if (saved.length === 0) {
+      await discardFolder(entry.childUid, folder.name);
+      return;
+    }
+    await snapshot.rebuild();
+  };
+
+  /**
+   * Makes sure a workspace instance has its folder, once per entry however many calls ask at once.
+   *
+   * @param server - The server.
+   * @param entry - The entry.
+   * @returns Resolves once it has one.
+   */
+  const ensureEntryFolder = (server: SnapshotServer, entry: SnapshotServerEntry): Promise<void> => {
+    const pending = makingFolders.get(entry.id);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const making = makeEntryFolder(server, entry).finally(() => makingFolders.delete(entry.id));
+    makingFolders.set(entry.id, making);
+    return making;
+  };
+
+  /**
+   * Resolves what an instance runs with, first making a stdio workspace instance's folder when it has none.
+   *
+   * @param serverId - The server.
+   * @param workspaceId - The workspace whose instance is wanted, or null for the base instance.
+   * @returns The server as resolved.
+   * @throws BAD_USER_INPUT for a server that is turned off; NOT_FOUND for no such server.
+   */
+  const resolve = async (serverId: string, workspaceId: string | null): Promise<ResolvedServer> => {
     const server = serverById(serverId);
     if (server.enabled === false) {
       throw badInput(`Server "${server.name}" is turned off.`);
     }
-    return resolveServer(server, workspaceId, INSTANCE_DEFAULTS, folders.root);
+    const resolved = resolveServer(server, workspaceId, INSTANCE_DEFAULTS, folders.root);
+    const entry = workspaceInstanceEntry(server, workspaceId);
+    const hasHome = resolved.transport.type !== TRANSPORT_STDIO || resolved.homeDir !== null;
+    if (entry === undefined || hasHome) {
+      return resolved;
+    }
+    await ensureEntryFolder(server, entry);
+    return resolveServer(serverById(serverId), workspaceId, INSTANCE_DEFAULTS, folders.root);
   };
 
   const getRegistry = async (name: string) => {
     const [row] = await db.select().from(registries).where(eq(registries.name, name));
     return row === undefined ? undefined : { name: row.name, url: row.url };
-  };
-
-  /**
-   * Removes a folder, logging rather than failing: a folder left behind is never handed to another server.
-   *
-   * @param childUid - Its owner.
-   * @param name - The folder's name.
-   */
-  const discardFolder = async (childUid: number, name: string): Promise<void> => {
-    try {
-      await removeInstallFolder(isolation, childUid, name, folders);
-    } catch (error) {
-      console.error(`[tools] could not remove install folder ${name}: ${errorMessage(error)}`);
-    }
   };
 
   const install = async (request: InstallServerRequest): Promise<ServedServer> => {
@@ -206,7 +268,7 @@ export function createToolServices({
     }
     const childUid = await nextChildUid(db);
     const needsFolder = transport?.type !== TRANSPORT_STREAMABLE_HTTP;
-    const folder = needsFolder ? await createInstallFolder(isolation, childUid, folders) : null;
+    const folder = needsFolder ? await createInstallFolder(isolation, serverChildUser(childUid), folders) : null;
     try {
       const result = await installServer(
         {
@@ -271,18 +333,34 @@ export function createToolServices({
     if (row === undefined) {
       return false;
     }
+    const entries = await db
+      .select({ childUid: workspaceServers.childUid, installDir: workspaceServers.installDir })
+      .from(workspaceServers)
+      .where(eq(workspaceServers.serverId, row.id));
     await instances.forget(row.id);
     logins.forget(row.id);
     await db.delete(servers).where(eq(servers.id, row.id));
     await snapshot.rebuild();
-    if (row.installDir !== null) {
-      await discardFolder(row.childUid, row.installDir);
+    const owned = [{ childUid: row.childUid, installDir: row.installDir }, ...entries];
+    for (const { childUid, installDir } of owned) {
+      if (installDir !== null) {
+        await discardFolder(childUid, installDir);
+      }
     }
     return true;
   };
 
+  const forgetEntries = async (entries: readonly DeletedEntry[]): Promise<void> => {
+    for (const { serverId, workspaceId, childUid, installDir } of entries) {
+      await instances.stop(serverId, workspaceId);
+      if (installDir !== null) {
+        await discardFolder(childUid, installDir);
+      }
+    }
+  };
+
   const listTools = async (serverId: string, workspaceId: string | null): Promise<ServedTool[]> => {
-    const resolved = resolve(serverId, workspaceId);
+    const resolved = await resolve(serverId, workspaceId);
     try {
       const tools = await instances.listTools(resolved);
       return tools.map((tool) => ({
@@ -302,7 +380,7 @@ export function createToolServices({
     tool: string,
     args: Record<string, unknown>,
   ): Promise<CallToolResult> => {
-    const resolved = resolve(serverId, workspaceId);
+    const resolved = await resolve(serverId, workspaceId);
     const workspace = workspaceId === null ? undefined : snapshot.current().workspaces.get(workspaceId);
     const startedAt = performance.now();
     const record = (ok: boolean, error: string | null): void =>
@@ -365,6 +443,7 @@ export function createToolServices({
     logins,
     install,
     remove,
+    forgetEntries,
     listTools,
     callTool,
     instanceStates: listInstances,

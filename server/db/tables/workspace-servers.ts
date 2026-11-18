@@ -1,5 +1,6 @@
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { servers } from './servers.ts';
+import { sql } from 'drizzle-orm';
+import { check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { childUidInRange, servers } from './servers.ts';
 import { workspaces } from './workspaces.ts';
 
 /**
@@ -23,6 +24,13 @@ export const workspaceServers = pgTable(
     args: jsonb('args').$type<string[]>(),
     /** Replaces an HTTP server's address when set. */
     url: text('url'),
+    /**
+     * The user id its workspace instance runs as, with the server's group, so no other instance of the server can
+     * read its environment. Handed out once, by the same sequence as servers' ids.
+     */
+    childUid: integer('child_uid').notNull().default(sql`nextval('child_uid_seq')`),
+    /** Its workspace instance's own folder, made by that uid. Null until the instance first starts. */
+    installDir: text('install_dir'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -32,6 +40,8 @@ export const workspaceServers = pgTable(
   (table) => [
     uniqueIndex('uq_workspace_servers_workspace_id_server_id').on(table.workspaceId, table.serverId),
     index('idx_workspace_servers_server_id').on(table.serverId),
+    uniqueIndex('uq_workspace_servers_child_uid').on(table.childUid),
+    check('ck_workspace_servers_child_uid_range', childUidInRange(table.childUid)),
   ],
 );
 

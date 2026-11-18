@@ -11,6 +11,7 @@ fragment ServerFields on Server {
   idleTimeoutMs
   callTimeoutMs
   childUid
+  extraGroups
   updatedAt
   login {
     signedIn

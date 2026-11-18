@@ -1,9 +1,12 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { UserCaller } from '../../server/core/context.ts';
+import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost } from '../../server/db/snapshot.ts';
 import { servers } from '../../server/db/tables/servers.ts';
 import { Role } from '../../server/db/tables/users.ts';
+import { workspaceServers } from '../../server/db/tables/workspace-servers.ts';
 import { resolveServer } from '../../server/tools/resolve.ts';
 import { SourceType, TRANSPORT_STDIO, TRANSPORT_STREAMABLE_HTTP } from '../../server/tools/shapes.ts';
 import {
@@ -29,7 +32,7 @@ const UPDATE_SERVER = `mutation ($id: UUID!, $set: UpdateServerInput!) {
   updateServer(where: { id: { eq: $id } }, set: $set) { id name env enabled }
 }`;
 const CREATE_ENTRY = `mutation ($values: CreateWorkspaceServerInput!) {
-  createWorkspaceServer(values: $values) { id env args url }
+  createWorkspaceServer(values: $values) { id env args url childUid installDir }
 }`;
 const CREATE_REGISTRY = `mutation ($values: CreateRegistryInput!) {
   createRegistry(values: $values) { id name url }
@@ -73,6 +76,16 @@ async function addServer(name: string, http = false) {
   return row;
 }
 
+/**
+ * One more extra group than a server may hold.
+ *
+ * @returns The groups, none of them refused on its own.
+ */
+function nineGroups(): number[] {
+  const first = 200;
+  return Array.from({ length: CHILD_DEFAULTS.maxExtraGroups + 1 }, (_, index) => first + index);
+}
+
 beforeAll(async () => {
   db = await createTestDb();
 });
@@ -112,11 +125,72 @@ describe('servers', () => {
     }
   });
 
+  it('take extra groups by the helper’s rules, and say why one is refused', async () => {
+    const { id } = await addServer('files');
+    const set = { extraGroups: [CHILD_DEFAULTS.firstExtraGid, 2000] };
+    await asUser.expectOk(UPDATE_SERVER, { id, set });
+    const [stored] = await db.select().from(servers).where(eq(servers.id, id));
+    expect(stored?.extraGroups).toEqual(set.extraGroups);
+
+    const refused: [number[], string][] = [
+      [[0], 'system'],
+      [[42], 'system'],
+      [[CHILD_DEFAULTS.firstExtraGid - 1], 'system'],
+      [[CHILD_DEFAULTS.uidMin + 5], 'belong to servers'],
+      [[CHILD_DEFAULTS.uidMax], 'belong to servers'],
+      [[process.getgid?.() ?? 0], 'router'],
+      [[100, 100], 'twice'],
+      [nineGroups(), `At most ${CHILD_DEFAULTS.maxExtraGroups}`],
+    ];
+    for (const [extraGroups, why] of refused) {
+      const { code, message } = await asUser.expectError(UPDATE_SERVER, { id, set: { extraGroups } });
+      expect(code).toBe(ErrorCode.BadUserInput);
+      expect(message).toContain(why);
+    }
+  });
+
+  it('refuse extra groups the helper would refuse, even straight in the table', async () => {
+    const { id } = await addServer('files');
+    for (const extraGroups of [[42], [CHILD_DEFAULTS.uidMin], nineGroups()]) {
+      await expect(db.update(servers).set({ extraGroups }).where(eq(servers.id, id))).rejects.toThrow();
+    }
+  });
+
   it('cannot be created or deleted by generated CRUD', async () => {
     for (const field of ['createServer', 'createServers', 'deleteServers']) {
       const { message } = await asAdmin.expectError(`mutation { ${field} { id } }`);
       expect(message).toContain(`Cannot query field "${field}"`);
     }
+  });
+});
+
+describe('server entries', () => {
+  it('each get a user id of their own from the servers’ sequence, which no write sets', async () => {
+    const { id, childUid } = await addServer('actual');
+    const { workspaceId } = await createWorkspaceWithKey(db, 'household-a');
+    const { workspaceId: other } = await createWorkspaceWithKey(db, 'household-b');
+    const { createWorkspaceServer: first } = await asUser.expectOk(CREATE_ENTRY, {
+      values: { workspaceId, serverId: id },
+    });
+    const { createWorkspaceServer: second } = await asUser.expectOk(CREATE_ENTRY, {
+      values: { workspaceId: other, serverId: id },
+    });
+    expect(first).toMatchObject({ installDir: null });
+    expect(first.childUid).toBeGreaterThan(childUid);
+    expect(second.childUid).toBeGreaterThan(first.childUid);
+    expect((await addServer('later')).childUid).toBeGreaterThan(second.childUid);
+    const { workspaceId: third } = await createWorkspaceWithKey(db, 'household-c');
+    for (const extra of [{ childUid: childUid }, { installDir: `${childUid}-ab12` }]) {
+      const { code } = await asUser.expectError(CREATE_ENTRY, {
+        values: { workspaceId: third, serverId: id, ...extra },
+      });
+      expect(code).toBe(ErrorCode.BadUserInput);
+    }
+    const { code } = await asUser.expectError(
+      'mutation ($id: UUID!) { updateWorkspaceServer(where: { id: { eq: $id } }, set: { childUid: 10000 }) { id } }',
+      { id: first.id },
+    );
+    expect(code).toBe(ErrorCode.BadUserInput);
   });
 });
 
@@ -212,6 +286,45 @@ describe('a run resolving a server', () => {
     });
     // An entry that changes nothing runs on the base instance.
     expect(resolveServer(server, plain, TIMEOUTS)).toEqual(base);
+  });
+
+  it('runs a workspace instance as its entry’s uid with the server’s groups, in the server’s folder with its own HOME', async () => {
+    const row = await addServer('actual');
+    const { workspaceId } = await createWorkspaceWithKey(db, 'household-a');
+    const { createWorkspaceServer: entry } = await asUser.expectOk(CREATE_ENTRY, {
+      values: { workspaceId, serverId: row.id, env: { BUDGET: 'a' } },
+    });
+    await db
+      .update(servers)
+      .set({ installDir: `${row.childUid}-ab12`, extraGroups: [100] })
+      .where(eq(servers.id, row.id));
+    const snapshot = await createSnapshotHost(db);
+    const server = snapshot.current().servers.get('actual');
+    if (server === undefined) {
+      throw new Error('not in the snapshot');
+    }
+    const base = resolveServer(server, null, TIMEOUTS, '/srv');
+    expect(base).toMatchObject({
+      runAs: { uid: row.childUid, gid: row.childUid, groups: [100] },
+      installDir: `/srv/${row.childUid}-ab12`,
+      homeDir: `/srv/${row.childUid}-ab12/home`,
+    });
+    // The entry's folder is made on the instance's first call; until then it has no HOME, and won't start.
+    expect(resolveServer(server, workspaceId, TIMEOUTS, '/srv')).toMatchObject({
+      workspaceId,
+      runAs: { uid: entry.childUid, gid: row.childUid, groups: [100] },
+      installDir: `/srv/${row.childUid}-ab12`,
+      homeDir: null,
+    });
+    await db
+      .update(workspaceServers)
+      .set({ installDir: `${entry.childUid}-cd34` })
+      .where(eq(workspaceServers.id, entry.id));
+    await snapshot.rebuild();
+    const withFolder = snapshot.current().servers.get('actual');
+    expect(withFolder === undefined ? null : resolveServer(withFolder, workspaceId, TIMEOUTS, '/srv').homeDir).toBe(
+      `/srv/${entry.childUid}-cd34/home`,
+    );
   });
 
   it('sees a secret as soon as it is set', async () => {

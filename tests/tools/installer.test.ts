@@ -4,7 +4,7 @@ import { CHILD_DEFAULTS, INSTALL_DEFAULTS } from '../../server/core/defaults.ts'
 import { ErrorCode } from '../../server/core/errors.ts';
 import { MS_PER_SECOND } from '../../server/core/wire.ts';
 import { type ChildIsolation, ChildMode } from '../../server/tools/child-users.ts';
-import { type ChildExec, childEnv } from '../../server/tools/install-folder.ts';
+import { type ChildExec, childEnv, homeOf } from '../../server/tools/install-folder.ts';
 import {
   buildPypiTransport,
   deriveServerName,
@@ -24,7 +24,7 @@ const ISOLATED: ChildIsolation = { mode: ChildMode.Isolated, reason: '' };
 const REFUSED: ChildIsolation = { mode: ChildMode.Refused, reason: 'the helper cannot switch users' };
 const OFFICIAL: Registry = { name: 'official', url: 'https://registry.example' };
 
-/** One command as the helper was asked to run it, without the helper, uid and `timeout` in front. */
+/** One command as the helper was asked to run it, without the helper, uid, `--` and `timeout` in front. */
 interface Call {
   command: string;
   args: string[];
@@ -44,7 +44,7 @@ let calls: Call[];
  */
 function fakeNpm(packageJson: Record<string, unknown> | string, fail?: unknown): ChildExec {
   return async (helper, args, options) => {
-    const [uid = '', , , , command = '', ...rest] = args;
+    const [uid = '', , , , , command = '', ...rest] = args;
     calls.push({ command, args: rest, env: options.env, helper, uid });
     if (command === 'npm' && fail !== undefined) {
       throw fail;
@@ -206,7 +206,8 @@ describe('installServer', () => {
       ['cat', path.join(packageDir, 'package.json')],
     ]);
     expect(calls.every((call) => call.helper === HELPER && call.uid === String(UID))).toBe(true);
-    expect(calls.every((call) => JSON.stringify(call.env) === JSON.stringify(childEnv(INSTALL_DIR)))).toBe(true);
+    const home = childEnv(homeOf(INSTALL_DIR));
+    expect(calls.every((call) => JSON.stringify(call.env) === JSON.stringify(home))).toBe(true);
     expect(result).toEqual({
       source: { type: 'npm', package: '@scope/echo-server', version: '1.2.3' },
       transport: { type: 'stdio', command: 'node', args: [path.join(packageDir, 'dist', 'cli.js')] },
@@ -223,11 +224,12 @@ describe('installServer', () => {
 
   it('gives npm install its time limit, enforced as the child', async () => {
     const exec: ChildExec = async (helper, args, options) => {
-      calls.push({ command: args[1] ?? '', args, env: options.env, helper, uid: args[0] ?? '' });
+      calls.push({ command: args[2] ?? '', args, env: options.env, helper, uid: args[0] ?? '' });
       return { stdout: JSON.stringify({ bin: 'cli.js' }), stderr: '' };
     };
     await installServer({ source: { type: 'npm', package: 'tool' } }, deps({ exec }));
-    expect(calls[0]?.args.slice(1, 4)).toEqual([
+    expect(calls[0]?.args.slice(1, 5)).toEqual([
+      '--',
       'timeout',
       `--kill-after=${INSTALL_DEFAULTS.killGraceMs / MS_PER_SECOND}s`,
       `${INSTALL_DEFAULTS.npmTimeoutMs / MS_PER_SECOND}s`,
