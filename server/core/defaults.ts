@@ -431,7 +431,7 @@ export const AGENT_CONFIG_DEFAULTS: Readonly<AgentConfigSettings> = Object.freez
 
 /** Agent runs on the agents endpoint, and their records. */
 export interface RunSettings {
-  /** How long one run may take, from its start to its answer, before it fails. */
+  /** How long one run may take, from its start or resume to its answer, before it fails. Waiting doesn't count. */
   timeoutMinutes: number;
   /** How long a finished run's `Idempotency-Key` keeps answering with that run. After it, the key starts a new one. */
   idempotencyHours: number;
@@ -457,6 +457,15 @@ export interface RunSettings {
   eventPageSize: number;
   /** The most events `Run.events` answers with at once. */
   maxEventPageSize: number;
+  /**
+   * How long a run waits for the app to answer the tool calls it handed back before it expires. Generous, since an
+   * app's tool may be a person answering a question.
+   */
+  waitTimeoutHours: number;
+  /** How often waiting runs are checked for that timeout. */
+  expireEveryMinutes: number;
+  /** App tools one request may send. */
+  maxAppTools: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -473,4 +482,7 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   eventBatchSize: 500,
   eventPageSize: 500,
   maxEventPageSize: 5_000,
+  waitTimeoutHours: 24,
+  expireEveryMinutes: 5,
+  maxAppTools: 128,
 });

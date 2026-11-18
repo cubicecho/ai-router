@@ -55,7 +55,7 @@ function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: 
  * Writes a run's record as `/runs/<id>` serves it.
  *
  * @param row - The run.
- * @returns Its agent, revision, status, timings, usage and error.
+ * @returns Its agent, revision, status, timings (when it started, last began waiting, and ended), usage and error.
  */
 export function runRecord(row: RunRow) {
   return {
@@ -68,6 +68,7 @@ export function runRecord(row: RunRow) {
     user: row.user,
     startedAt: row.startedAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,
+    waitingSince: row.waitingSince?.toISOString() ?? null,
     usage: {
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,

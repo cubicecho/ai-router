@@ -1,8 +1,11 @@
 import {
   type AgentLoopOptions,
   type CatalogServer,
+  callIdsIn,
   createRuntime,
   failedRun,
+  freshCallId,
+  preview,
   type RunEvent,
   type RunEventInput,
   RunEventKind,
@@ -10,19 +13,28 @@ import {
   ToolDiscovery,
   type ToolDispatch,
 } from '@cubicecho/agent-core';
-import { and, eq, isNotNull, lt, ne } from 'drizzle-orm';
+import { and, arrayOverlaps, eq, isNotNull, lt, notInArray } from 'drizzle-orm';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotAgent, SnapshotHost, SnapshotWorkspace } from '../db/snapshot.ts';
-import { type RunAnswer, type RunRow, RunStatus, runs } from '../db/tables/runs.ts';
+import { agentRevisions } from '../db/tables/agent-revisions.ts';
+import {
+  type HandedBackCall,
+  type RunAnswer,
+  type RunResume,
+  type RunRow,
+  RunStatus,
+  runs,
+} from '../db/tables/runs.ts';
+import { ModelFailure } from '../models/openai-error.ts';
 import type { ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
 import type { RunConfig } from './layers.ts';
 import { reachOf } from './reach.ts';
-import type { RunRequest } from './request.ts';
+import { type AppTool, type ChatMessage, RequestRefusal, type RunRequest, type ToolAnswer } from './request.ts';
 import { createRunBus, type RunBus } from './run-bus.ts';
 import { type RunTool, runToolNames } from './tool-names.ts';
 
@@ -35,8 +47,19 @@ const TURN_JOIN = '\n\n';
 const FINISH_LENGTH = 'length';
 /** OpenAI's finish reason for an answer the model ended. */
 const FINISH_STOP = 'stop';
+/** OpenAI's finish reason for an answer that hands tool calls to the app. */
+const FINISH_TOOL_CALLS = 'tool_calls';
 /** What a run that a restart cut short says. */
 const RESTARTED = 'The router restarted while the run was going.';
+/**
+ * What the transcript holds for a handed-back call until the app answers it. A resume replaces it; the model never
+ * reads it.
+ */
+const HANDED_BACK = '(handed back to the app)';
+/** Why the loop stopped at an app tool, as its `end` says it. */
+const HANDED_BACK_REASON = 'handed back to the app';
+/** The statuses of a run that is not over. */
+const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
 
 /** A request's `Idempotency-Key`, and the hash of the body it came with. */
 export interface Idempotency {
@@ -44,7 +67,7 @@ export interface Idempotency {
   hash: string;
 }
 
-/** What a run starts from: who asked, which agent, and the checked, resolved request. */
+/** What a run starts or resumes from: who asked, which agent, and the checked, resolved request. */
 export interface RunInput {
   workspace: SnapshotWorkspace;
   /** An agent with a live revision, which this workspace may run. */
@@ -54,17 +77,44 @@ export interface RunInput {
   idempotency: Idempotency | null;
 }
 
-/** A run as it ended, or as it stands for one still going elsewhere. */
+/** A waiting run that a request's tool messages answer. */
+export interface WaitingRun {
+  runId: string;
+  /** What it needs to carry on. */
+  resume: RunResume;
+  /** The document of the revision it started with, which it keeps. */
+  document: Record<string, unknown>;
+}
+
+/** A request the run service refuses because of where a run is, in OpenAI's words. */
+export class RunConflict extends Error {
+  /** How the agents endpoint answers it. */
+  readonly failure: ModelFailure;
+
+  /**
+   * Builds the refusal.
+   *
+   * @param failure - How the agents endpoint answers it.
+   * @param message - What the app is told.
+   */
+  constructor(failure: ModelFailure, message: string) {
+    super(message);
+    this.name = 'RunConflict';
+    this.failure = failure;
+  }
+}
+
+/** A run as it ended or as it waits, or as it stands for one still going elsewhere. */
 export interface FinishedRun {
   runId: string;
   agentName: string;
   status: RunStatus;
   startedAt: Date;
-  /** Null unless it completed. */
+  /** Null unless it completed or waits. */
   answer: RunAnswer | null;
   inputTokens: number;
   outputTokens: number;
-  /** Why it failed or was cancelled. */
+  /** Why it failed, was cancelled or expired. */
   error: string | null;
 }
 
@@ -84,17 +134,17 @@ export interface RunListener {
   onEvent(event: RunEvent): void;
 }
 
-/** A run this request started. */
+/** A run this request started or resumed. */
 export interface StartedRun {
   kind: 'started';
   runId: string;
   startedAt: Date;
   /**
-   * Runs it to its end.
+   * Runs it until it answers or hands calls back.
    *
    * @param listener - Hears its text and its events.
    * @param signal - The app's connection: aborting it cancels the run.
-   * @returns How it ended. Never rejects: a failure is a failed run.
+   * @returns How it ended, or that it waits. Never rejects: a failure is a failed run.
    */
   execute(listener: RunListener, signal: AbortSignal): Promise<FinishedRun>;
 }
@@ -103,22 +153,22 @@ export interface StartedRun {
 export interface RepeatedRun {
   kind: 'repeated';
   runId: string;
-  /** Whether this request's body is the one the key was first sent with. */
+  /** Whether this request's body is the one the key was sent with. */
   matches: boolean;
   /**
-   * Waits for the run to end, if it is still going here, and reads it.
+   * Waits for the run to answer, if it is still going here, and reads it.
    *
-   * @returns How it ended.
+   * @returns How it ended, or that it waits.
    */
   finished(): Promise<FinishedRun>;
 }
 
-/** Starts, records and answers agent runs. */
+/** Starts, resumes, records and answers agent runs. */
 export interface RunService {
   /** A run's events, stored and live. */
   bus: RunBus;
   /**
-   * Finds the run a workspace's `Idempotency-Key` already started.
+   * Finds the run a workspace's `Idempotency-Key` belongs to.
    *
    * @param workspaceId - The key's workspace.
    * @param idempotency - The key and this request's hash.
@@ -130,19 +180,44 @@ export interface RunService {
    *
    * @param input - The run.
    * @returns The new run, to execute at once, or the one the key started.
+   * @throws {@link RequestRefusal} When an app tool has the name of one of the agent's own tools.
    */
   begin(input: RunInput): Promise<StartedRun | RepeatedRun>;
   /**
-   * Marks the runs a stopped router left `running` as failed. Call it at boot, before the agents endpoint opens.
+   * Finds the waiting run that a request's tool messages answer.
+   *
+   * @param workspaceId - The key's workspace.
+   * @param agentId - The agent the request names.
+   * @param answers - The `tool` messages the request ends with.
+   * @returns The run.
+   * @throws {@link RequestRefusal} When they answer no waiting run, or only some of its calls, or more.
+   * @throws {@link RunConflict} When the run they answer has expired, or isn't waiting any more.
+   */
+  waitingFor(workspaceId: string, agentId: string, answers: ToolAnswer[]): Promise<WaitingRun>;
+  /**
+   * Carries a waiting run on, with the app's answers, as the same run.
+   *
+   * @param input - The request that answers it, and the config resolved from the run's own layers.
+   * @param waiting - The run, from `waitingFor`.
+   * @returns The run, to execute at once.
+   * @throws {@link RunConflict} When another request resumed it first.
+   * @throws {@link RequestRefusal} When an app tool has the name of one of the agent's own tools.
+   */
+  resume(input: RunInput, waiting: WaitingRun): Promise<StartedRun>;
+  /**
+   * Marks the runs a stopped router left `running` as failed. Waiting runs stay waiting. Call it at boot, before
+   * the agents endpoint opens.
    *
    * @returns How many there were.
    */
   recover(): Promise<number>;
-  /** Deletes finished runs past their retention, and frees keys past the idempotency window. */
+  /** Expires runs that waited past the wait timeout. */
+  expire(): Promise<void>;
+  /** Deletes ended runs past their retention, and frees keys past the idempotency window. */
   prune(): Promise<void>;
-  /** Starts the timer that prunes. */
+  /** Starts the timers that expire and prune. */
   start(): void;
-  /** Stops the timer, fails the runs still going, and waits for them to be recorded. */
+  /** Stops the timers, fails the runs still going, and waits for them to be recorded. Waiting runs stay waiting. */
   stop(): Promise<void>;
 }
 
@@ -152,13 +227,13 @@ export interface RunServiceDeps {
   snapshot: SnapshotHost;
   tools: ToolServices;
   /**
-   * agent-core's caches and event bus for the runs.
+   * agent-core's caches for the runs.
    * @defaultValue a runtime of their own
    */
   runtime?: Runtime;
   /** Settings that differ from `RUN_DEFAULTS`. */
   overrides?: Partial<RunSettings>;
-  /** The clock retention is judged by. */
+  /** The clock retention and waiting are judged by. */
   now?: () => Date;
 }
 
@@ -168,16 +243,36 @@ interface ReachedTool extends RunTool {
   parameters: Record<string, unknown>;
 }
 
-/** The tools a run reaches, named for its model. */
+/** The tools a run reaches, named for its model, and what was left out. */
 interface RunTools {
   definitions: ToolDefinition[];
   /** By function name. */
   names: Map<string, ReachedTool>;
   catalog: CatalogServer[];
+  /** What the run's first events say was left out. */
+  notices: string[];
+}
+
+/** One stretch of a run: from its start or a resume, to its answer or its next wait. */
+interface Segment {
+  input: RunInput;
+  runId: string;
+  startedAt: Date;
+  tools: RunTools;
+  appTools: AppTool[];
+  /** The transcript the loop carries on from. */
+  messages: ChatMessage[];
+  loaded: string[];
+  /** The app's answers this stretch delivers, told as events before it starts. */
+  answered: { call: HandedBackCall; content: string }[];
+  /** Tokens the run spent before this stretch. */
+  spent: { input: number; output: number };
+  /** The layers the run started with, kept for its next wait. */
+  layers: Pick<RunResume, 'hostText' | 'taskText' | 'servers' | 'sampling'>;
 }
 
 /**
- * Reads a stored run as an ended one.
+ * Reads a stored run as an ended or waiting one.
  *
  * @param row - The run's row.
  * @returns The run.
@@ -196,10 +291,51 @@ function finishedFrom(row: RunRow): FinishedRun {
 }
 
 /**
+ * Renames tool calls in a transcript, for the calls handed back under ids the router minted.
+ *
+ * @param messages - The transcript.
+ * @param ids - The new id for each loop id that has one.
+ * @returns A copy, with each call and the result that answers it under its new id.
+ */
+function withCallIds(messages: ChatMessage[], ids: ReadonlyMap<string, string>): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.role === 'assistant' && message.tool_calls !== undefined) {
+      const renamed = message.tool_calls.map((call) => ({ ...call, id: ids.get(call.id) ?? call.id }));
+      return { ...message, tool_calls: renamed };
+    }
+    if (message.role === 'tool') {
+      return { ...message, tool_call_id: ids.get(message.tool_call_id) ?? message.tool_call_id };
+    }
+    return message;
+  });
+}
+
+/**
+ * Finds the handed-back calls in a transcript, as the model made them.
+ *
+ * @param messages - The transcript, under the minted ids.
+ * @param ids - The handed-back calls' ids, in the order they were made.
+ * @returns The calls, in OpenAI's shape.
+ */
+function handedBackCalls(messages: ChatMessage[], ids: readonly string[]): HandedBackCall[] {
+  const made = new Map<string, HandedBackCall>();
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      for (const call of message.tool_calls ?? []) {
+        if (call.type === 'function') {
+          made.set(call.id, { id: call.id, type: 'function', function: call.function });
+        }
+      }
+    }
+  }
+  return ids.flatMap((id) => made.get(id) ?? []);
+}
+
+/**
  * Builds the run service.
  *
  * @param deps - The database, the snapshot, the tools area, and stand-ins for tests.
- * @returns The service, with its timer not yet started.
+ * @returns The service, with its timers not yet started.
  */
 export function createRunService({
   db,
@@ -215,7 +351,7 @@ export function createRunService({
   const live = new Map<string, Promise<FinishedRun>>();
   /** Fails every run still going when the router stops. */
   const stopping = new AbortController();
-  let timer: NodeJS.Timeout | null = null;
+  const timers: NodeJS.Timeout[] = [];
 
   const readRun = async (runId: string): Promise<RunRow | undefined> => {
     const [row] = await db.select().from(runs).where(eq(runs.id, runId));
@@ -252,24 +388,17 @@ export function createRunService({
   /**
    * Lists the tools of every server the run reaches, as its workspace's instances, and names them for the model.
    *
-   * @param runId - The run.
-   * @param config - The resolved agent, for its servers and discovery.
+   * @param config - The resolved agent, for its servers.
    * @param workspaceId - Whose instances to use.
-   * @param say - Records the run's events, which say what was left out.
+   * @param appTools - The app's own tools, which may not share a name with one of these.
    * @returns The tools. A server that can't start or list is left out and said so, never failing the run.
+   * @throws {@link RequestRefusal} When an app tool has the name of one of these.
    */
-  const reachedTools = async (
-    runId: string,
-    config: RunConfig,
-    workspaceId: string,
-    say: (input: RunEventInput) => void,
-  ): Promise<RunTools> => {
-    const notice = (text: string): void => {
-      say({ kind: RunEventKind.Notice, text });
-    };
+  const reachedTools = async (config: RunConfig, workspaceId: string, appTools: AppTool[]): Promise<RunTools> => {
+    const notices: string[] = [];
     const reach = reachOf(config.servers, snapshot.current());
     for (const name of reach.missing) {
-      notice(`server "${name}" is not on this router or is turned off; it is left out.`);
+      notices.push(`server "${name}" is not on this router or is turned off; it is left out.`);
     }
     const listed = await Promise.all(
       reach.servers.map(async (server): Promise<ReachedTool[]> => {
@@ -283,15 +412,26 @@ export function createRunService({
             parameters: isRecord(tool.inputSchema) ? tool.inputSchema : { type: 'object' },
           }));
         } catch (error) {
-          console.warn(`[runs] run ${runId} leaves server ${server.name} out: ${errorMessage(error)}`);
-          notice(`server "${server.name}" could not list its tools, so they are left out: ${errorMessage(error)}`);
+          console.warn(`[runs] a run leaves server ${server.name} out: ${errorMessage(error)}`);
+          notices.push(
+            `server "${server.name}" could not list its tools, so they are left out: ${errorMessage(error)}`,
+          );
           return [];
         }
       }),
     );
     const { names, dropped } = runToolNames(listed.flat());
     for (const tool of dropped) {
-      notice(`tool "${tool.tool}" of server "${tool.serverName}" is left out: its name clashes with another.`);
+      notices.push(`tool "${tool.tool}" of server "${tool.serverName}" is left out: its name clashes with another.`);
+    }
+    for (const [index, appTool] of appTools.entries()) {
+      const clash = names.get(appTool.function.name);
+      if (clash !== undefined) {
+        throw new RequestRefusal(
+          `tools.${index}`,
+          `tools.${index}: "${appTool.function.name}" is the name of the agent's tool "${clash.tool}" of server "${clash.serverName}". Give the app's tool another name.`,
+        );
+      }
     }
     const definitions: ToolDefinition[] = [...names].map(([name, tool]) => ({
       type: 'function',
@@ -303,7 +443,7 @@ export function createRunService({
       entry.tools.push({ name, description: tool.description });
       byServer.set(tool.serverName, entry);
     }
-    return { definitions, names, catalog: [...byServer.values()] };
+    return { definitions, names, catalog: [...byServer.values()], notices };
   };
 
   /**
@@ -322,6 +462,7 @@ export function createRunService({
           outputTokens: finished.outputTokens,
           error: finished.error?.slice(0, settings.maxErrorLength) ?? null,
           answer: finished.answer,
+          resume: null,
         })
         .where(and(eq(runs.id, finished.runId), eq(runs.status, RunStatus.Running)));
     } catch (error) {
@@ -330,33 +471,109 @@ export function createRunService({
   };
 
   /**
-   * Runs one agent to its answer.
+   * Records that a run waits for the app, with what it needs to carry on.
    *
-   * @param input - The run.
-   * @param row - Its row, just written.
+   * @param finished - The run, with the calls it hands back.
+   * @param resume - What it needs to carry on.
+   */
+  const recordWait = async (finished: FinishedRun, resume: RunResume): Promise<void> => {
+    try {
+      await db
+        .update(runs)
+        .set({
+          status: RunStatus.Waiting,
+          waitingSince: now(),
+          pendingCallIds: resume.handedBack.map((call) => call.id),
+          inputTokens: finished.inputTokens,
+          outputTokens: finished.outputTokens,
+          answer: finished.answer,
+          resume,
+        })
+        .where(and(eq(runs.id, finished.runId), eq(runs.status, RunStatus.Running)));
+    } catch (error) {
+      console.error(`[runs] could not record that run ${finished.runId} waits: ${errorMessage(error)}`);
+    }
+  };
+
+  /**
+   * Runs one stretch of a run: to its answer, or until the model calls an app tool and the run waits.
+   *
+   * @param segment - The stretch.
    * @param listener - Hears the answer's text and the run's events.
    * @param signal - The app's connection.
-   * @returns How it ended.
+   * @returns How it ended, or that it waits.
    */
-  const run = async (
-    input: RunInput,
-    row: RunRow,
-    listener: RunListener,
-    signal: AbortSignal,
-  ): Promise<FinishedRun> => {
-    const { workspace, agent, request, config } = input;
-    const runId = row.id;
+  const run = async (segment: Segment, listener: RunListener, signal: AbortSignal): Promise<FinishedRun> => {
+    const { input, runId, appTools, spent } = segment;
+    const { workspace, agent, config } = input;
     const deadline = AbortSignal.timeout(settings.timeoutMinutes * MS_PER_MINUTE);
     const runSignal = AbortSignal.any([signal, deadline, stopping.signal]);
-    let answer = '';
-    let isNewTurn = false;
     const say = (event: RunEventInput): void => {
       listener.onEvent(bus.publish(runId, event));
     };
+    for (const text of segment.tools.notices) {
+      say({ kind: RunEventKind.Notice, text });
+    }
+    for (const { call, content } of segment.answered) {
+      say({ kind: RunEventKind.ToolResult, id: call.id, name: call.function.name, ok: true, text: preview(content) });
+    }
+
+    const appNames = new Set(appTools.map((tool) => tool.function.name));
+    // The app answers its calls by id, so each is handed back under an id the router minted, which no other run
+    // is waiting on. Every app tool call is renamed, in the events and the transcript alike.
+    const taken = callIdsIn(segment.messages);
+    const minted = new Map<string, string>();
+    const mintedFor = (loopId: string): string => {
+      const known = minted.get(loopId);
+      if (known !== undefined) {
+        return known;
+      }
+      const id = freshCallId(taken);
+      minted.set(loopId, id);
+      return id;
+    };
+    /** The loop ids of the calls handed back, in the order they were made. */
+    const handed: string[] = [];
+
+    let answer = '';
+    let isNewTurn = false;
+    let counted = Promise.resolve();
     const onEvent = (event: RunEventInput): void => {
+      const isAppCall =
+        (event.kind === RunEventKind.ToolCall || event.kind === RunEventKind.ToolResult) &&
+        event.id !== undefined &&
+        appNames.has(event.name ?? '');
+      if (isAppCall && event.id !== undefined) {
+        // A handed-back call's answer is the app's, told when it arrives, not the stand-in the loop writes.
+        const isStandIn = event.kind === RunEventKind.ToolResult && handed.includes(event.id);
+        if (isStandIn) {
+          return;
+        }
+        say({ ...event, id: mintedFor(event.id) });
+        return;
+      }
       say(event);
       if (event.kind === RunEventKind.Turn) {
         isNewTurn = answer !== '';
+      }
+      const { usage } = event;
+      if (event.kind === RunEventKind.Usage && usage !== undefined && usage !== null) {
+        // So a run's record shows what it has spent while it runs.
+        const totals = {
+          inputTokens: spent.input + usage.promptTokens,
+          outputTokens: spent.output + usage.completionTokens,
+        };
+        counted = counted
+          .then(() =>
+            db
+              .update(runs)
+              .set(totals)
+              .where(and(eq(runs.id, runId), eq(runs.status, RunStatus.Running))),
+          )
+          .then(
+            () => {},
+            (error) => console.warn(`[runs] could not count run ${runId}'s tokens: ${errorMessage(error)}`),
+          );
       }
       const text = event.text ?? '';
       if (event.kind === RunEventKind.Output && text !== '') {
@@ -370,14 +587,19 @@ export function createRunService({
       runId,
       agentName: agent.name,
       status,
-      startedAt: row.startedAt,
-      inputTokens: usage?.promptTokens ?? 0,
-      outputTokens: usage?.completionTokens ?? 0,
+      startedAt: segment.startedAt,
+      inputTokens: spent.input + (usage?.promptTokens ?? 0),
+      outputTokens: spent.output + (usage?.completionTokens ?? 0),
     });
     let finished: FinishedRun;
     try {
-      const reached = await reachedTools(runId, config, workspace.id, say);
+      const reached = segment.tools;
       const dispatch: ToolDispatch = async (call, callSignal) => {
+        if (appNames.has(call.name)) {
+          handed.push(call.id);
+          mintedFor(call.id);
+          return { text: HANDED_BACK, end: { reason: HANDED_BACK_REASON } };
+        }
         const target = reached.names.get(call.name);
         if (target === undefined) {
           throw new Error(`This run has no tool named "${call.name}".`);
@@ -397,14 +619,42 @@ export function createRunService({
       const result = await runtime.runAgentLoop({
         config,
         system: config.systemPrompt,
-        messages: request.messages,
+        messages: segment.messages,
         tools: reached.definitions,
+        hostTools: appTools,
+        loaded: segment.loaded,
         ...(isEager ? {} : { catalog: reached.catalog }),
         dispatch,
+        // Every app tool call is handed back, a repeat included: only the app knows what it does.
+        dedupeToolCalls: (call) => appNames.has(call.name) === false,
         signal: runSignal,
         session: runId,
         onEvent,
       });
+      const transcript = withCallIds(result.messages, minted);
+      if (handed.length > 0) {
+        const handedBack = handedBackCalls(
+          transcript,
+          handed.map((id) => mintedFor(id)),
+        );
+        finished = {
+          ...ended(RunStatus.Waiting, result.usage),
+          answer: { content: answer, finishReason: FINISH_TOOL_CALLS, toolCalls: handedBack },
+          error: null,
+        };
+        const count = handedBack.length === 1 ? 'the call' : `${handedBack.length} calls`;
+        say({ kind: RunEventKind.Notice, text: `the run waits for the app to answer ${count} it handed back.` });
+        await counted;
+        await recordWait(finished, {
+          messages: transcript,
+          handedBack,
+          appTools,
+          loaded: result.loaded,
+          ...segment.layers,
+        });
+        await bus.close(runId);
+        return finished;
+      }
       const finishReason = result.turn.finishReason === FINISH_LENGTH ? FINISH_LENGTH : FINISH_STOP;
       finished = {
         ...ended(RunStatus.Completed, result.usage),
@@ -426,13 +676,42 @@ export function createRunService({
     }
     const isCompleted = finished.status === RunStatus.Completed;
     say({ kind: RunEventKind.Done, ok: isCompleted, text: finished.error ?? '' });
+    await counted;
     await record(finished);
     await bus.close(runId);
     return finished;
   };
 
+  /**
+   * Hands a run's stretch to the request that started or resumed it, and to any repeat of its key meanwhile.
+   *
+   * @param segment - The stretch.
+   * @returns The run, to execute.
+   */
+  const started = (segment: Segment): StartedRun => {
+    let settle: (finished: FinishedRun) => void = () => {};
+    live.set(
+      segment.runId,
+      new Promise<FinishedRun>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return {
+      kind: 'started',
+      runId: segment.runId,
+      startedAt: segment.startedAt,
+      execute: async (listener, signal) => {
+        const finished = await run(segment, listener, signal);
+        settle(finished);
+        live.delete(segment.runId);
+        return finished;
+      },
+    };
+  };
+
   const begin = async (input: RunInput): Promise<StartedRun | RepeatedRun> => {
-    const { workspace, agent, request, idempotency } = input;
+    const { workspace, agent, request, config, idempotency } = input;
+    const reached = await reachedTools(config, workspace.id, request.appTools);
     const [row] = await db
       .insert(runs)
       .values({
@@ -457,30 +736,155 @@ export function createRunService({
       return repeat;
     }
     await bus.open(row.id);
-    let settle: (finished: FinishedRun) => void = () => {};
-    live.set(
-      row.id,
-      new Promise<FinishedRun>((resolve) => {
-        settle = resolve;
-      }),
-    );
-    return {
-      kind: 'started',
+    const { hostText, taskText, servers, sampling } = request;
+    return started({
+      input,
       runId: row.id,
       startedAt: row.startedAt,
-      execute: async (listener, signal) => {
-        const finished = await run(input, row, listener, signal);
-        settle(finished);
-        live.delete(row.id);
-        return finished;
-      },
-    };
+      tools: reached,
+      appTools: request.appTools,
+      messages: request.messages,
+      loaded: [],
+      answered: [],
+      spent: { input: 0, output: 0 },
+      layers: { hostText, taskText, servers, sampling },
+    });
+  };
+
+  /**
+   * Expires runs that wait past the timeout, and says so in their events.
+   *
+   * @param [runId] - Only this run, when a late answer finds it overdue.
+   * @returns The runs expired.
+   */
+  const expireOverdue = async (runId?: string): Promise<string[]> => {
+    const cutoff = new Date(now().getTime() - settings.waitTimeoutHours * MS_PER_HOUR);
+    const error = `The run waited longer than ${settings.waitTimeoutHours} hours for the app to answer its tool calls.`;
+    const expired = await db
+      .update(runs)
+      .set({ status: RunStatus.Expired, finishedAt: now(), error, resume: null })
+      .where(
+        and(
+          eq(runs.status, RunStatus.Waiting),
+          lt(runs.waitingSince, cutoff),
+          runId === undefined ? undefined : eq(runs.id, runId),
+        ),
+      )
+      .returning({ id: runs.id });
+    for (const { id } of expired) {
+      await bus.open(id);
+      bus.publish(id, { kind: RunEventKind.Done, ok: false, text: error });
+      await bus.close(id);
+    }
+    return expired.map(({ id }) => id);
+  };
+
+  const waitingFor = async (workspaceId: string, agentId: string, answers: ToolAnswer[]): Promise<WaitingRun> => {
+    const answeredIds = answers.map((answer) => answer.callId);
+    const found = await db
+      .select({ id: runs.id, status: runs.status, pendingCallIds: runs.pendingCallIds })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, workspaceId),
+          eq(runs.agentId, agentId),
+          arrayOverlaps(runs.pendingCallIds, answeredIds),
+        ),
+      );
+    const [match, other] = found;
+    if (match === undefined) {
+      throw new RequestRefusal(
+        'messages',
+        'messages: the tool messages at the end answer calls no run of this agent handed back. Answer the calls of the last answer, under their ids.',
+      );
+    }
+    if (other !== undefined) {
+      throw new RequestRefusal('messages', 'messages: the tool messages at the end answer calls of more than one run.');
+    }
+    const isOverdue = match.status === RunStatus.Waiting && (await expireOverdue(match.id)).length > 0;
+    if (match.status === RunStatus.Expired || isOverdue) {
+      throw new RunConflict(
+        ModelFailure.RunExpired,
+        `Run ${match.id} waited too long for these answers and has expired. Start again with a new request.`,
+      );
+    }
+    if (match.status !== RunStatus.Waiting) {
+      throw new RunConflict(ModelFailure.RunInProgress, `Run ${match.id} isn't waiting for these answers any more.`);
+    }
+    const pending = new Set(match.pendingCallIds);
+    const unanswered = match.pendingCallIds.filter((id) => answeredIds.includes(id) === false);
+    if (unanswered.length > 0) {
+      throw new RequestRefusal(
+        'messages',
+        `messages: answer every call the run handed back. These have no tool message: ${unanswered.join(', ')}.`,
+      );
+    }
+    const extra = answeredIds.filter((id) => pending.has(id) === false);
+    if (extra.length > 0 || answeredIds.length !== new Set(answeredIds).size) {
+      throw new RequestRefusal(
+        'messages',
+        `messages: the tool messages at the end answer each handed-back call once, and nothing else. Not handed back: ${extra.join(', ') || 'none'}.`,
+      );
+    }
+    const [row] = await db
+      .select({ resume: runs.resume, document: agentRevisions.document })
+      .from(runs)
+      .leftJoin(agentRevisions, eq(agentRevisions.id, runs.revisionId))
+      .where(eq(runs.id, match.id));
+    if (row?.resume === null || row?.resume === undefined) {
+      throw new RunConflict(ModelFailure.RunInProgress, `Run ${match.id} isn't waiting for these answers any more.`);
+    }
+    if (row.document === null) {
+      throw new RunConflict(ModelFailure.RunFailed, `Run ${match.id} can't carry on: the revision it ran is gone.`);
+    }
+    return { runId: match.id, resume: row.resume, document: row.document };
+  };
+
+  const resume = async (input: RunInput, waiting: WaitingRun): Promise<StartedRun> => {
+    const { workspace, request, config, idempotency } = input;
+    const state = waiting.resume;
+    // The app sends its tools again with every request, as any OpenAI client does. One that doesn't keeps them.
+    const appTools = request.appTools.length > 0 ? request.appTools : state.appTools;
+    const reached = await reachedTools(config, workspace.id, appTools);
+    const [row] = await db
+      .update(runs)
+      .set({
+        status: RunStatus.Running,
+        pendingCallIds: [],
+        resume: null,
+        // The run answers to the key of its latest request, which is the one a retry repeats.
+        idempotencyKey: idempotency?.key ?? null,
+        requestHash: idempotency?.hash ?? null,
+      })
+      .where(and(eq(runs.id, waiting.runId), eq(runs.status, RunStatus.Waiting)))
+      .returning();
+    if (row === undefined) {
+      throw new RunConflict(ModelFailure.RunInProgress, `Run ${waiting.runId} has already been resumed.`);
+    }
+    await bus.open(row.id);
+    const answers = new Map(request.answers.map((answer) => [answer.callId, answer.content]));
+    const messages = state.messages.map((message) => {
+      const content = message.role === 'tool' ? answers.get(message.tool_call_id) : undefined;
+      return content === undefined ? message : { ...message, content };
+    });
+    return started({
+      input,
+      runId: row.id,
+      startedAt: row.startedAt,
+      tools: reached,
+      appTools,
+      messages,
+      loaded: state.loaded,
+      answered: state.handedBack.map((call) => ({ call, content: answers.get(call.id) ?? '' })),
+      spent: { input: row.inputTokens, output: row.outputTokens },
+      layers: { hostText: state.hostText, taskText: state.taskText, servers: state.servers, sampling: state.sampling },
+    });
   };
 
   const recover = async (): Promise<number> => {
     const left = await db
       .update(runs)
-      .set({ status: RunStatus.Failed, finishedAt: now(), error: RESTARTED })
+      .set({ status: RunStatus.Failed, finishedAt: now(), error: RESTARTED, resume: null })
       .where(eq(runs.status, RunStatus.Running))
       .returning({ id: runs.id });
     for (const { id } of left) {
@@ -494,30 +898,47 @@ export function createRunService({
   const prune = async (): Promise<void> => {
     const moment = now().getTime();
     const keptUntil = new Date(moment - settings.retentionDays * MS_PER_DAY);
-    await db.delete(runs).where(and(ne(runs.status, RunStatus.Running), lt(runs.finishedAt, keptUntil)));
+    await db.delete(runs).where(and(notInArray(runs.status, GOING), lt(runs.finishedAt, keptUntil)));
     const keysUntil = new Date(moment - settings.idempotencyHours * MS_PER_HOUR);
     await db
       .update(runs)
       .set({ idempotencyKey: null, requestHash: null })
-      .where(and(isNotNull(runs.idempotencyKey), ne(runs.status, RunStatus.Running), lt(runs.finishedAt, keysUntil)));
+      .where(and(isNotNull(runs.idempotencyKey), notInArray(runs.status, GOING), lt(runs.finishedAt, keysUntil)));
+  };
+
+  /**
+   * Runs a background job now and then.
+   *
+   * @param job - The job.
+   * @param everyMs - How often.
+   * @param what - What it does, for the log.
+   */
+  const every = (job: () => Promise<unknown>, everyMs: number, what: string): void => {
+    const report = (error: unknown) => console.error(`[runs] ${what} failed: ${errorMessage(error)}`);
+    const timer = setInterval(() => void job().catch(report), everyMs);
+    timer.unref();
+    timers.push(timer);
+    void job().catch(report);
   };
 
   return {
     bus,
     repeatOf,
     begin,
+    waitingFor,
+    resume,
     recover,
+    expire: async () => {
+      await expireOverdue();
+    },
     prune,
     start() {
-      const report = (error: unknown) => console.error(`[runs] pruning old runs failed: ${errorMessage(error)}`);
-      timer = setInterval(() => void prune().catch(report), settings.pruneEveryHours * MS_PER_HOUR);
-      timer.unref();
-      void prune().catch(report);
+      every(prune, settings.pruneEveryHours * MS_PER_HOUR, 'pruning old runs');
+      every(() => expireOverdue(), settings.expireEveryMinutes * MS_PER_MINUTE, 'expiring waiting runs');
     },
     async stop() {
-      if (timer !== null) {
+      for (const timer of timers.splice(0)) {
         clearInterval(timer);
-        timer = null;
       }
       stopping.abort();
       await Promise.allSettled([...live.values()]);

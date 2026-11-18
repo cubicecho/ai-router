@@ -48,6 +48,7 @@ describe('GET /runs/<id>', () => {
       user: 'household-a',
       startedAt: expect.any(String),
       finishedAt: expect.any(String),
+      waitingSince: null,
       usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
       error: null,
     });

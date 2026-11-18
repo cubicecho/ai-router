@@ -1,4 +1,4 @@
-import type { AgentLoopOptions } from '@cubicecho/agent-core';
+import { type AgentLoopOptions, CALL_TOOL, LOAD_TOOLS, RECORD_ARTIFACT } from '@cubicecho/agent-core';
 import { z } from 'zod';
 import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -6,6 +6,15 @@ import type { OverridePolicyRules } from './policy.ts';
 
 /** One message of a conversation, as the loop takes it. */
 export type ChatMessage = AgentLoopOptions['messages'][number];
+/** One of the app's own tools, as the loop declares it. */
+export type AppTool = Extract<NonNullable<AgentLoopOptions['hostTools']>[number], { type: 'function' }>;
+
+/** The names the loop gives its own tools, which an app tool may not take. */
+const LOOP_TOOL_NAMES: ReadonlySet<string> = new Set([LOAD_TOOLS, CALL_TOOL, RECORD_ARTIFACT]);
+/** OpenAI's rule for a function name. */
+const FUNCTION_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+/** The one `tool_choice` the router takes: the agent decides when it calls a tool. */
+const TOOL_CHOICE_AUTO = 'auto';
 
 /** What joins the texts of the leading system messages into the host part. */
 const HOST_JOIN = '\n\n';
@@ -38,9 +47,6 @@ const READ_FIELDS: ReadonlySet<string> = new Set([
   'function_call',
 ]);
 
-/** What a refusal of app tools says, until phase 7 brings them. */
-const NO_APP_TOOLS = "app tools aren't supported yet: the agent runs with its own tools only.";
-
 /** A request the router refuses before any run starts: 400, in OpenAI's error envelope. */
 export class RequestRefusal extends Error {
   /** The request field it is about, as OpenAI's `param`. */
@@ -67,7 +73,14 @@ const imagePart = z.object({
 });
 const textContent = z.union([z.string(), z.array(textPart)]);
 
-/** The messages the router passes to the agent, as OpenAI's chat completions define them. App tools are phase 7. */
+/** A tool call an assistant message made, as OpenAI writes it. */
+const toolCallSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal('function'),
+  function: z.object({ name: z.string(), arguments: z.string() }),
+});
+
+/** The messages the router passes to the agent, as OpenAI's chat completions define them. */
 const messageSchema = z.discriminatedUnion('role', [
   z.object({ role: z.literal('system'), content: textContent, name: z.string().optional() }),
   z.object({ role: z.literal('developer'), content: textContent, name: z.string().optional() }),
@@ -80,8 +93,21 @@ const messageSchema = z.discriminatedUnion('role', [
     role: z.literal('assistant'),
     content: z.union([textContent, z.null()]).optional(),
     name: z.string().optional(),
+    tool_calls: z.array(toolCallSchema).optional(),
   }),
+  z.object({ role: z.literal('tool'), content: textContent, tool_call_id: z.string().min(1) }),
 ]);
+
+/** An app's tool, as OpenAI's `tools` defines a function. */
+const appToolSchema = z.object({
+  type: z.literal('function'),
+  function: z.object({
+    name: z.string().regex(FUNCTION_NAME, 'a function name is 1 to 64 letters, digits, _ or -.'),
+    description: z.string().optional(),
+    parameters: z.record(z.string(), z.unknown()).optional(),
+    strict: z.boolean().nullish(),
+  }),
+});
 
 /** A message as the schema read it. */
 type ParsedMessage = z.infer<typeof messageSchema>;
@@ -104,10 +130,20 @@ export interface RequestSampling {
   extraBody: Record<string, unknown>;
 }
 
+/** The app's answer to one tool call: a `tool` message. */
+export interface ToolAnswer {
+  callId: string;
+  content: string;
+}
+
 /** A chat completion request, read and checked against the agent's override policy. */
 export interface RunRequest {
   /** The conversation, without the leading system messages. */
   messages: ChatMessage[];
+  /** The `tool` messages the conversation ends with: the app's answers to calls a run handed back. */
+  answers: ToolAnswer[];
+  /** The app's own tools, from `tools`. */
+  appTools: AppTool[];
   /** The leading system and developer messages' text, for the host part. Null when there were none. */
   hostText: string | null;
   /** `ai_router.task`, for the task part. Null when absent. */
@@ -176,24 +212,64 @@ function textOf(content: z.infer<typeof textContent>): string {
 }
 
 /**
- * Refuses the history of an app's own tool loop, which phase 7 brings.
+ * Reads the app's tools.
  *
- * @param messages - The raw `messages`.
- * @throws {@link RequestRefusal} For a `tool` or `function` message, or an assistant message with calls.
+ * @param body - The parsed body.
+ * @returns The tools, each named as OpenAI allows and none twice.
+ * @throws {@link RequestRefusal} For legacy `functions`, a `tool_choice` other than `auto`, too many tools, a name
+ * used twice, or a name the loop keeps for its own tools.
  */
-function refuseToolHistory(messages: unknown[]): void {
-  for (const [index, message] of messages.entries()) {
-    if (isRecord(message) === false) {
-      continue;
-    }
-    const isToolResult = message.role === 'tool' || message.role === 'function';
-    const callsTools =
-      message.role === 'assistant' &&
-      ((Array.isArray(message.tool_calls) && message.tool_calls.length > 0) || isRecord(message.function_call));
-    if (isToolResult || callsTools) {
-      throw new RequestRefusal(`messages.${index}`, `messages.${index}: ${NO_APP_TOOLS}`);
+function readAppTools(body: Record<string, unknown>): AppTool[] {
+  for (const field of ['functions', 'function_call']) {
+    if (body[field] !== undefined && body[field] !== null) {
+      throw new RequestRefusal(field, `${field}: send the app's tools as tools, not as the older functions.`);
     }
   }
+  const choice = body.tool_choice;
+  const isAuto = choice === undefined || choice === null || choice === TOOL_CHOICE_AUTO;
+  if (isAuto === false) {
+    throw new RequestRefusal(
+      'tool_choice',
+      'tool_choice: the agent decides when it calls a tool, so only "auto" is taken.',
+    );
+  }
+  const { maxAppTools } = RUN_DEFAULTS;
+  const tools = parseField(z.array(appToolSchema).max(maxAppTools).nullish(), body.tools, 'tools') ?? [];
+  const names = new Set<string>();
+  for (const [index, tool] of tools.entries()) {
+    const { name } = tool.function;
+    if (LOOP_TOOL_NAMES.has(name)) {
+      throw new RequestRefusal(
+        `tools.${index}`,
+        `tools.${index}: "${name}" is the name of one of the agent's own tools.`,
+      );
+    }
+    if (names.has(name)) {
+      throw new RequestRefusal(`tools.${index}`, `tools.${index}: "${name}" is sent twice.`);
+    }
+    names.add(name);
+  }
+  return tools.map(({ type, function: { strict, ...fn } }) => ({
+    type,
+    function: strict === undefined || strict === null ? fn : { ...fn, strict },
+  }));
+}
+
+/**
+ * Reads the `tool` messages a conversation ends with.
+ *
+ * @param messages - The checked messages.
+ * @returns The answers, in order. Empty when the last message is not a tool's.
+ */
+function trailingAnswers(messages: ParsedMessage[]): ToolAnswer[] {
+  const answers: ToolAnswer[] = [];
+  for (const message of messages.toReversed()) {
+    if (message.role !== 'tool') {
+      break;
+    }
+    answers.unshift({ callId: message.tool_call_id, content: textOf(message.content) });
+  }
+  return answers;
 }
 
 /**
@@ -274,15 +350,7 @@ export function readRunRequest(body: unknown, policy: OverridePolicyRules): RunR
   if (isRecord(body) === false) {
     throw new RequestRefusal('body', 'The body must be a JSON object.');
   }
-  const hasAppTools = (Array.isArray(body.tools) && body.tools.length > 0) || Array.isArray(body.functions);
-  if (hasAppTools) {
-    throw new RequestRefusal('tools', `tools: ${NO_APP_TOOLS}`);
-  }
-  for (const field of ['tool_choice', 'function_call']) {
-    if (body[field] !== undefined && body[field] !== null) {
-      throw new RequestRefusal(field, `${field}: ${NO_APP_TOOLS}`);
-    }
-  }
+  const appTools = readAppTools(body);
   const n = parseField(z.int().min(1).nullish(), body.n, 'n');
   if (n !== null && n !== undefined && n > 1) {
     throw new RequestRefusal('n', 'n: a run gives one answer, so n may only be 1.');
@@ -290,7 +358,6 @@ export function readRunRequest(body: unknown, policy: OverridePolicyRules): RunR
   if (Array.isArray(body.messages) === false || body.messages.length === 0) {
     throw new RequestRefusal('messages', 'messages: send the conversation, ending in the question.');
   }
-  refuseToolHistory(body.messages);
   const messages = parseField(z.array(messageSchema), body.messages, 'messages');
   const { hostText, rest } = splitHost(messages);
   if (rest.length === 0) {
@@ -337,6 +404,8 @@ export function readRunRequest(body: unknown, policy: OverridePolicyRules): RunR
   const user = parseField(z.string().max(RUN_DEFAULTS.maxUserLength).nullish(), body.user, 'user') ?? null;
   return {
     messages: rest,
+    answers: trailingAnswers(messages),
+    appTools,
     hostText,
     taskText: options.task ?? null,
     servers: options.servers ?? null,

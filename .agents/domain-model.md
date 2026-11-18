@@ -96,9 +96,10 @@ received --resolve--> running --model answers--> completed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
                       running --app without a key disconnects--> cancelled
-                      running --model calls an app tool--> waiting (finish_reason: tool_calls)   (phase 7)
-                      waiting --app answers every handed-back call--> running                    (phase 7)
-                      waiting --no answer before the timeout--> expired                          (phase 7)
+                      running --model calls an app tool--> waiting (finish_reason: tool_calls)
+                      waiting --app answers every handed-back call--> running
+                      waiting --no answer before the wait timeout--> expired
+                      waiting --the router stops or restarts--> waiting
                       running --cancel (app, later)--> cancelled
 ```
 
@@ -109,11 +110,22 @@ received --resolve--> running --model answers--> completed
 - **Revision:** a run keeps the revision it started with. A revision promoted mid-run applies
   to the next run.
 - **Waiting:** handing calls back to the app pauses the run. It does not end it.
-  - **The same run resumes:** a later request whose newest `tool` messages answer the waiting
+  - **Handing back:** the agent's own calls in the same step run first, and the app's calls go
+    back as an ordinary OpenAI answer with `finish_reason: "tool_calls"`, streamed or not.
+  - **The same run resumes:** a later request whose trailing `tool` messages answer the waiting
     run's calls resumes that run, under the same run id. The router mints those calls' ids, so
-    a standard OpenAI client's tool handling is all the app needs.
-  - **What is kept:** while it waits, the run keeps its transcript, loaded tools and step.
-  - **A partial answer** to the handed-back calls is refused, never guessed at.
+    a standard OpenAI client's tool handling is all the app needs. The match is by those ids,
+    within the key's workspace and the agent the request names.
+  - **What is kept:** while it waits, the run keeps its transcript, loaded tools, layers and the
+    app's tools on its row, so it can be resumed after a restart too. A resume rebuilds
+    agent-core's state from them and carries on.
+  - **What a resume keeps:** the revision and layers the run started with. A resume may repeat
+    the host and task text or leave them out, and different text is refused. Its other layers
+    are ignored.
+  - **A partial answer** to the handed-back calls is refused, never guessed at, and so is one
+    that answers anything else. A late answer to an expired run gets 409 `run_expired`.
+  - **The run timeout** counts the time a run runs, from its start or a resume; waiting doesn't
+    count. Waiting past `RUN_DEFAULTS.waitTimeoutHours` expires it.
 - **Recording:** a run is recorded from `running` on, with the revision it ran, and the end it came
   to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
   retention period. A run the router was running when it stopped is marked failed at the next boot.
@@ -121,7 +133,8 @@ received --resolve--> running --model answers--> completed
   run. The same body (less `stream` and `stream_options`) gets that run's answer again, streamed or
   not as this request asks, after waiting for it if it is still going. A different body is
   refused with 422. Once the idempotency window has passed, the key is cleared from the run and
-  may start a new one.
+  may start a new one. A run answers to the key of its latest request: a resume takes over the
+  key it sends, or clears it, so a retry of the resume gets the resume's answer.
 
 ### Conversation
 
@@ -185,11 +198,12 @@ created (shown once) --> in use --revoke--> deleted
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the policy doesn't allow refuses the request, naming the field | `agents/request`, `agents/layers`, read from `agents/policy` |
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, `RESERVED_PART_IDS` in `agents/document` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
-| A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused (phase 7) | `agents/run` |
+| A resumed run keeps the revision and layers it started with. A resume request that sends different host or task text is refused | `agents/routes` `resumedLayers`, `runs.resume` |
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| Until app tools arrive (phase 7), a request with `tools` or `tool_choice`, or whose history holds `tool` messages or assistant tool calls, is refused with a 400 that says so | `agents/request` |
+| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
+| Every app tool call is handed back under an id the router minted, in the answer, the events and the stored transcript alike. A repeated identical call is handed back too, never answered from the first | `agents/run` (`freshCallId`, `dedupeToolCalls`) |
 | A standard client's answer is the same with progress events as without: they come only when `ai_router.progress` asks, in chunks with empty `choices`, or beside `choices` as `ai_router.events`. A repeated `Idempotency-Key` answers without them, and the app reads them from `/runs/<id>/events` | `agents/completion`, `agents/routes` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
@@ -202,7 +216,7 @@ created (shown once) --> in use --revoke--> deleted
 | An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
-| A request resumes a waiting run only if it answers every call that run handed back. A partial answer is refused | `agents/run` |
+| A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own, each with `runId` set to the router's run id. agent-core has no encoder for them, so they are written as JSON, as they are | `agents/completion`, `agents/run-records`, `agents/run-bus` |
 | A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
@@ -368,14 +382,17 @@ Everything about the code comes after `Owner:`.
   app's workspace. The workspace can still configure those servers for its own runs, but never
   add to them. Owner: `agents/reach`.
 - **Run:** one agent answering one request through the router, recorded with the revision it
-  ran, how it ended (completed, failed or cancelled), its token counts and its answer. The app is
+  ran, how it ended (completed, failed, cancelled or expired), its token counts, counted as it
+  goes, and its answer. A run that hands app tool calls back waits for the app's answer and
+  carries on as the same run. The app is
   told the run's id with every answer. Owner: `agents/run` `createRunService`; the `runs` table
   (the workspace's slug and the agent's name kept beside their ids, which are set to null on
   delete), the `X-Run-Id` header; wraps `agent-core` `runAgentLoop`, in an agent-core runtime of
   its own. The limits are `RUN_DEFAULTS`. GraphQL serves the table read-only, without
   `request_hash`.
-- **Answer:** what a completed run said: the text of every turn, a blank line between turns, as
-  the stream sent it, and why its last turn ended. Kept on the run, so a repeated
+- **Answer:** what a run last said: the text of every turn since its start or resume, a blank
+  line between turns, as the stream sent it, why its last turn ended, and the calls it handed
+  back if it waits. Kept on the run, so a repeated
   `Idempotency-Key` gets it again. Owner: `runs.answer`; `agents/completion` writes it as a
   `chat.completion` or as `chat.completion.chunk`s.
 - **Request options:** what an app that knows the router may add to a request: a task layer's
@@ -401,7 +418,9 @@ Everything about the code comes after `Owner:`.
   the run.
 - **App tool (client tool):** a tool the app sends with its request. The agent may call it. The
   run then hands the call back to the app and waits, and resumes when the app sends the result.
-  Owner: `agents/run`; passed to the loop as `hostTools`.
+  Owner: `agents/request` (`tools`), `agents/run`; passed to the loop as `hostTools`, whose
+  dispatch answers with a stand-in and agent-core's `end`, so the loop stops after the step. The
+  run then stores its transcript in `runs.resume` and the minted ids in `runs.pending_call_ids`.
 - **Conversation:** optional memory of one chat between requests, named by the app and deleted
   once idle. Owner: `agents/conversation`; the `conversations` table, the `X-Conversation-Id`
   header.

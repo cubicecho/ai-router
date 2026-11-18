@@ -216,7 +216,9 @@ describe('the agents endpoint', () => {
       [{ logit_bias: { 50256: -100 } }, 'logit_bias'],
       [{ logprobs: true }, 'logprobs'],
       [{ n: 2 }, 'n'],
-      [{ tools: [{ type: 'function', function: { name: 'ask_user', parameters: {} } }] }, 'tools'],
+      [{ tool_choice: 'required' }, 'tool_choice'],
+      [{ tools: [{ type: 'function', function: { name: 'ask user' } }] }, 'tools'],
+      [{ tools: [{ type: 'function', function: { name: 'load_tools' } }] }, 'tools.0'],
     ];
     for (const [extra, param] of cases) {
       const response = await h.complete(base, { model: 'helper', messages: [QUESTION], ...extra });

@@ -94,18 +94,44 @@ describe('reading a request against the override policy', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], temperature: 1 }, strict).message).toContain('temperature');
   });
 
-  it('refuses n above 1, app tools, and tool history, for now', () => {
+  it('refuses n above 1', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], n: 2 }).param).toBe('n');
     expect(readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, DEFAULT_POLICY_RULES).stream).toBe(false);
-    const tools = [{ type: 'function', function: { name: 'ask_user' } }];
-    expect(refusalOf({ model: 'x', messages: [QUESTION], tools }).message).toContain("app tools aren't supported yet");
-    expect(refusalOf({ model: 'x', messages: [QUESTION], tool_choice: 'auto' }).param).toBe('tool_choice');
+  });
+
+  it("reads the app's tools, and refuses legacy functions, a forced tool_choice, a bad or repeated name", () => {
+    const tools = [{ type: 'function', function: { name: 'ask_user', parameters: { type: 'object' }, strict: null } }];
+    const request = readRunRequest(
+      { model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' },
+      DEFAULT_POLICY_RULES,
+    );
+    expect(request.appTools).toEqual([
+      { type: 'function', function: { name: 'ask_user', parameters: { type: 'object' } } },
+    ]);
+    expect(refusalOf({ model: 'x', messages: [QUESTION], tool_choice: 'none' }).param).toBe('tool_choice');
+    expect(refusalOf({ model: 'x', messages: [QUESTION], functions: [] }).param).toBe('functions');
+    expect(refusalOf({ model: 'x', messages: [QUESTION], tools: [...tools, ...tools] }).param).toBe('tools.1');
+    const badName = [{ type: 'function', function: { name: 'ask.user' } }];
+    expect(refusalOf({ model: 'x', messages: [QUESTION], tools: badName }).param).toBe('tools');
+    const loops = [{ type: 'function', function: { name: 'call_tool' } }];
+    expect(refusalOf({ model: 'x', messages: [QUESTION], tools: loops }).param).toBe('tools.0');
+  });
+
+  it('keeps tool history, and reads the tool messages at the end as answers', () => {
     const history = [
       QUESTION,
-      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f' } }] },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }],
+      },
       { role: 'tool', tool_call_id: 'c1', content: 'done' },
     ];
-    expect(refusalOf({ model: 'x', messages: history }).message).toContain("app tools aren't supported yet");
+    const answered = readRunRequest({ model: 'x', messages: history }, DEFAULT_POLICY_RULES);
+    expect(answered.messages).toHaveLength(3);
+    expect(answered.answers).toEqual([{ callId: 'c1', content: 'done' }]);
+    const goneOn = readRunRequest({ model: 'x', messages: [...history, QUESTION] }, DEFAULT_POLICY_RULES);
+    expect(goneOn.answers).toEqual([]);
   });
 
   it('follows the policy on response_format, and passes parallel_tool_calls and user through', () => {

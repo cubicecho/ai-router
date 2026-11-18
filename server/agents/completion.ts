@@ -58,9 +58,25 @@ function usageOf(finished: FinishedRun): CompletionUsage {
 }
 
 /**
- * Builds the non-streamed answer of a completed run.
+ * Builds the assistant message of a run's answer.
  *
- * @param finished - The run. It completed, so it has an answer.
+ * @param finished - The run.
+ * @returns Its text, and the app tool calls a waiting run hands back. A message with calls and no text has null
+ * content, as OpenAI writes one.
+ */
+function messageOf(finished: FinishedRun) {
+  const content = finished.answer?.content ?? '';
+  const toolCalls = finished.answer?.toolCalls ?? [];
+  if (toolCalls.length === 0) {
+    return { role: 'assistant', content };
+  }
+  return { role: 'assistant', content: content === '' ? null : content, tool_calls: toolCalls };
+}
+
+/**
+ * Builds the non-streamed answer of a completed or waiting run.
+ *
+ * @param finished - The run. It completed or waits, so it has an answer.
  * @param [events] - Its events, when the app asked for progress: they go beside `choices`, as `ai_router.events`.
  * @returns A `chat.completion`.
  */
@@ -73,7 +89,7 @@ export function completionBody(finished: FinishedRun, events: RunEvent[] | null 
     choices: [
       {
         index: 0,
-        message: { role: 'assistant', content: finished.answer?.content ?? '' },
+        message: messageOf(finished),
         finish_reason: finished.answer?.finishReason ?? 'stop',
       },
     ],
@@ -97,7 +113,8 @@ export interface ChunkStream {
    */
   event(event: RunEvent): void;
   /**
-   * Ends a run that completed: the finish chunk, the usage chunk when asked for, and `[DONE]`.
+   * Ends a run that completed or waits: the calls it hands back, the finish chunk, the usage chunk when asked for,
+   * and `[DONE]`.
    *
    * @param finished - The run.
    */
@@ -189,6 +206,10 @@ export function openChunkStream(
     text: (content) => send(chunk({ content }, null)),
     event: (event) => send({ ...header(meta), object: 'chat.completion.chunk', choices: [], ai_router: { event } }),
     end: (finished) => {
+      const toolCalls = (finished.answer?.toolCalls ?? []).map((call, index) => ({ index, ...call }));
+      if (toolCalls.length > 0) {
+        send(chunk({ tool_calls: toolCalls }, null));
+      }
       send(chunk({}, finished.answer?.finishReason ?? 'stop'));
       if (includeUsage) {
         send({ ...header(meta), object: 'chat.completion.chunk', choices: [], usage: usageOf(finished) });

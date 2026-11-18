@@ -101,7 +101,8 @@ export function createSchema(db: DB): GraphQLSchema {
         servers: ['oauth'],
         serverSecrets: ['value'],
         // A fingerprint of an app's request: of no use to a person, and a way to test a guess at what it said.
-        runs: ['requestHash'],
+        // A waiting run's transcript and the app's tools: what it carries on with, not what it is.
+        runs: ['requestHash', 'resume'],
       },
     },
     features: {

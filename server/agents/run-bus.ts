@@ -7,7 +7,7 @@ import { runEvents } from '../db/tables/run-events.ts';
 import { RunStatus, runs } from '../db/tables/runs.ts';
 
 /** The statuses of a run that may still say something. */
-const GOING: RunStatus[] = [RunStatus.Running];
+const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
 
 /**
  * A run's events: numbered, stored in `run_events`, and handed to whoever follows the run. Each is agent-core's
