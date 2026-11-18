@@ -1,5 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import type { OverridePolicyRules } from '../agents/policy.ts';
+import type { AdminRole } from '../core/admin-roles.ts';
 import type { ServerOAuth, ServerTransport } from '../tools/shapes.ts';
 import type { DB } from './client.ts';
 import { agentRevisions } from './tables/agent-revisions.ts';
@@ -80,6 +81,8 @@ export interface SnapshotServerEntry {
   args: readonly string[] | null;
   /** Replaces an HTTP server's address. null keeps it. */
   url: string | null;
+  /** For the admin server only: what the workspace's agent runs may do through it. Empty for every other server. */
+  roles: readonly AdminRole[];
 }
 
 /** A server as a run's tool calls see it, secrets included. */
@@ -197,6 +200,7 @@ function serversFrom(
         headers: secretsOf(row.id, entry.workspaceId, SecretKind.Header),
         args: entry.args,
         url: entry.url,
+        roles: entry.roles,
       });
     }
     result.set(row.name, {

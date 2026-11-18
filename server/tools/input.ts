@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { ADMIN_ROLES, AdminRole } from '../core/admin-roles.ts';
 import { CHILD_DEFAULTS, TOOL_CONFIG_DEFAULTS } from '../core/defaults.ts';
 import { nameSchema } from '../core/names.ts';
 import { SecretKind } from '../db/tables/server-secrets.ts';
 import { routerGroups } from './child-users.ts';
-import { serverNameSchema, serverTransportSchema } from './shapes.ts';
+import { externalTransportSchema, serverNameSchema } from './shapes.ts';
 
 const { uidMin, uidMax, firstExtraGid, maxExtraGid, maxExtraGroups } = CHILD_DEFAULTS;
 
@@ -88,8 +89,8 @@ const timeoutInput = z
   .max(maxTimeoutMs, `A timeout is at most ${maxTimeoutMs} ms.`)
   .nullable();
 
-/** A stored transport, with the limits on its command and arguments. */
-export const transportInput = serverTransportSchema.superRefine((transport, issues) => {
+/** A transport a person gives a server, with the limits on its command and arguments. Never the built-in one. */
+export const transportInput = externalTransportSchema.superRefine((transport, issues) => {
   if (transport.type === 'stdio') {
     const checked = argsInput.safeParse([transport.command, ...transport.args]);
     if (checked.success === false) {
@@ -130,6 +131,11 @@ export const registryInput = z
   .partial()
   .strict();
 
+/** What an entry for the admin server grants its workspace's runs: roles from the vocabulary, each once. */
+export const rolesInput = z
+  .array(z.enum(AdminRole, { error: `A role is one of ${ADMIN_ROLES.join(', ')}.` }))
+  .refine((roles) => new Set(roles).size === roles.length, { error: 'A role is listed twice.' });
+
 /** A server entry as a write states it. Which workspace and server it joins are set once. */
 export const workspaceServerInput = z
   .object({
@@ -138,6 +144,7 @@ export const workspaceServerInput = z
     env: envInput,
     args: argsInput.nullable(),
     url: webUrl.nullable(),
+    roles: rolesInput,
     updatedAt: z.unknown(),
   })
   .partial()

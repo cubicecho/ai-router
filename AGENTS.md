@@ -59,7 +59,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
-| `admin/` (phase 9) | the built-in admin server, the only way to the router's management tools | everything |
+| `admin/` | the built-in admin server, the only way to the router's management tools | everything |
 
 `index.ts` at the root of `server/` is boot only. The last column is kept by reading for now; a
 lint rule is planned.
@@ -107,9 +107,18 @@ non-negotiables apply on top of these.
   unanswered until agents are offered as MCP tools.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
-- **Reserved name:** no server may be called `ai-router`, which is kept for the admin server.
+- **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the
+  built-in transport and source (`builtin`). No other server takes the name or the transport, and
+  nothing deletes or renames the row or gives it env, args, secrets or a login (`tools/builtin`).
   That server is the only way to the management tools, and there is no `/admin/mcp`. Agent ids
   follow the same name rule as providers and servers.
+- **Roles live on the admin server's entries only.** A workspace's entry for `ai-router` holds
+  roles and nothing else; every other entry's roles stay empty.
+- **The admin server lists only what the roles reach, and the schema's permissions are the lock.**
+  Its tools come from the same permissioned schema `/graphql` serves, executed with the run's
+  `RunCaller`, whose roles are read from the snapshot. A call names its run in `_meta`, set by the
+  dispatch and never sent to another server. A run never changes or restarts `ai-router`. The
+  listing must fit `MCP_DEFAULTS`; prune it in `admin/server`, never in the schema.
 - **No discovery yet.** mcp-router's AI Catalog, cards and LAN announce/discovery are not
   ported in the first pass. When they come, the public catalog names only the endpoint, and
   every agent behind it needs a key.

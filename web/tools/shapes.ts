@@ -9,12 +9,14 @@ import { headersOf } from '@/models/headers';
 export type ServerSource =
   | { type: 'registry'; registry: string; serverName: string; version?: string | undefined }
   | { type: 'npm' | 'pypi'; package: string; version?: string | undefined }
-  | { type: 'manual' };
+  | { type: 'manual' }
+  | { type: 'builtin' };
 
 /** How the router reaches a server. */
 export type ServerTransport =
   | { type: 'stdio'; command: string; args: string[] }
-  | { type: 'streamable-http'; url: string };
+  | { type: 'streamable-http'; url: string }
+  | { type: 'builtin' };
 
 /** What the UI knows about one env var, from the registry's description of it. */
 export interface EnvVarMeta {
@@ -28,6 +30,8 @@ export interface EnvVarMeta {
 export const STDIO = 'stdio' as const;
 /** A server reached at an address. */
 export const STREAMABLE_HTTP = 'streamable-http' as const;
+/** The router's own admin server, `ai-router`, served inside it. */
+export const BUILTIN = 'builtin' as const;
 
 /**
  * Reads a JSON value as an object.
@@ -76,6 +80,9 @@ export function sourceOf(value: unknown): ServerSource {
   if (source.type === 'npm' || source.type === 'pypi') {
     return { type: source.type, package: textOf(source.package), version };
   }
+  if (source.type === BUILTIN) {
+    return { type: BUILTIN };
+  }
   return { type: 'manual' };
 }
 
@@ -90,7 +97,20 @@ export function transportOf(value: unknown): ServerTransport {
   if (transport.type === STREAMABLE_HTTP) {
     return { type: STREAMABLE_HTTP, url: textOf(transport.url) };
   }
+  if (transport.type === BUILTIN) {
+    return { type: BUILTIN };
+  }
   return { type: STDIO, command: textOf(transport.command), args: stringsOf(transport.args) };
+}
+
+/**
+ * Whether a server is the router's own admin server, which nobody edits, deletes or gives secrets.
+ *
+ * @param transport - The server's `transport` field, as the API serves it.
+ * @returns true for `ai-router`.
+ */
+export function isBuiltin(transport: unknown): boolean {
+  return transportOf(transport).type === BUILTIN;
 }
 
 /**
@@ -143,17 +163,27 @@ export function describeSource(source: ServerSource): string {
   if (source.type === 'pypi') {
     return `PyPI: ${source.package}${at(source.version)}`;
   }
+  if (source.type === BUILTIN) {
+    return 'Built in';
+  }
   return 'Added by hand';
 }
+
+/** What each transport is called, in a few words. */
+const TRANSPORT_NAMES: Readonly<Record<ServerTransport['type'], string>> = Object.freeze({
+  [STDIO]: 'Program',
+  [STREAMABLE_HTTP]: 'Address',
+  [BUILTIN]: 'Inside the router',
+});
 
 /**
  * Says how a server is reached, in a few words.
  *
  * @param transport - Its transport.
- * @returns "Program" or "Address".
+ * @returns "Program", "Address" or "Inside the router".
  */
 export function describeTransport(transport: ServerTransport): string {
-  return transport.type === STDIO ? 'Program' : 'Address';
+  return TRANSPORT_NAMES[transport.type];
 }
 
 /**
@@ -306,7 +336,7 @@ export function serverNameError(name: string): string | undefined {
     return 'It may not hold "__" or end in "_": a run names its tools <server>__<tool>.';
   }
   if (name === RESERVED_NAME) {
-    return `"${RESERVED_NAME}" is kept for the router's own server.`;
+    return `"${RESERVED_NAME}" is the router's own admin server.`;
   }
   return undefined;
 }

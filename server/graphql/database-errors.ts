@@ -1,6 +1,6 @@
 import { defaultErrorMapper } from '@vantreeseba/drizzle-graphql';
 import { badInput } from '../core/errors.ts';
-import { violatedUniqueIndex } from '../db/errors.ts';
+import { violatedCheck, violatedUniqueIndex } from '../db/errors.ts';
 
 /** What a caller is told when a write breaks a unique index, by the index's name. */
 const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
@@ -14,6 +14,27 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
   uq_workspace_agents_workspace_id_agent_id: 'This workspace can already run that agent.',
 };
 
+/** What a caller is told when a write would rename the admin server, or move another server onto its transport. */
+const ADMIN_SERVER_KEPT =
+  '"ai-router" is the built-in admin server: it keeps its name and transport, and no other server takes either.';
+
+/** What a caller is told when a write breaks a check the input rules don't state first, by the check's name. */
+const CHECK_MESSAGES: Readonly<Record<string, string>> = {
+  ck_servers_name_reserved: ADMIN_SERVER_KEPT,
+  ck_servers_builtin_source: ADMIN_SERVER_KEPT,
+};
+
+/**
+ * Finds what a caller is told about a broken constraint.
+ *
+ * @param messages - Messages by constraint name.
+ * @param constraint - The constraint the write broke, or null for none of this kind.
+ * @returns Its message, or undefined for one with none.
+ */
+function messageFor(messages: Readonly<Record<string, string>>, constraint: string | null): string | undefined {
+  return constraint === null ? undefined : messages[constraint];
+}
+
 /**
  * Turns a database error a person can fix into BAD_USER_INPUT, and leaves the rest to drizzle-graphql's masking.
  *
@@ -21,8 +42,8 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
  * @returns The error the caller sees.
  */
 export function mapDatabaseError(error: unknown): unknown {
-  const constraint = violatedUniqueIndex(error);
-  const message = constraint === null ? undefined : UNIQUE_MESSAGES[constraint];
+  const message =
+    messageFor(UNIQUE_MESSAGES, violatedUniqueIndex(error)) ?? messageFor(CHECK_MESSAGES, violatedCheck(error));
   if (message !== undefined) {
     return badInput(message);
   }

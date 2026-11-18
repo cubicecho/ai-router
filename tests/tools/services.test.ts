@@ -14,6 +14,7 @@ import { workspaceServers } from '../../server/db/tables/workspace-servers.ts';
 import { ChildMode } from '../../server/tools/child-users.ts';
 import { homeOf } from '../../server/tools/install-folder.ts';
 import { createToolServices, type ToolServiceParts } from '../../server/tools/services.ts';
+import { RESERVED_SERVER_NAME } from '../../server/tools/shapes.ts';
 import {
   closeTestDb,
   createClient,
@@ -145,7 +146,8 @@ describe('a server added by hand', () => {
     expect(tryServerTool).toMatchObject({ content: [{ type: 'text', text: 'hi' }] });
 
     const { servers } = await asUser.expectOk(INSTANCES);
-    expect(servers).toEqual([
+    // The admin server is on every router, and this test is not about it.
+    expect(servers.filter((listed: { name: string }) => listed.name !== RESERVED_SERVER_NAME)).toEqual([
       { id: server.id, name: 'fixture', instances: [{ workspaceId: null, state: 'ready', inFlight: 0 }] },
     ]);
     const { message } = await asUser.expectError('{ servers { name instances { state } } }');
@@ -266,7 +268,8 @@ describe('a workspace instance', () => {
     expect((await stat(path.join(root, folder ?? ''))).mode & MODE_BITS).toBe(0o700);
 
     const { servers } = await asUser.expectOk(INSTANCES);
-    expect(servers[0].instances).toEqual([{ workspaceId, state: 'ready', inFlight: 0 }]);
+    const listed = servers.find((candidate: { id: string }) => candidate.id === server.id);
+    expect(listed.instances).toEqual([{ workspaceId, state: 'ready', inFlight: 0 }]);
   });
 
   it('makes one folder however many first calls arrive at once', async () => {

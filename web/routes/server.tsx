@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
-import { DeleteServerDocument, MeDocument, ServerDocument } from '@/__generated__/graphql';
+import { DeleteServerDocument, MeDocument, ServerDocument, UpdateServerDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
@@ -16,6 +17,7 @@ import { LoginSection } from '@/tools/login-section';
 import { SecretsSection } from '@/tools/secrets-section';
 import { ServerDialog } from '@/tools/server-dialog';
 import {
+  BUILTIN,
   commandLine,
   describeSource,
   describeTimeout,
@@ -23,6 +25,7 @@ import {
   envOf,
   groupsToText,
   STDIO,
+  STREAMABLE_HTTP,
   sourceOf,
   transportOf,
 } from '@/tools/shapes';
@@ -46,6 +49,11 @@ export function ServerRoute() {
       void navigate({ to: '/servers' });
     },
   });
+  // The admin server's one setting a person changes here: whether it takes calls.
+  const switchOn = useMutation({
+    mutationFn: (enabled: boolean) => request(UpdateServerDocument, { id: serverId, set: { enabled } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['servers'] }),
+  });
   const record = server.data?.server ?? undefined;
   const defaults = server.data?.serverDefaults;
   const isAdmin = me.data?.me.role === Role.Admin;
@@ -67,26 +75,41 @@ export function ServerRoute() {
   }
 
   const transport = transportOf(record.transport);
+  const isBuiltin = transport.type === BUILTIN;
   const envMeta = envMetaOf(record.envMeta);
   const env = Object.entries(envOf(record.env));
   const { login } = record;
   return (
     <PageLayout
-      title={record.displayName ?? record.name}
+      title={
+        <span className="flex items-center gap-2">
+          {record.displayName ?? record.name}
+          {isBuiltin ? <Badge variant="secondary">Built in</Badge> : null}
+        </span>
+      }
       description={record.description === '' ? undefined : record.description}
       backSlot={back}
       width="prose"
       actionSlot={
-        <>
-          <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
-          <ConfirmButton
-            title={`Delete ${record.name}?`}
-            description="It is stopped and its folder removed, with its secrets and every workspace's entry for it. Agents using its tools stop finding them."
-            requireText={record.name}
-            onConfirm={() => remove.mutate()}
-            content="Delete"
+        isBuiltin ? (
+          <Button
+            variant="outline"
+            loading={switchOn.isPending}
+            onClick={() => switchOn.mutate(record.enabled === false)}
+            content={record.enabled ? 'Turn off' : 'Turn on'}
           />
-        </>
+        ) : (
+          <>
+            <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
+            <ConfirmButton
+              title={`Delete ${record.name}?`}
+              description="It is stopped and its folder removed, with its secrets and every workspace's entry for it. Agents using its tools stop finding them."
+              requireText={record.name}
+              onConfirm={() => remove.mutate()}
+              content="Delete"
+            />
+          </>
+        )
       }
       contentSlot={
         <>
@@ -120,14 +143,22 @@ export function ServerRoute() {
                       hint="For folders mounted from the host that belong to one of these groups."
                     />
                   </>
-                ) : (
+                ) : null}
+                {transport.type === STREAMABLE_HTTP ? (
                   <PropertyRow
                     label="Address"
                     value={transport.url}
                     valueClassName="font-mono break-all"
                     hint="Reached over streamable HTTP."
                   />
-                )}
+                ) : null}
+                {isBuiltin ? (
+                  <PropertyRow
+                    label="Runs"
+                    value="Inside the router"
+                    hint="The router's own management, as tools. A workspace's entry for it grants its agent runs roles, and an agent reaches it only by naming it."
+                  />
+                ) : null}
                 <PropertyRow label="From" value={describeSource(sourceOf(record.source))} />
                 <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
                 {transport.type === STDIO ? (
@@ -164,28 +195,37 @@ export function ServerRoute() {
               </>
             }
           />
-          <SecretsSection
-            serverId={record.id}
-            serverName={record.name}
-            transport={transport}
-            secrets={record.secrets}
-            envMeta={envMeta}
-            isAdmin={isAdmin}
-          />
+          {isBuiltin ? null : (
+            <SecretsSection
+              serverId={record.id}
+              serverName={record.name}
+              transport={transport}
+              secrets={record.secrets}
+              envMeta={envMeta}
+              isAdmin={isAdmin}
+            />
+          )}
           {login === null || login === undefined ? null : (
             <LoginSection server={{ ...record, login }} isAdmin={isAdmin} />
           )}
           <InstancesSection serverId={record.id} />
-          <ToolsSection serverId={record.id} serverName={record.name} enabled={record.enabled} />
-          <ActivitySection serverId={record.id} />
-          <ServerDialog
-            key={record.updatedAt}
-            open={isEditing}
-            onOpenChange={setIsEditing}
-            server={record}
-            defaults={defaults ?? null}
-            isAdmin={isAdmin}
+          <ToolsSection
+            serverId={record.id}
+            serverName={record.name}
+            enabled={record.enabled}
+            canTry={isBuiltin === false}
           />
+          <ActivitySection serverId={record.id} />
+          {isBuiltin ? null : (
+            <ServerDialog
+              key={record.updatedAt}
+              open={isEditing}
+              onOpenChange={setIsEditing}
+              server={record}
+              defaults={defaults ?? null}
+              isAdmin={isAdmin}
+            />
+          )}
         </>
       }
     />

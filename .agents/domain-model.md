@@ -33,6 +33,7 @@ app ─key→ workspace ─┬─ /v1    agent id → run → resolved agent ─
                      └─ /runs  a run's record and its events → the app's own timeline
 
 user ─session→ /graphql ─→ every table, through the permission map
+run ─in process→ admin server ai-router ─→ the same schema, as far as its workspace's roles reach
 ```
 
 - **Run an agent:** an app sets its base URL to the **agents endpoint** (`/v1`), whose model list
@@ -41,8 +42,9 @@ user ─session→ /graphql ─→ every table, through the permission map
   app asks, the stream also carries each step as a run event, so the app's own chat or Runs tab
   shows the detail it shows today.
 - **Manage the router:** users manage it in the UI over `/graphql`. An admin can do everything.
-  Other users can do everything except secrets, settings and roles. A later phase adds the admin
-  server, which gives agents and MCP clients the same management as tools.
+  Other users can do everything except secrets, settings and roles. The admin server `ai-router`
+  gives an agent run the same management as tools, as far as its workspace's roles reach, when the
+  agent names it.
 
 The address is the same for every app. The **key** decides what is behind it. `/mcp` at the root
 is kept for agents offered as MCP tools, in a later phase.
@@ -64,7 +66,7 @@ Dependencies point one way:
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
-| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. Given the admin server, it may write what that server's permission levels allow |
+| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
 | MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
 
@@ -186,6 +188,10 @@ starting --timeout or exit--> failed --backoff--> starting
   on each workspace's own account. A stdio one runs as its entry's own user id, with a folder of
   its own made on its first call. Deleting the entry, the workspace or the server stops it and
   removes that folder.
+- **The admin server's instances:** one per workspace whose runs call it, entry or not, granting
+  that workspace's roles, and a base instance granting every role, which only lists the tools for
+  a person. Each is served inside the router, connected in process, and never stops when idle. A
+  change to a workspace's roles replaces its instance.
 
 ### Workspace key
 
@@ -219,8 +225,14 @@ created (shown once) --> in use --revoke--> deleted
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
 | A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
-| The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
-| No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
+| The admin server is the only way to the router's management tools. There is no separate admin endpoint: it is connected in process, through the tools area's instances, like any other server a run reaches | `admin/server` `createAdminServer`, handed to `tools/instances` `serveBuiltin` by `http/app`; no route |
+| A run is listed only the admin server's tools whose root field its workspace's roles reach, and none with no entry or no roles. The listing is not the lock: the same permissions `/graphql` has guard every call, so a call past the roles is refused with FORBIDDEN. A tool's result carries no stored secret | `admin/server` (`canReachField`), `graphql/permissions`, `graphql/abilities` |
+| A call to the admin server acts as the run that made it, named in the call's `_meta` by the router's own dispatch, never by the model, with the roles of the instance's workspace from the snapshot. A call that names no run, such as a person trying a tool, is refused | `tools/builtin` `runMeta`, `tools/services` `callTool`, `admin/server` `callerOf` |
+| An agent run never changes or restarts the admin server, whatever its roles | `tools/hooks` `checkBuiltinUpdate`, `tools/resolvers` `restartServer` |
+| Through the admin server, a run lists, tries and restarts only a server's base instance or its own workspace's, never another workspace's, which answers the same 404 as one that doesn't exist | `tools/resolvers` `instanceWorkspace` |
+| The admin server's listing fits `MCP_DEFAULTS`: each tool's schema and the whole `tools/list`. Relation filters and orders, a column filter's rarer operators, and the aggregate and group-by tools are left out of it, never out of the schema | `admin/server` (`isOwnColumnFilter`, `UNLISTED_FIELDS`), a test |
+| `ai-router` is the admin server, the one server with the built-in transport and source. A migration adds it, and nobody adds another, renames or deletes it, or gives it a transport, env, arguments, secrets or a login. Only whether it is on, its display name and its description change | `tools/shapes` `serverNameSchema` and `installSourceSchema`, the checks `ck_servers_name_reserved` and `ck_servers_builtin_source`; `tools/builtin` `refuseIfBuiltin`, from `tools/hooks`, `tools/services` and `tools/resolvers` |
+| Roles are held only by a workspace's entry for the admin server: each one from the role vocabulary, none twice. That entry takes no env, arguments, address or secrets, and every other entry's roles stay empty | `tools/input` `rolesInput`, `ck_workspace_servers_roles`; `tools/hooks` `afterEntryWrite` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
@@ -299,8 +311,9 @@ Everything about the code comes after `Owner:`.
 - **Workspace:** what one app may run: chosen agents, and how their servers are configured for
   its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
 - **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
-  account's credentials. Owner: `workspace_servers`, with its overrides; its secret overrides are
-  `server_secrets` rows that name the workspace. `tools/resolve` merges them over the server's.
+  account's credentials. A workspace's entry for the admin server holds roles instead. Owner:
+  `workspace_servers`, with its overrides and `roles`; its secret overrides are `server_secrets` rows that
+  name the workspace. `tools/resolve` merges them over the server's.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -332,10 +345,11 @@ Everything about the code comes after `Owner:`.
   reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
   values and every header value are in `server_secrets`, written by `setServerSecret` and served
   only by name.
-- **Source:** where a server came from: a registry, npm, PyPI, or added by hand by its address.
-  Owner: `servers.source`.
-- **Transport:** how the router reaches a server: a program it starts, or an address it connects
-  to. Owner: `servers.transport`; stdio or streamable HTTP.
+- **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
+  router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
+- **Transport:** how the router reaches a server: a program it starts, an address it connects to,
+  or, for the admin server, inside the router itself. Owner: `servers.transport`; stdio, streamable
+  HTTP, or built in (`builtin`, only `ai-router`'s), connected in process.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
@@ -468,20 +482,25 @@ Everything about the code comes after `Owner:`.
   `CONVERSATION_DEFAULTS`. GraphQL serves it read-only, with `Conversation.runs` and
   `Run.conversation`; `/runs/<id>` names it as `conversation`.
 
-### Administration (a later phase)
+### Administration
 
-- **Admin server:** the router's own management, offered as tools on a built-in server. A
-  workspace or an agent is given it like any other server, and that is the only way in. Owner:
-  `admin/server`; the reserved name `ai-router`, `@cubicecho/graphql-mcp` over the GraphQL
-  schema.
-- **Permission level:** what an admin client may do: read, author drafts, operate, install.
-  Owner: `graphql/permissions`; set on the admin server and per server entry.
+- **Admin server:** the router's own management, offered as tools on a built-in server, `ai-router`.
+  An agent reaches it only by naming it, and its run may use what its workspace's entry for it
+  grants. That is the only way in. Owner: `admin/server` `createAdminServer`; `@cubicecho/graphql-mcp`
+  over the permissioned GraphQL schema, connected in process with the MCP SDK's in-memory
+  transport, its limits in `MCP_DEFAULTS`.
+- **Role:** what a workspace lets its agent runs do through the admin server, such as reading agents
+  or restarting servers. Roles add up, and none reaches what only people do: promoting, deleting an
+  agent, secrets, settings, users, workspaces and keys. Owner: `core/admin-roles` (`AdminRole`), held
+  by the workspace's entry for `ai-router` (`workspace_servers.roles`); what each grants is
+  `graphql/abilities` `ROLE_GRANTS`.
 
 ### Internals
 
-- **Caller:** who a request is from: an admin or another user (by session), or an app (by
-  workspace key). It is read from the credential once per request. Owner: `auth/caller`;
-  `Context.caller`.
+- **Caller:** who a request is from: an admin or another user (by session), an app (by
+  workspace key), or an agent run calling the admin server. It is read from the credential once per
+  request, and a run's is handed over in process. Owner: `auth/caller`; `Context.caller`, and
+  `RunCaller` from `graphql/handler` `createRunContextFactory`.
 - **Forwarding:** handing one of a run's model calls to a provider: picking a pool's target,
   adding the provider's key and headers, passing the stream through and counting its usage.
   Owner: `models/forward`; a function the run's `fetch` calls, not an HTTP endpoint.

@@ -19,9 +19,10 @@ import { version } from '../core/config.ts';
 import { INSTANCE_DEFAULTS, type InstanceSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { HttpStatus } from '../core/wire.ts';
+import type { BuiltinConnector } from './builtin.ts';
 import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 import { type ChildExec, childCommand, childEnv, execChild } from './install-folder.ts';
-import { type ResolvedServer, TRANSPORT_STDIO } from './shapes.ts';
+import { type ResolvedServer, TRANSPORT_BUILTIN, TRANSPORT_STDIO } from './shapes.ts';
 import { isToolError, toolResultText } from './tool-result.ts';
 
 /** What the router calls itself in the handshake. */
@@ -133,6 +134,8 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** How long the call may take. Shortens the server's `callTimeoutMs`, and never lengthens it. */
   timeoutMs?: number;
+  /** The request's `_meta`: for the admin server, the run the call is for. */
+  meta?: Record<string, unknown>;
 }
 
 /** What an instance is built with, beside its server. */
@@ -141,6 +144,8 @@ export interface InstanceOptions {
   isolation: ChildIsolation;
   /** Signs a streamable-HTTP server's requests in. Ignored over stdio. */
   authProvider?: OAuthClientProvider;
+  /** Connects the built-in admin server in process. Without it, the built-in server refuses to start. */
+  builtin?: BuiltinConnector;
   /** Hears of every tool call. */
   onCall?: ToolCallHook;
   /** Runs the helper that signals an isolated program as its own user. Tests pass a recorder. */
@@ -353,6 +358,7 @@ export class Instance {
   readonly server: ResolvedServer;
   private readonly isolation: ChildIsolation;
   private readonly authProvider: OAuthClientProvider | undefined;
+  private readonly builtin: BuiltinConnector | undefined;
   private readonly onCall: ToolCallHook | undefined;
   private readonly exec: ChildExec;
   private readonly helperPath: string | undefined;
@@ -381,6 +387,7 @@ export class Instance {
     this.server = server;
     this.isolation = options.isolation;
     this.authProvider = options.authProvider;
+    this.builtin = options.builtin;
     this.onCall = options.onCall;
     this.exec = options.exec ?? execChild;
     this.helperPath = options.helperPath;
@@ -457,10 +464,17 @@ export class Instance {
     this.begin();
     try {
       const result = await this.withConnection(({ client }) =>
-        client.request({ method: 'tools/call', params: { name: tool, arguments: args } }, CallToolResultSchema, {
-          signal: options.signal,
-          timeout,
-        }),
+        client.request(
+          {
+            method: 'tools/call',
+            params: { name: tool, arguments: args, ...(options.meta === undefined ? {} : { _meta: options.meta }) },
+          },
+          CallToolResultSchema,
+          {
+            signal: options.signal,
+            timeout,
+          },
+        ),
       );
       this.report(tool, startedAt, isToolError(result) ? toolResultText(result) : undefined);
       return result;
@@ -518,6 +532,11 @@ export class Instance {
     try {
       return await this.withConnection(async ({ client }) => {
         const tools: Tool[] = [];
+        // A server may offer no tools at all, and then it answers no listing.
+        const offersTools = client.getServerCapabilities()?.tools !== undefined;
+        if (offersTools === false) {
+          return tools;
+        }
         let cursor: string | undefined;
         for (let page = 0; page < maxToolListPages; page += 1) {
           const listing = await client.listTools(cursor === undefined ? {} : { cursor }, { timeout: listTimeoutMs });
@@ -594,7 +613,7 @@ export class Instance {
    * @returns The new connection.
    */
   private async open(): Promise<Connection> {
-    const transport = this.transport();
+    const transport = await this.transport();
     this.status = InstanceState.Starting;
     this.stderrTail = '';
     const client = new Client({ name: CLIENT_NAME, version: version() }, { capabilities: {} });
@@ -626,10 +645,16 @@ export class Instance {
   /**
    * Builds the transport the server is reached over.
    *
-   * @returns A stdio or streamable-HTTP transport, not yet started.
+   * @returns A stdio, streamable-HTTP or in-process transport, not yet started.
    */
-  private transport(): Transport {
+  private async transport(): Promise<Transport> {
     const { transport } = this.server;
+    if (transport.type === TRANSPORT_BUILTIN) {
+      if (this.builtin === undefined) {
+        throw new InstanceError(InstanceErrorCode.Refused, this.server.name, 'has no built-in server to connect to');
+      }
+      return this.builtin(this.server);
+    }
     if (transport.type === TRANSPORT_STDIO) {
       return this.childTransport(transport.command, transport.args, transport.cwd);
     }

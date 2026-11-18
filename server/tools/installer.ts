@@ -16,7 +16,7 @@ import {
 } from './registry.ts';
 import {
   type EnvVarMeta,
-  type ServerSource,
+  type InstallSource,
   type ServerTransport,
   SourceType,
   serverNameSchema,
@@ -54,7 +54,7 @@ const VERSION = /^[^\s-]\S*$/;
 
 /** What to install. */
 export interface InstallRequest {
-  source: ServerSource;
+  source: InstallSource;
   /** For a registry source: `<index>` into the entry's packages, or `remote:<index>`. The first npm package, else PyPI, else remote, when absent. */
   packageSelector?: string;
   /** For a manual source: the command or address, as given. */
@@ -82,7 +82,7 @@ export interface InstallDeps {
 
 /** What an install decided: the parts of a server to store. */
 export interface InstallResult {
-  source: ServerSource;
+  source: InstallSource;
   /** How to start or reach it. A remote's header values are in `headers`, not here. */
   transport: ServerTransport;
   /** Header values a registry remote declares, to keep as secrets. Empty for anything else. */
@@ -102,7 +102,7 @@ export interface InstallResult {
  * @returns The last path segment, lower-cased, with each run of other characters as one dash.
  * @throws BAD_USER_INPUT for a manual source, or when nothing valid is left.
  */
-export function deriveServerName(source: ServerSource): string {
+export function deriveServerName(source: InstallSource): string {
   if (source.type === SourceType.Manual) {
     throw badInput('A server added by hand needs a name.');
   }
@@ -402,7 +402,7 @@ const NOTHING_DECLARED = { headers: {}, env: {}, envMeta: {} };
  */
 async function registryParts(
   request: InstallRequest,
-  source: Extract<ServerSource, { type: typeof SourceType.Registry }>,
+  source: Extract<InstallSource, { type: typeof SourceType.Registry }>,
   deps: InstallDeps,
 ): Promise<SourceParts> {
   const registry = await deps.getRegistry(source.registry);

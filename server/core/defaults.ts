@@ -502,3 +502,22 @@ export const CONVERSATION_DEFAULTS: Readonly<ConversationSettings> = Object.free
   idleHours: 72,
   maxIdLength: 255,
 });
+
+/** Bounds on the admin server's tools, which agent runs reach in process. */
+export interface McpSettings {
+  /** Levels of relations a tool's selection includes. Deeper pulls whole relations into the agent's context. */
+  selectionDepth: number;
+  /** Largest schema one tool may have, in bytes of JSON. */
+  maxToolSchemaBytes: number;
+  /** Largest `tools/list` response, in bytes of JSON. */
+  maxToolListBytes: number;
+  /** Characters of one tool result before it is cut short, with a note saying so. */
+  maxResultChars: number;
+}
+
+export const MCP_DEFAULTS: Readonly<McpSettings> = Object.freeze({
+  selectionDepth: 1,
+  maxToolSchemaBytes: 40_000,
+  maxToolListBytes: 250_000,
+  maxResultChars: 50_000,
+});

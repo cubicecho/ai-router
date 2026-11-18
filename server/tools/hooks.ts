@@ -1,13 +1,15 @@
 import type { OnWriteConfig, WriteHookPayload } from '@vantreeseba/drizzle-graphql';
 import { eq } from 'drizzle-orm';
 import type { z } from 'zod';
-import { CALLER_USER, type Context } from '../core/context.ts';
-import { forbidden } from '../core/errors.ts';
+import { CALLER_RUN, CALLER_USER, type Context } from '../core/context.ts';
+import { badInput, forbidden } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { type ServerRow, servers } from '../db/tables/servers.ts';
 import { Role } from '../db/tables/users.ts';
+import type { WorkspaceServer } from '../db/tables/workspace-servers.ts';
 import { rebuildAfterCommit, writtenRows } from '../graphql/write-guards.ts';
 import type { DeletedEntry } from './api.ts';
+import { BUILTIN_EDITABLE, BUILTIN_PEOPLE_ONLY, isBuiltin, refuseIfBuiltin } from './builtin.ts';
 import { registryInput, serverUpdateInput, workspaceServerInput } from './input.ts';
 import { dropLoginOnMove } from './oauth/service.ts';
 import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
@@ -44,6 +46,30 @@ function checkServerUpdate(payload: WriteHookPayload): void {
 }
 
 /**
+ * Refuses a change to the admin server past its display name, description and whether it is on, and any change to it
+ * by an agent run, which would be switching off or renaming its own way in. Its name and transport are kept by
+ * `ck_servers_name_reserved` before this runs.
+ *
+ * @param payload - The write that just ran. Throwing rolls it back.
+ * @param updated - The rows it changed.
+ * @throws BAD_USER_INPUT when it changed anything else about the admin server, or a run changed it at all.
+ */
+function checkBuiltinUpdate(payload: WriteHookPayload, updated: readonly Pick<ServerRow, 'transport'>[]): void {
+  const { caller }: Context = payload.context;
+  const changesMore = writtenRows(payload.args).some((row) =>
+    Object.keys(row).some((column) => BUILTIN_EDITABLE.has(column) === false),
+  );
+  for (const row of updated) {
+    if (caller?.kind === CALLER_RUN) {
+      refuseIfBuiltin(row, BUILTIN_PEOPLE_ONLY);
+    }
+    if (changesMore) {
+      refuseIfBuiltin(row, 'only whether it is on, its display name and its description change');
+    }
+  }
+}
+
+/**
  * Drops a server's login when its address moves to another origin, so its tokens are never sent
  * somewhere else, and rebuilds the snapshot. The `after` hook of a server update.
  *
@@ -53,6 +79,7 @@ async function afterServerUpdate(payload: WriteHookPayload): Promise<void> {
   const { tools, snapshot }: Context = payload.context;
   const before = new Map([...snapshot.current().servers.values()].map((server) => [server.id, server]));
   const updated: Pick<ServerRow, 'id' | 'transport' | 'oauth'>[] = payload.rows;
+  checkBuiltinUpdate(payload, updated);
   for (const row of updated) {
     const old = before.get(row.id)?.transport;
     if (old?.type !== TRANSPORT_STREAMABLE_HTTP || row.transport.type !== TRANSPORT_STREAMABLE_HTTP) {
@@ -80,6 +107,39 @@ function afterEntryDelete(payload: WriteHookPayload): void {
   rebuildAfterCommit(payload);
 }
 
+/** What a server entry write's `after` hook reads from each written row. */
+const WRITTEN_ENTRY_COLUMNS = ['serverId', 'env', 'args', 'url', 'roles'] as const;
+
+/** A server entry as its write's `after` hook reads it. */
+type WrittenEntry = Pick<WorkspaceServer, (typeof WRITTEN_ENTRY_COLUMNS)[number]>;
+
+/**
+ * Checks each written entry against its server: roles go only on the admin server's entries, which take nothing
+ * else. Then rebuilds the snapshot. The `after` hook of a server entry insert or update.
+ *
+ * @param payload - The write that just ran. Throwing rolls it back.
+ * @throws BAD_USER_INPUT for roles on another server's entry, or env, arguments or an address on the admin server's.
+ */
+function afterEntryWrite(payload: WriteHookPayload): void {
+  const { snapshot }: Context = payload.context;
+  const written: WrittenEntry[] = payload.rows;
+  for (const entry of written) {
+    const server = [...snapshot.current().servers.values()].find((candidate) => candidate.id === entry.serverId);
+    if (server === undefined) {
+      continue;
+    }
+    if (isBuiltin(server)) {
+      const configuresMore = Object.keys(entry.env).length > 0 || entry.args !== null || entry.url !== null;
+      if (configuresMore) {
+        throw badInput(`An entry for "${server.name}" grants roles only: it takes no env, arguments or address.`);
+      }
+    } else if (entry.roles.length > 0) {
+      throw badInput(`Roles are for the admin server's entries only, and "${server.name}" is not it.`);
+    }
+  }
+  rebuildAfterCommit(payload);
+}
+
 /** What a server entry delete's `after` hook reads from each deleted row. */
 const DELETED_ENTRY_COLUMNS = ['serverId', 'workspaceId', 'childUid', 'installDir'] as const;
 
@@ -96,8 +156,8 @@ export const toolWriteHooks: OnWriteConfig = {
     update: { before: checkServerUpdate, after: afterServerUpdate, columns: ['id', 'transport', 'oauth'] },
   },
   workspaceServers: {
-    insert: { before: checkWith(workspaceServerInput), after: rebuildAfterCommit },
-    update: { before: checkWith(workspaceServerInput), after: rebuildAfterCommit },
+    insert: { before: checkWith(workspaceServerInput), after: afterEntryWrite, columns: WRITTEN_ENTRY_COLUMNS },
+    update: { before: checkWith(workspaceServerInput), after: afterEntryWrite, columns: WRITTEN_ENTRY_COLUMNS },
     delete: { after: afterEntryDelete, columns: DELETED_ENTRY_COLUMNS },
   },
 };

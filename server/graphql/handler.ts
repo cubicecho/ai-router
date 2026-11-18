@@ -3,7 +3,7 @@ import { type GraphQLSchema, NoSchemaIntrospectionCustomRule } from 'graphql';
 import { createYoga, type Plugin } from 'graphql-yoga';
 import { ConflictingKeysError, readCaller } from '../auth/caller.ts';
 import { isProduction } from '../core/config.ts';
-import { type Context, type ContextDeps, UNKNOWN_IP } from '../core/context.ts';
+import { type Context, type ContextDeps, type RunCaller, UNKNOWN_IP } from '../core/context.ts';
 import { badInput } from '../core/errors.ts';
 import { graphqlLogger } from './logger.ts';
 import { useOperationLimits } from './operation-limits.ts';
@@ -25,6 +25,21 @@ export function createContextFactory(deps: ContextDeps, now: () => Date = () => 
     const caller = await readCaller({ auth, snapshot: deps.snapshot.current(), now: now() }, headers);
     return { ...deps, auth, caller, headers, ip };
   };
+}
+
+/** Builds the context an agent run's call to the admin server executes with. */
+export type RunContextFactory = (caller: RunCaller) => Context;
+
+/**
+ * Builds the context factory for agent runs calling the admin server, which reads no credential: the run hands its
+ * caller over in process.
+ *
+ * @param deps - The same collaborators every door shares.
+ * @returns The factory.
+ */
+export function createRunContextFactory(deps: ContextDeps): RunContextFactory {
+  // No request: the call never left the router, so it has no headers and no address.
+  return (caller) => ({ ...deps, auth: deps.authHost.current(), caller, headers: new Headers(), ip: UNKNOWN_IP });
 }
 
 /** What Express hands Yoga alongside the fetch request. */

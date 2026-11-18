@@ -15,8 +15,9 @@ import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { KeyRound, Pencil, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
+import { describeRoles, rolesOf } from './admin-roles';
 import { SecretDialog, type SecretKind } from './secret-dialog';
-import { envOf, STDIO, stringsOf, transportOf } from './shapes';
+import { envOf, isBuiltin, STDIO, stringsOf, transportOf } from './shapes';
 import { WorkspaceServerDialog } from './workspace-server-dialog';
 
 /** What the section is given. */
@@ -33,13 +34,16 @@ interface SecretTarget {
 }
 
 /**
- * Says what an entry overrides, in a few words.
+ * Says what an entry overrides, or for the admin server what it grants, in a few words.
  *
  * @param entry - The entry.
  * @param secrets - The names of its secret overrides.
- * @returns Such as "2 env vars, arguments, secrets: API_KEY".
+ * @returns Such as "2 env vars, arguments, secrets: API_KEY", or "Roles: Read agents, Read runs".
  */
 function overridesOf(entry: WorkspaceServerFieldsFragment, secrets: readonly string[]): string {
+  if (isBuiltin(entry.server?.transport)) {
+    return describeRoles(rolesOf(entry.roles));
+  }
   const parts: string[] = [];
   const envCount = Object.keys(envOf(entry.env)).length;
   if (envCount > 0) {
@@ -112,7 +116,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
                     description={overridesOf(entry, secretsOf(entry.serverId))}
                     actionSlot={
                       <>
-                        {isAdmin ? (
+                        {isAdmin && isBuiltin(entry.server?.transport) === false ? (
                           <Button
                             variant="outline"
                             size="icon-sm"

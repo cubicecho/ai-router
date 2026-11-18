@@ -56,14 +56,27 @@ const ROLE_GRANTS: Readonly<Record<AdminRole, readonly Grant[]>> = {
  * @returns A person may do everything; a run what its roles grant; a workspace key and nobody nothing.
  */
 export function abilityFor(caller: Caller | null): RouterAbility {
+  if (caller?.kind === CALLER_RUN) {
+    return abilityForRoles(caller.roles);
+  }
   const { can, build } = createGraphQLAbility<Subjects>();
   if (caller?.kind === CALLER_USER) {
     can([...EVERY_ACTION], Object.values(Subject));
-  } else if (caller?.kind === CALLER_RUN) {
-    for (const role of caller.roles) {
-      for (const [actions, subjects] of ROLE_GRANTS[role]) {
-        can([...actions], [...subjects]);
-      }
+  }
+  return build();
+}
+
+/**
+ * Builds what an agent run may do with a set of roles.
+ *
+ * @param roles - The roles its workspace's entry for `ai-router` grants.
+ * @returns What they add up to. No roles reach nothing.
+ */
+export function abilityForRoles(roles: readonly AdminRole[]): RouterAbility {
+  const { can, build } = createGraphQLAbility<Subjects>();
+  for (const role of roles) {
+    for (const [actions, subjects] of ROLE_GRANTS[role]) {
+      can([...actions], [...subjects]);
     }
   }
   return build();

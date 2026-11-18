@@ -59,7 +59,7 @@ export const servers = pgTable(
   'servers',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    /** The router name a run's tools carry: `<name>__<tool>`. Never `ai-router`. */
+    /** The router name a run's tools carry: `<name>__<tool>`. `ai-router` is the admin server's, and nobody else's. */
     name: text('name').notNull(),
     displayName: text('display_name'),
     description: text('description').notNull().default(''),
@@ -99,7 +99,12 @@ export const servers = pgTable(
   (table) => [
     uniqueIndex('uq_servers_name').on(table.name),
     uniqueIndex('uq_servers_child_uid').on(table.childUid),
-    check('ck_servers_name_reserved', sql`${table.name} <> 'ai-router'`),
+    // `ai-router` is the admin server, the one server with the built-in transport, which comes from the router itself.
+    check('ck_servers_name_reserved', sql`(${table.name} = 'ai-router') = (${table.transport}->>'type' = 'builtin')`),
+    check(
+      'ck_servers_builtin_source',
+      sql`(${table.transport}->>'type' = 'builtin') = (${table.source}->>'type' = 'builtin')`,
+    ),
     check('ck_servers_child_uid_range', childUidInRange(table.childUid)),
     check(
       'ck_servers_extra_groups',
