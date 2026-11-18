@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/cubicecho/ai-router/compare/v0.1.0...v0.1.1) (2026-11-18)
+
+### Bug Fixes
+
+* **auth:** only failed sign-ins count against the limit ([a31dd61](https://github.com/cubicecho/ai-router/commit/a31dd61bc87da819807686f0613261d0e8f944e0))
+
 # [0.1.0](https://github.com/cubicecho/ai-router/compare/v0.0.0...v0.1.0) (2026-11-18)
 
 * feat!: run on Postgres only; PGlite is for the tests ([b2f1985](https://github.com/cubicecho/ai-router/commit/b2f1985c61754138f1d0b6eeb6f1d79a1ce0315d))
