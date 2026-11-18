@@ -236,9 +236,9 @@ Everything about the code comes after `Owner:`.
   `models/pool`; the `pool_targets` table.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
-- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. A
-  provider's usage stays after the provider is deleted. Owner: `models/usage`; the `usage` table,
-  which keeps the provider's name, and an optional foreign key to it.
+- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Usage
+  stays after its provider or workspace is deleted. Owner: `models/usage`; the `usage` table,
+  which keeps both names, with optional foreign keys to them.
 
 ### Tools
 

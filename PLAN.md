@@ -34,7 +34,7 @@ the order of work and the reasons for it. Phase 1, the scaffold, is built.
 | App tools | The run **waits** for the app's answer and resumes as the same run. A follow-up that answers every handed-back call resumes it, and a partial answer is refused | An app's timeline shows one run with a pause, not a chain of runs |
 | Agent edits | Every save is a **revision**. A user's saves go live. Saves by an app or a run are drafts until a user **promotes** them, by hand or with per-agent **auto-promote** | Agents may edit agents later (the admin server), with every change visible and reversible. Hermes agents rewrite their own `SOUL.md` with no record |
 | Agent loop | `agent-core` `runAgentLoop`, with its `dispatch` calling the tools area's own instances | `agent-mcp-pool` would start a second copy of every server |
-| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core` needs a `fetch` option on its endpoint config for this (an issue to file before phase 6) | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
+| A run's model calls | **In process.** The router layer gives every run an internal model address, and the run's `fetch` hands each call to the models area's own forwarding: the pool's lease, the provider's key and headers, streaming, and usage under the run's workspace and agent. `agent-core` needs a `fetch` option on its endpoint config for this ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)) | No HTTP door, no run token and no loopback rules. The forwarding is the same code a door would have used |
 | Slim apps | **Apps keep calling `runAgentLoop`, and only the config changes.** It points at `/v1` with the agent's id, and carries an agent flag taken from the `/v1/models` entry (`ai_router.kind: "agent"`). With the flag, the loop forwards the router's run events, keeps its own compaction, preselection and on-demand loading off, and sends an idempotency key on retries ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Apps drop `agent-mcp-pool` and their own loop code, not `agent-core` | `agent-core` is already an OpenAI tool loop, and it keeps a server's tool-call ids as sent, so the app-tool hand-back works as it is. One call site, the same `dispatch` and `onEvent`, and the apps' Runs tabs stay as they are |
 | Run events | `agent-core`'s `RunEvent`, carried unchanged, in chunks written and read by `agent-core`'s own encoder and decoder | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
@@ -201,7 +201,7 @@ render `agent-core`'s `RunEvent`, so **the router sends exactly those**.
 
 ## First release
 
-**The first release is agents** (phases 1–8): the use case below, and `min-agent` chatting with
+**The first release is agents** (phases 1–3 and 5–8): the use case below, and `min-agent` chatting with
 Personal Finance. The old routers keep serving apps that want raw models and tools.
 
 ## Use case: two agents for `task_server`
@@ -279,25 +279,39 @@ The acceptance check for the first release.
      transaction), `providerModels(id, refresh)` and `poolLoad(id)`.
    - **One name rule for every router name**, as both old routers have it:
      `^[a-z0-9][a-z0-9._-]*$`, at most 64. It replaces phase 1's stricter rule, workspace slugs
-     included, so imports keep their names. Servers (phase 3) also may not contain `__`.
+     included, so a name that works there (`llama.cpp`, `gpu_box`) works here. Servers (phase 3) also may not contain `__`.
    - **Providers and pools can be renamed.** The UI says which agents name the old model id,
      since their runs will fail until they are changed.
    - **Provider headers stay visible in the UI** for now (see the open questions).
+   - **Forwarding is a function** (`models/forward`), not an HTTP door: a run's `fetch` calls it
+     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)).
+   - **Usage:** one row per UTC day, workspace, agent, provider and model, with requests, input
+     and output tokens. Counted from the provider's own numbers on a 2xx only: a stream's last
+     usage chunk, or a JSON answer up to 8 MB. Days older than 90 fold into an all-time row.
+     Counts gather in memory and are written every few seconds and at shutdown. A row keeps the
+     workspace's and the provider's names, with optional foreign keys set to null on delete, so
+     usage outlives both.
+   - **UI:** Providers (list, add and edit, the key set by an admin, the live model list with
+     refresh, usage per model and day), Pools (list, edit, an ordered target editor, strategy,
+     affinity, load factor, live in-flight load), and usage on each workspace's page.
+   - **Tests:** llm-router's balancer, affinity and usage-reader tests, ported; forwarding
+     against a fake OpenAI server on loopback (streams, provider errors passed through,
+     unreachable, the timeout, the caller aborting, a lease released on every path); the secrets
+     test with a planted provider key.
 3. **Tools**, internal: what agent runs call. Port mcp-router's registries, the installer
    (running as the server's user), servers and their secrets, each server's user id from the
    child range and its own install folder (mode 0700), shared groups for servers that use mounted
    folders (below), instances (as the child user), server login, activity, and the UI pages.
    mcp-router's own MCP endpoint, its sessions and its discovery are not ported.
-4. **Import (optional).** Read an llm-router and an mcp-router `DATA_DIR` and add their
-   providers, pools and servers, with their secrets, so nothing is typed twice. Their workspaces
-   are not imported: they granted raw models and tools, which this router doesn't serve.
+4. **(Dropped.)** An import of llm-router's and mcp-router's configs. Providers, pools and
+   servers are added in the UI.
 5. **Agents: store.** Agents and revisions, history and rollback, warnings, and the
    `override_policies` table with its one seeded default.
 6. **Agents: runs.** The agents endpoint `/v1`:
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls in process through the models area, so usage
-     counts them under the run's workspace and agent (the `agent-core` `fetch` option lands
-     first);
+     counts them under the run's workspace and agent
+     ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224) lands first);
    - `Idempotency-Key`, so a retried request never starts a second run;
    - the runs table, `X-Run-Id`, the `runEvents` subscription, and usage per agent.
 7. **Agents: app tools, progress events and conversations.**
@@ -349,8 +363,7 @@ The acceptance check for the first release.
       - agents keep naming servers, not groups, so their documents stay portable.
 
 Agents need only the scaffold and models to start, because an agent with no tools is still an
-agent. If agents matter sooner than the tools port, phases 5 and 6 can come before 3, and the
-import in phase 4 can come whenever it saves typing.
+agent. If agents matter sooner than the tools port, phases 5 and 6 can come before 3.
 
 ## Open questions
 
