@@ -89,6 +89,18 @@ const poolRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/pool'), 'PoolRoute'),
 });
 
+const serversRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/servers',
+  component: lazyRouteComponent(() => import('@/routes/servers'), 'ServersRoute'),
+});
+
+const serverRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/servers/$serverId',
+  component: lazyRouteComponent(() => import('@/routes/server'), 'ServerRoute'),
+});
+
 const usersRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/users',
@@ -107,6 +119,8 @@ export const router = createRouter({
       providerRoute,
       poolsRoute,
       poolRoute,
+      serversRoute,
+      serverRoute,
       usersRoute,
     ]),
   ]),

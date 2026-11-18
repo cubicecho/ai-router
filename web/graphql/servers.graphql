@@ -1,0 +1,239 @@
+fragment ServerFields on Server {
+  id
+  name
+  displayName
+  description
+  enabled
+  source
+  transport
+  env
+  envMeta
+  idleTimeoutMs
+  callTimeoutMs
+  childUid
+  updatedAt
+  login {
+    signedIn
+    expiresAt
+    clientRegistered
+    hasClientSecret
+    scope
+    clientId
+  }
+}
+
+fragment ServerInstanceFields on ServerInstance {
+  workspaceId
+  state
+  error
+  inFlight
+}
+
+query Servers {
+  servers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...ServerFields
+  }
+}
+
+query Server($id: UUID!) {
+  server(where: { id: { eq: $id } }) {
+    ...ServerFields
+    secrets(where: { workspaceId: { isNull: true } }, orderBy: { name: { direction: asc, priority: 1 } }) {
+      id
+      kind
+      name
+      updatedAt
+    }
+  }
+  serverDefaults {
+    idleTimeoutMs
+    callTimeoutMs
+  }
+}
+
+query ServerInstances($id: UUID!) {
+  server(where: { id: { eq: $id } }) {
+    id
+    instances {
+      ...ServerInstanceFields
+    }
+  }
+  workspaces(orderBy: { slug: { direction: asc, priority: 1 } }) {
+    id
+    name
+  }
+}
+
+query ServerTools($id: UUID!) {
+  serverTools(id: $id) {
+    name
+    title
+    description
+    inputSchema
+  }
+}
+
+query ServerActivity($serverId: UUID!, $limit: Int!) {
+  activities(where: { serverId: { eq: $serverId } }, orderBy: { at: { direction: desc, priority: 1 } }, limit: $limit) {
+    id
+    at
+    tool
+    durationMs
+    ok
+    error
+    workspaceName
+    agentName
+  }
+}
+
+mutation InstallServer($input: InstallServerInput!) {
+  installServer(input: $input) {
+    ...ServerFields
+  }
+}
+
+mutation UpdateServer($id: UUID!, $set: UpdateServerInput!) {
+  updateServer(where: { id: { eq: $id } }, set: $set) {
+    ...ServerFields
+  }
+}
+
+mutation DeleteServer($id: UUID!) {
+  deleteServer(id: $id)
+}
+
+mutation RestartServer($id: UUID!, $workspaceId: UUID) {
+  restartServer(id: $id, workspaceId: $workspaceId)
+}
+
+mutation TryServerTool($id: UUID!, $tool: String!, $arguments: JSON) {
+  tryServerTool(id: $id, tool: $tool, arguments: $arguments)
+}
+
+mutation SetServerSecret($serverId: UUID!, $workspaceId: UUID, $kind: String!, $name: String!, $value: String) {
+  setServerSecret(serverId: $serverId, workspaceId: $workspaceId, kind: $kind, name: $name, value: $value) {
+    id
+  }
+}
+
+mutation StartServerLogin($serverId: UUID!) {
+  startServerLogin(serverId: $serverId) {
+    signedIn
+    authorizationUrl
+  }
+}
+
+mutation SignOutServer($serverId: UUID!) {
+  signOutServer(serverId: $serverId) {
+    id
+  }
+}
+
+mutation SetServerLoginClient($serverId: UUID!, $client: ServerLoginClientInput) {
+  setServerLoginClient(serverId: $serverId, client: $client) {
+    signedIn
+    clientRegistered
+    hasClientSecret
+    scope
+    clientId
+  }
+}
+
+fragment RegistryFields on Registry {
+  id
+  name
+  url
+}
+
+query Registries {
+  registries(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...RegistryFields
+  }
+}
+
+query RegistryServers($registryId: UUID!, $search: String, $cursor: String) {
+  registryServers(registryId: $registryId, search: $search, cursor: $cursor) {
+    nextCursor
+    servers {
+      name
+      title
+      description
+      version
+      choices {
+        selector
+        kind
+        identifier
+        version
+      }
+    }
+  }
+}
+
+mutation CreateRegistry($values: CreateRegistryInput!) {
+  createRegistry(values: $values) {
+    ...RegistryFields
+  }
+}
+
+mutation UpdateRegistry($id: UUID!, $set: UpdateRegistryInput!) {
+  updateRegistry(where: { id: { eq: $id } }, set: $set) {
+    ...RegistryFields
+  }
+}
+
+mutation DeleteRegistry($id: UUID!) {
+  deleteRegistry(where: { id: { eq: $id } }) {
+    id
+  }
+}
+
+fragment WorkspaceServerFields on WorkspaceServer {
+  id
+  workspaceId
+  serverId
+  env
+  args
+  url
+  server {
+    id
+    name
+    displayName
+    transport
+  }
+}
+
+query WorkspaceServers($workspaceId: UUID!) {
+  workspaceServers(where: { workspaceId: { eq: $workspaceId } }) {
+    ...WorkspaceServerFields
+  }
+  serverSecrets(where: { workspaceId: { eq: $workspaceId } }, orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    serverId
+    kind
+    name
+  }
+  servers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    displayName
+    transport
+  }
+}
+
+mutation CreateWorkspaceServer($values: CreateWorkspaceServerInput!) {
+  createWorkspaceServer(values: $values) {
+    ...WorkspaceServerFields
+  }
+}
+
+mutation UpdateWorkspaceServer($id: UUID!, $set: UpdateWorkspaceServerInput!) {
+  updateWorkspaceServer(where: { id: { eq: $id } }, set: $set) {
+    ...WorkspaceServerFields
+  }
+}
+
+mutation DeleteWorkspaceServer($id: UUID!) {
+  deleteWorkspaceServer(where: { id: { eq: $id } }) {
+    id
+  }
+}

@@ -1,0 +1,172 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
+import { useState } from 'react';
+import {
+  DeleteWorkspaceServerDocument,
+  type WorkspaceServerFieldsFragment,
+  WorkspaceServersDocument,
+} from '@/__generated__/graphql';
+import { ConfirmButton } from '@/components/confirm-button';
+import { EmptyState } from '@/components/empty-state';
+import { List } from '@/components/list';
+import { ListItem } from '@/components/list-item';
+import { LoadError } from '@/components/load-state';
+import { Section } from '@/components/section';
+import { Button } from '@/components/ui/button';
+import { KeyRound, Pencil, Plus } from '@/components/ui/icons';
+import { request } from '@/lib/gql';
+import { SecretDialog, type SecretKind } from './secret-dialog';
+import { envOf, STDIO, stringsOf, transportOf } from './shapes';
+import { WorkspaceServerDialog } from './workspace-server-dialog';
+
+/** What the section is given. */
+export interface WorkspaceServersSectionProps {
+  workspaceId: string;
+  isAdmin: boolean;
+}
+
+/** A secret override being set: on which entry's server, and which secret. */
+interface SecretTarget {
+  serverId: string;
+  serverName: string;
+  kind: SecretKind;
+}
+
+/**
+ * Says what an entry overrides, in a few words.
+ *
+ * @param entry - The entry.
+ * @param secrets - The names of its secret overrides.
+ * @returns Such as "2 env vars, arguments, secrets: API_KEY".
+ */
+function overridesOf(entry: WorkspaceServerFieldsFragment, secrets: readonly string[]): string {
+  const parts: string[] = [];
+  const envCount = Object.keys(envOf(entry.env)).length;
+  if (envCount > 0) {
+    parts.push(envCount === 1 ? '1 env var' : `${envCount} env vars`);
+  }
+  if (entry.args !== null && entry.args !== undefined && stringsOf(entry.args).length > 0) {
+    parts.push('arguments');
+  }
+  if (entry.url !== null && entry.url !== undefined) {
+    parts.push(`address ${entry.url}`);
+  }
+  if (secrets.length > 0) {
+    parts.push(`secrets: ${secrets.join(', ')}`);
+  }
+  return parts.length === 0 ? 'Overrides nothing yet' : parts.join(', ');
+}
+
+/** A workspace's entries for servers: the settings its agent runs use in place of each server's own. */
+export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServersSectionProps) {
+  const queryClient = useQueryClient();
+  // undefined is closed, null is adding, an entry is editing it.
+  const [editing, setEditing] = useState<WorkspaceServerFieldsFragment | null | undefined>(undefined);
+  const [secretTarget, setSecretTarget] = useState<SecretTarget | null>(null);
+  const entries = useQuery({
+    queryKey: ['workspaces', workspaceId, 'servers'],
+    queryFn: () => request(WorkspaceServersDocument, { workspaceId }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => request(DeleteWorkspaceServerDocument, { id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspaces', workspaceId] }),
+  });
+  const rows = entries.data?.workspaceServers ?? [];
+  const servers = entries.data?.servers ?? [];
+  const secretsOf = (serverId: string) =>
+    (entries.data?.serverSecrets ?? []).filter((secret) => secret.serverId === serverId).map((secret) => secret.name);
+  const add = (
+    <Button variant="info" size="sm" iconSlot={<Plus />} onClick={() => setEditing(null)} content="Add server" />
+  );
+
+  return (
+    <Section
+      title="Servers"
+      description="An entry sets a server's settings for this workspace's agent runs, such as an account's login. It never adds the server to a run."
+      actionSlot={rows.length > 0 ? add : undefined}
+      contentSlot={
+        <>
+          {entries.isError ? (
+            <LoadError error={entries.error} onRetry={entries.refetch} what="its servers" compact />
+          ) : rows.length === 0 && entries.isPending === false ? (
+            <EmptyState compact title="No entries. Runs here use each server as it is." actionSlot={add} />
+          ) : (
+            <List
+              label="Servers"
+              contentSlot={rows.map((entry) => {
+                const name = entry.server?.name ?? 'A deleted server';
+                const kind: SecretKind =
+                  entry.server === null ||
+                  entry.server === undefined ||
+                  transportOf(entry.server.transport).type === STDIO
+                    ? 'env'
+                    : 'header';
+                return (
+                  <ListItem
+                    key={entry.id}
+                    title={
+                      <Link to="/servers/$serverId" params={{ serverId: entry.serverId }} className="hover:underline">
+                        {entry.server?.displayName ?? name}
+                      </Link>
+                    }
+                    description={overridesOf(entry, secretsOf(entry.serverId))}
+                    actionSlot={
+                      <>
+                        {isAdmin ? (
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label={`Set a secret for ${name} here`}
+                            iconSlot={<KeyRound />}
+                            onClick={() => setSecretTarget({ serverId: entry.serverId, serverName: name, kind })}
+                          />
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label={`Edit ${name} here`}
+                          iconSlot={<Pencil />}
+                          onClick={() => setEditing(entry)}
+                        />
+                        <ConfirmButton
+                          size="sm"
+                          title={`Remove ${name} from this workspace?`}
+                          description="Runs here use the server's own settings again. Its secret overrides here are kept."
+                          confirmLabel="Remove"
+                          onConfirm={() => remove.mutate(entry.id)}
+                          content="Remove"
+                        />
+                      </>
+                    }
+                  />
+                );
+              })}
+            />
+          )}
+          {editing === undefined ? null : (
+            <WorkspaceServerDialog
+              key={editing?.id ?? 'new'}
+              open
+              onOpenChange={(open) => (open ? undefined : setEditing(undefined))}
+              workspaceId={workspaceId}
+              entry={editing}
+              servers={servers}
+              taken={rows.map((row) => row.serverId)}
+            />
+          )}
+          {isAdmin && secretTarget !== null ? (
+            <SecretDialog
+              key={secretTarget.serverId}
+              open
+              onOpenChange={(open) => (open ? undefined : setSecretTarget(null))}
+              serverId={secretTarget.serverId}
+              serverName={secretTarget.serverName}
+              workspaceId={workspaceId}
+              target={{ kind: secretTarget.kind, name: '', isSet: false }}
+            />
+          ) : null}
+        </>
+      }
+    />
+  );
+}

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import {
   DeleteWorkspaceDocument,
+  MeDocument,
   RevokeWorkspaceKeyDocument,
   UsageByWorkspaceDocument,
   WorkspaceDocument,
@@ -17,7 +18,9 @@ import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Pencil, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
+import { Role } from '@/lib/roles';
 import { UsageSection } from '@/models/usage-section';
+import { WorkspaceServersSection } from '@/tools/workspace-servers-section';
 import { KeyDialog } from '@/workspaces/key-dialog';
 import { WorkspaceDialog } from '@/workspaces/workspace-dialog';
 
@@ -31,13 +34,14 @@ function dateOf(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** One workspace: what it is, and the keys its apps call with. */
+/** One workspace: what it is, the keys its apps call with, and how its agent runs use servers. */
 export function WorkspaceRoute() {
   const { workspaceId } = useParams({ from: '/app/workspaces/$workspaceId' });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [isMakingKey, setIsMakingKey] = useState(false);
+  const me = useQuery({ queryKey: ['me'], queryFn: () => request(MeDocument) });
   const workspace = useQuery({
     queryKey: ['workspaces', workspaceId],
     queryFn: () => request(WorkspaceDocument, { id: workspaceId }),
@@ -145,6 +149,7 @@ export function WorkspaceRoute() {
               )
             }
           />
+          <WorkspaceServersSection workspaceId={record.id} isAdmin={me.data?.me.role === Role.Admin} />
           <UsageSection
             rows={usage.data?.usageCounts ?? []}
             groupBy={(row) => `${row.providerName}/${row.model}`}

@@ -1,6 +1,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
 import type { Context } from '../core/context.ts';
+import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { parseOrThrow } from '../core/validation.ts';
@@ -27,6 +28,14 @@ const TOOLS_SDL = parse(`
     hasClientSecret: Boolean!
     "The scope asked for when the server doesn't say."
     scope: String
+    "The client id typed by hand, if any. Not a secret; its secret is never served."
+    clientId: String
+  }
+
+  "The timeouts a server gets when it sets none of its own."
+  type ServerDefaults {
+    idleTimeoutMs: Int!
+    callTimeoutMs: Int!
   }
 
   "Where to send a person to sign in to a server."
@@ -143,6 +152,8 @@ const TOOLS_SDL = parse(`
   }
 
   extend type Query {
+    "The timeouts a server gets when it sets none of its own."
+    serverDefaults: ServerDefaults!
     "The tools a server offers, starting an instance if none runs. A workspaceId uses that workspace's settings."
     serverTools(id: UUID!, workspaceId: UUID): [ServerTool!]!
     "Searches a registry."
@@ -199,6 +210,16 @@ function serverById(ctx: Context, id: string): SnapshotServer {
 }
 
 /**
+ * Reads a server's login as the API serves it.
+ *
+ * @param server - The server, from the snapshot.
+ * @returns Its status, with the hand-typed client id, which is not a secret.
+ */
+function loginOf(server: SnapshotServer) {
+  return { ...serverLoginStatus(server.oauth), clientId: server.oauth?.clientId ?? null };
+}
+
+/**
  * Reads the id a field on Server needs.
  *
  * @param parent - The server as the generated resolver answered it.
@@ -245,11 +266,16 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
 
   serverFields.login.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) => {
     const server = serverById(ctx, selectedId(parent, 'login'));
-    return server.transport.type === TRANSPORT_STREAMABLE_HTTP ? serverLoginStatus(server.oauth) : null;
+    return server.transport.type === TRANSPORT_STREAMABLE_HTTP ? loginOf(server) : null;
   };
 
   serverFields.instances.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) =>
     ctx.tools.instanceStates(selectedId(parent, 'instances'));
+
+  queries.serverDefaults.resolve = () => ({
+    idleTimeoutMs: INSTANCE_DEFAULTS.idleTimeoutMs,
+    callTimeoutMs: INSTANCE_DEFAULTS.callTimeoutMs,
+  });
 
   queries.serverTools.resolve = (_parent: unknown, args: { id: string; workspaceId?: string | null }, ctx: Context) =>
     ctx.tools.listTools(args.id, args.workspaceId ?? null);
@@ -311,7 +337,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
   ) => {
     serverById(ctx, args.serverId);
     await ctx.tools.logins.setClient(args.serverId, args.client ?? null);
-    return serverLoginStatus(serverById(ctx, args.serverId).oauth);
+    return loginOf(serverById(ctx, args.serverId));
   };
 
   mutations.setServerSecret.resolve = async (_parent: unknown, args: SetSecretArgs, ctx: Context) => {
