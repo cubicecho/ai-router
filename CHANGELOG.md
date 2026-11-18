@@ -1,3 +1,18 @@
+# [0.3.0](https://github.com/cubicecho/ai-router/compare/v0.2.0...v0.3.0) (2026-11-18)
+
+### Bug Fixes
+
+* **admin:** a run reaches only its own workspace's instances of a server ([3f0d6a6](https://github.com/cubicecho/ai-router/commit/3f0d6a6e7b88e8813d728a888345e2ee9aa10da2))
+
+### Features
+
+* **admin:** the admin server ai-router, connected in process ([d847b25](https://github.com/cubicecho/ai-router/commit/d847b25749d75f9db0b43e6df4f2164cb49fa1f6))
+* **agents:** drafts from agent runs, discarding them, and auto-promote ([3bbd463](https://github.com/cubicecho/ai-router/commit/3bbd463501b3021c795f43b5c036e851566ab344))
+* **db:** admin-server roles on server entries, and who saved a revision ([ee0f1db](https://github.com/cubicecho/ai-router/commit/ee0f1db3cb08edb499c3c5be8a71da356f1e5852))
+* **graphql:** permissions read from casl abilities, with roles for agent runs ([2a3e410](https://github.com/cubicecho/ai-router/commit/2a3e4109c99975283e8c34d6ee98860a490db968))
+* **tools:** the admin server's row, with a built-in transport, and roles on its entries ([5b40946](https://github.com/cubicecho/ai-router/commit/5b40946422e59901a90b03d152779b8e6bb4acfb))
+* **web:** the admin server marked built in, and roles on its workspace entries ([6a5a8ca](https://github.com/cubicecho/ai-router/commit/6a5a8ca92290d23dfc1d5fee591863a1ca16e09f))
+
 # [0.2.0](https://github.com/cubicecho/ai-router/compare/v0.1.2...v0.2.0) (2026-11-18)
 
 ### Features
