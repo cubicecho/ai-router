@@ -6,12 +6,23 @@ import {
   type WorkspaceServerFieldsFragment,
   type WorkspaceServersQuery,
 } from '@/__generated__/graphql';
-import { InputField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
+import { CheckboxField, InputField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
-import { envOf, envToText, linesToText, STDIO, stringsOf, textToEnv, textToLines, transportOf } from './shapes';
+import { ADMIN_ROLE_CHOICES, type AdminRole, checkedRoles, roleChecksOf, rolesOf } from './admin-roles';
+import {
+  BUILTIN,
+  envOf,
+  envToText,
+  linesToText,
+  STDIO,
+  stringsOf,
+  textToEnv,
+  textToLines,
+  transportOf,
+} from './shapes';
 
 /** How many servers the picker lists before it offers a search box. */
 const SEARCHABLE_FROM = 8;
@@ -37,11 +48,34 @@ interface EntryValues {
   env: Record<string, string>;
   args: string[] | null;
   url: string | null;
+  /** For the admin server only. Every other entry's are empty. */
+  roles: AdminRole[];
 }
+
+/** What a server is, as the dialog shows its fields: a program, an address, or the admin server. */
+type EntryKind = 'program' | 'address' | 'roles';
+
+/**
+ * Says which fields an entry for a server takes.
+ *
+ * @param server - The server picked, or undefined before one is.
+ * @returns Env and arguments for a program, an address for a remote server, roles for the admin server.
+ */
+function kindOf(server: ServerChoice | undefined): EntryKind {
+  const type = server === undefined ? STDIO : transportOf(server.transport).type;
+  return ENTRY_KINDS[type];
+}
+
+/** Which fields an entry takes, by its server's transport. */
+const ENTRY_KINDS: Readonly<Record<ReturnType<typeof transportOf>['type'], EntryKind>> = Object.freeze({
+  stdio: 'program',
+  'streamable-http': 'address',
+  [BUILTIN]: 'roles',
+});
 
 /**
  * Adds or edits a workspace's entry for a server: the env, arguments or address its agent runs use
- * in place of the server's own.
+ * in place of the server's own, or for the admin server, what its agent runs may do through it.
  */
 export function WorkspaceServerDialog({
   open,
@@ -78,23 +112,24 @@ export function WorkspaceServerDialog({
       env: entry === null ? '' : envToText(envOf(entry.env)),
       args: args === null ? '' : linesToText(args),
       url: entry?.url ?? '',
+      roles: roleChecksOf(rolesOf(entry?.roles)),
     },
     onSubmit: ({ value }) => {
-      const picked = servers.find((server) => server.id === value.serverId);
-      const isProgram = picked === undefined || transportOf(picked.transport).type === STDIO;
+      const kind = kindOf(servers.find((server) => server.id === value.serverId));
+      const isProgram = kind === 'program';
       const argLines = textToLines(value.args);
       return save.mutateAsync({
         serverId: value.serverId,
         env: isProgram ? (textToEnv(value.env).env ?? {}) : {},
         args: isProgram && argLines.length > 0 ? argLines : null,
-        url: isProgram || value.url.trim() === '' ? null : value.url.trim(),
+        url: kind === 'address' && value.url.trim() !== '' ? value.url.trim() : null,
+        roles: kind === 'roles' ? checkedRoles(value.roles) : [],
       });
     },
   });
   // Which fields show depends on the server picked, so the dialog keeps a copy the field's listener updates.
   const [serverId, setServerId] = useState(form.state.values.serverId);
-  const picked = servers.find((server) => server.id === serverId);
-  const isProgram = picked === undefined || transportOf(picked.transport).type === STDIO;
+  const kind = kindOf(servers.find((server) => server.id === serverId));
   const options = servers
     .filter((server) => server.id === entry?.serverId || taken.includes(server.id) === false)
     .map((server) => ({ value: server.id, label: server.displayName ?? server.name }));
@@ -104,7 +139,11 @@ export function WorkspaceServerDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={isEdit ? `${entry.server?.name ?? 'Server'} in this workspace` : 'Configure a server'}
-      description="Settings this workspace's agent runs use in place of the server's own. An entry never adds the server to a run."
+      description={
+        kind === 'roles'
+          ? "What this workspace's agent runs may do through the admin server. An agent still has to name it."
+          : "Settings this workspace's agent runs use in place of the server's own. An entry never adds the server to a run."
+      }
       hasUnsavedChanges={() => form.state.isDefaultValue === false}
       wrapperSlot={(parts, { className }) => (
         <form.AppForm>
@@ -128,7 +167,20 @@ export function WorkspaceServerDialog({
               validators={{ onChange: ({ value }) => (value === '' ? 'Choose a server.' : undefined) }}
             />
           )}
-          {isProgram ? (
+          {kind === 'roles' ? (
+            <div className="grid gap-3">
+              {ADMIN_ROLE_CHOICES.map((choice) => (
+                <CheckboxField
+                  key={choice.role}
+                  form={form}
+                  name={`roles.${choice.role}`}
+                  label={choice.label}
+                  description={choice.description}
+                />
+              ))}
+            </div>
+          ) : null}
+          {kind === 'program' ? (
             <>
               <TextareaField
                 form={form}
@@ -146,7 +198,8 @@ export function WorkspaceServerDialog({
                 rows={3}
               />
             </>
-          ) : (
+          ) : null}
+          {kind === 'address' ? (
             <InputField
               form={form}
               name="url"
@@ -157,7 +210,7 @@ export function WorkspaceServerDialog({
                   value.trim() === '' || URL.canParse(value.trim()) ? undefined : 'Enter an http or https URL.',
               }}
             />
-          )}
+          ) : null}
         </div>
       }
       footerActionsSlot={(close) => (

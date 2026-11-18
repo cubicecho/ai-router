@@ -17,10 +17,12 @@ export interface ToolsSectionProps {
   serverName: string;
   /** Whether the server takes calls. Off, its tools aren't asked for. */
   enabled: boolean;
+  /** Whether a person may try its tools. The admin server's are for agent runs only. */
+  canTry: boolean;
 }
 
 /** What a server offers now, asked of it, with a way to try each tool. */
-export function ToolsSection({ serverId, serverName, enabled }: ToolsSectionProps) {
+export function ToolsSection({ serverId, serverName, enabled, canTry }: ToolsSectionProps) {
   const [trying, setTrying] = useState<ServerTool | null>(null);
   const tools = useQuery({
     queryKey: ['servers', serverId, 'tools'],
@@ -53,7 +55,9 @@ export function ToolsSection({ serverId, serverName, enabled }: ToolsSectionProp
             description={tool.description ?? undefined}
             meta={tool.title === null || tool.title === undefined ? undefined : tool.name}
             actionSlot={
-              <Button variant="outline" size="sm" iconSlot={<Play />} onClick={() => setTrying(tool)} content="Try" />
+              canTry ? (
+                <Button variant="outline" size="sm" iconSlot={<Play />} onClick={() => setTrying(tool)} content="Try" />
+              ) : undefined
             }
           />
         ))}
@@ -64,7 +68,11 @@ export function ToolsSection({ serverId, serverName, enabled }: ToolsSectionProp
   return (
     <Section
       title="Tools"
-      description={`What it offers now. A run sees each as ${serverName}__<tool>. Listing them starts it if it isn't running.`}
+      description={
+        canTry
+          ? `What it offers now. A run sees each as ${serverName}__<tool>. Listing them starts it if it isn't running.`
+          : `Everything it offers. A run sees each as ${serverName}__<tool>, and only those its workspace's roles reach.`
+      }
       actionSlot={
         enabled ? (
           <Button

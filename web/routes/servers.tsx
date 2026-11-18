@@ -14,13 +14,15 @@ import { request } from '@/lib/gql';
 import { InstallDialog } from '@/tools/install-dialog';
 import { LoginBadge } from '@/tools/login-section';
 import { RegistriesSection } from '@/tools/registries-section';
-import { describeSource, describeTransport, sourceOf, transportOf } from '@/tools/shapes';
+import { describeSource, describeTransport, isBuiltin, sourceOf, transportOf } from '@/tools/shapes';
 
 /** Every MCP server the router's agents may use tools from, and the registries they come from. */
 export function ServersRoute() {
   const [isInstalling, setIsInstalling] = useState(false);
   const servers = useQuery({ queryKey: ['servers'], queryFn: () => request(ServersDocument) });
   const rows = servers.data?.servers ?? [];
+  // The admin server is on every router, so the list counts as empty until something is installed.
+  const installed = rows.filter((server) => isBuiltin(server.transport) === false);
   const add = (
     <Button variant="positive" iconSlot={<Plus />} onClick={() => setIsInstalling(true)} content="Add server" />
   );
@@ -30,13 +32,13 @@ export function ServersRoute() {
       width="prose"
       title="Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
-      actionSlot={rows.length > 0 ? add : undefined}
+      actionSlot={installed.length > 0 ? add : undefined}
       contentSlot={
         <>
           <LoadState
             query={servers}
             what="the servers"
-            count={rows.length}
+            count={installed.length}
             emptySlot={
               <EmptyState
                 iconSlot={<Plug />}
@@ -55,6 +57,7 @@ export function ServersRoute() {
                 description={`${describeTransport(transportOf(server.transport))} · ${describeSource(sourceOf(server.source))}`}
                 meta={
                   <span className="flex gap-1">
+                    {isBuiltin(server.transport) ? <Badge variant="secondary">Built in</Badge> : null}
                     {server.enabled ? null : <Badge variant="outline">Off</Badge>}
                     <LoginBadge login={server.login} />
                   </span>
