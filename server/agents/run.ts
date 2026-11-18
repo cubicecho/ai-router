@@ -98,7 +98,7 @@ export interface RepeatedRun {
 
 /** Starts, records and answers agent runs. */
 export interface RunService {
-  /** Where live runs' events are. */
+  /** A run's events, stored and live. */
   bus: RunBus;
   /**
    * Finds the run a workspace's `Idempotency-Key` already started.
@@ -193,7 +193,7 @@ export function createRunService({
   now = () => new Date(),
 }: RunServiceDeps): RunService {
   const settings = { ...RUN_DEFAULTS, ...overrides };
-  const bus = createRunBus(runtime);
+  const bus = createRunBus(db, overrides);
   /** Runs going in this process, by id: what a repeated key waits on. */
   const live = new Map<string, Promise<FinishedRun>>();
   /** Fails every run still going when the router stops. */
@@ -401,6 +401,7 @@ export function createRunService({
     const isCompleted = finished.status === RunStatus.Completed;
     bus.publish(runId, { kind: RunEventKind.Done, ok: isCompleted, text: finished.error ?? '' });
     await record(finished);
+    await bus.close(runId);
     return finished;
   };
 
@@ -429,6 +430,7 @@ export function createRunService({
       }
       return repeat;
     }
+    await bus.open(row.id);
     let settle: (finished: FinishedRun) => void = () => {};
     live.set(
       row.id,
@@ -455,6 +457,11 @@ export function createRunService({
       .set({ status: RunStatus.Failed, finishedAt: now(), error: RESTARTED })
       .where(eq(runs.status, RunStatus.Running))
       .returning({ id: runs.id });
+    for (const { id } of left) {
+      await bus.open(id);
+      bus.publish(id, { kind: RunEventKind.Done, ok: false, text: RESTARTED });
+      await bus.close(id);
+    }
     return left.length;
   };
 
@@ -488,6 +495,7 @@ export function createRunService({
       }
       stopping.abort();
       await Promise.allSettled([...live.values()]);
+      await bus.stop();
     },
   };
 }

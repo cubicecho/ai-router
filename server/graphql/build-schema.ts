@@ -22,6 +22,9 @@ import { permissions } from './permissions.ts';
 /** better-auth's tables, and the pairing's secrets. Never served: every read of them goes through the server. */
 const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
+/** Tables served only through hand-written fields: a run's events are `Run.events`, in the subscription's shape. */
+const HAND_SERVED_TABLES = ['runEvents'];
+
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
  * usage, secrets, activity and runs.
@@ -91,7 +94,7 @@ export function createSchema(db: DB): GraphQLSchema {
     // Table keys are plural (`workspaces`). Types and single-row fields are singular (Workspace, workspace).
     typeNameMapper: 'singularize',
     exclude: {
-      tables: SERVER_TABLES,
+      tables: [...SERVER_TABLES, ...HAND_SERVED_TABLES],
       columns: {
         workspaceKeys: ['hash'],
         providers: ['apiKey'],

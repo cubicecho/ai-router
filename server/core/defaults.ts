@@ -449,6 +449,14 @@ export interface RunSettings {
   maxUserLength: number;
   /** Characters of a failure's message kept on the run. */
   maxErrorLength: number;
+  /** How long a run's events wait in memory before they are written to `run_events` together. */
+  eventFlushMs: number;
+  /** Events written in one insert. */
+  eventBatchSize: number;
+  /** Events `Run.events` answers with when the query gives no limit. */
+  eventPageSize: number;
+  /** The most events `Run.events` answers with at once. */
+  maxEventPageSize: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -461,4 +469,8 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxIdempotencyKeyLength: 255,
   maxUserLength: 256,
   maxErrorLength: 2_000,
+  eventFlushMs: 250,
+  eventBatchSize: 500,
+  eventPageSize: 500,
+  maxEventPageSize: 5_000,
 });

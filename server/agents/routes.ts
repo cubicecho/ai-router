@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
-import { ConflictingKeysError, readWorkspaceCaller } from '../auth/caller.ts';
+import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
@@ -9,6 +9,7 @@ import type { SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
 import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
+import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import { RequestRefusal, readRunRequest, requestedAgent, requestedStream } from './request.ts';
@@ -50,24 +51,6 @@ interface AppLocals {
  */
 function refuse(response: Response, failure: ModelFailure, message: string, param: string | null = null): void {
   response.status(failure.status).json(openAiErrorBody(failure, message, param));
-}
-
-/**
- * Copies Express's headers into a fetch `Headers`, as the caller reader takes them.
- *
- * @param request - The request.
- * @returns Its headers.
- */
-function headersOf(request: Request): Headers {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (typeof value === 'string') {
-      headers.set(name, value);
-    } else if (Array.isArray(value)) {
-      headers.set(name, value.join(', '));
-    }
-  }
-  return headers;
 }
 
 /**
@@ -218,7 +201,7 @@ export function createAgentRoutes({
   router.use((request: Request, response: Response<unknown, AppLocals>, next: NextFunction) => {
     let caller: WorkspaceCaller | null;
     try {
-      caller = readWorkspaceCaller(snapshot.current(), headersOf(request), now());
+      caller = appCaller(snapshot.current(), request, now());
     } catch (error) {
       if (error instanceof ConflictingKeysError) {
         refuse(response, ModelFailure.BadRequest, error.message);

@@ -202,9 +202,9 @@ created (shown once) --> in use --revoke--> deleted
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if it answers every call that run handed back. A partial answer is refused | `agents/run` |
-| A key reads only the runs and run events of its own workspace. A run's live events (`runEvents`) are for people; a key is refused | `agents/routes` (phase 7); `graphql/permissions` |
+| A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own. Progress chunks are written with `agent-core`'s own encoder | `agents/progress` |
-| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus` |
+| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
 | An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
@@ -238,8 +238,11 @@ Everything about the code comes after `Owner:`.
 
 - **Agents endpoint:** the address apps use to run agents. It looks like any OpenAI-compatible
   model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
-- **Run records:** where an app reads a run it started, and its events, after the answer or
-  while it runs. Owner: `agents/routes`; `/runs/<id>` and `/runs/<id>/events`.
+- **Run records:** where an app reads a run of its own workspace, and its events, after the answer
+  or while it runs. Another workspace's run is as missing as one that never was. Owner:
+  `agents/run-records`; `/runs/<id>` (agent, revision, status, timings, usage and error) and
+  `/runs/<id>/events` (JSON, or a live event stream with `Accept: text/event-stream`, which a
+  client rejoins with `Last-Event-ID`), with workspace keys only and `{ error, code }` refusals.
 
 ### Workspaces
 
@@ -379,12 +382,16 @@ Everything about the code comes after `Owner:`.
   `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`,
   which is accepted and does nothing until phase 7). Any other key is refused.
 - **Run events:** a run's steps, reasoning, tool calls and results, side tasks and usage, in
-  order. The router's own pages and the app that started the run can follow them live or read
-  them afterwards. Owner: `agents/run-bus`, over the run runtime's own agent-core event bus; the
-  `runEvents` subscription (`agents/run-resolvers`, type `LiveRunEvent`), for people. Held in
-  memory only until phase 7 adds the `run_events` table and `/runs/<id>/events`; each one is an
-  `agent-core` `RunEvent`, and the router adds a `notice` for each server left out and the
-  closing `done`.
+  order, numbered from 1 with no gaps. The router's own pages and the app that started the run can
+  follow them live or read them afterwards, and a follower gets the stored ones first, then the
+  live ones, with no gap and no repeat. Owner: `agents/run-bus`, which numbers each event itself,
+  carrying on after the last stored one, holds it in memory until it is written to the
+  `run_events` table (every `RUN_DEFAULTS.eventFlushMs`, and whenever the run ends or waits), and
+  wakes the run's followers; the `runEvents` subscription and `Run.events` (`agents/run-resolvers`,
+  type `LiveRunEvent`), for people, and `/runs/<id>/events` for apps. Each one is an `agent-core`
+  `RunEvent`, stored as it was sent in `run_events.event`, and deleted with its run. The router
+  adds a `notice` for each server left out and the closing `done`, which a run a restart cut short
+  is given at the next boot.
 - **Progress events:** run events streamed to an app that asks for them, inside the answer
   itself. Standard clients skip them. Owner: `agents/progress`; chunks with empty `choices` and an
   `ai_router.event` field.

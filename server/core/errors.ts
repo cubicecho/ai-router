@@ -11,6 +11,8 @@ export const ErrorCode = {
   Forbidden: 'FORBIDDEN',
   Conflict: 'CONFLICT',
   UpstreamFailed: 'UPSTREAM_FAILED',
+  /** The router's own failure, as Yoga masks one. Its log says why. */
+  Internal: 'INTERNAL_SERVER_ERROR',
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 

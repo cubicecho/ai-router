@@ -100,21 +100,29 @@ export interface ChunkStream {
   fail(error: OpenAiErrorBody): void;
 }
 
+/** A server-sent event stream on an answer. */
+export interface EventStream {
+  /**
+   * Sends one `data:` line.
+   *
+   * @param data - Text as it is, or a value written as JSON.
+   * @param [id] - The event's `id:`, which a client that reconnects sends back as `Last-Event-ID`.
+   */
+  send(data: unknown, id?: number): void;
+  /** Ends the stream, unless the client already left. */
+  close(): void;
+  /** Whether the client is gone or the stream has ended. */
+  isGone(): boolean;
+}
+
 /**
- * Opens an event stream on the answer, with its headers sent at once so the app has the run id from the start.
+ * Opens a server-sent event stream on an answer, with its headers sent at once, and a comment while it is quiet.
  *
- * @param response - The Express answer. `X-Run-Id` is already set on it.
- * @param meta - The run.
- * @param includeUsage - Whether the stream ends with a usage chunk, as `stream_options.include_usage` asks.
- * @param heartbeatSeconds - How often a quiet stream is sent a comment.
+ * @param response - The Express answer, with any headers of its own already set.
+ * @param heartbeatSeconds - How often a quiet stream is sent a comment, so a proxy doesn't close it.
  * @returns The stream.
  */
-export function openChunkStream(
-  response: Response,
-  meta: CompletionMeta,
-  includeUsage: boolean,
-  heartbeatSeconds: number,
-): ChunkStream {
+export function openEventStream(response: Response, heartbeatSeconds: number): EventStream {
   response.status(HttpStatus.Ok);
   response.setHeader('content-type', EVENT_STREAM_TYPE);
   response.setHeader('cache-control', 'no-cache');
@@ -130,20 +138,42 @@ export function openChunkStream(
   const heartbeat = setInterval(() => write(HEARTBEAT), heartbeatSeconds * MS_PER_SECOND);
   heartbeat.unref();
   response.on('close', () => clearInterval(heartbeat));
-  const send = (data: unknown): void => {
-    write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
+  return {
+    send: (data, id) => {
+      const line = `data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`;
+      write(id === undefined ? line : `id: ${id}\n${line}`);
+    },
+    close: () => {
+      clearInterval(heartbeat);
+      if (isGone() === false) {
+        response.end();
+      }
+    },
+    isGone,
   };
+}
+
+/**
+ * Opens an event stream on the answer, with its headers sent at once so the app has the run id from the start.
+ *
+ * @param response - The Express answer. `X-Run-Id` is already set on it.
+ * @param meta - The run.
+ * @param includeUsage - Whether the stream ends with a usage chunk, as `stream_options.include_usage` asks.
+ * @param heartbeatSeconds - How often a quiet stream is sent a comment.
+ * @returns The stream.
+ */
+export function openChunkStream(
+  response: Response,
+  meta: CompletionMeta,
+  includeUsage: boolean,
+  heartbeatSeconds: number,
+): ChunkStream {
+  const { send, close } = openEventStream(response, heartbeatSeconds);
   const chunk = (delta: Record<string, unknown>, finishReason: string | null) => ({
     ...header(meta),
     object: 'chat.completion.chunk',
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   });
-  const close = (): void => {
-    clearInterval(heartbeat);
-    if (isGone() === false) {
-      response.end();
-    }
-  };
   send(chunk({ role: 'assistant', content: '' }, null));
   return {
     text: (content) => send(chunk({ content }, null)),

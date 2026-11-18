@@ -9,6 +9,7 @@ export * from './tables/pool-targets.ts';
 export * from './tables/pools.ts';
 export * from './tables/providers.ts';
 export * from './tables/registries.ts';
+export * from './tables/run-events.ts';
 export * from './tables/runs.ts';
 export * from './tables/server-secrets.ts';
 export * from './tables/servers.ts';
