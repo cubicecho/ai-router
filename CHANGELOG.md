@@ -1,3 +1,9 @@
+# [0.4.0](https://github.com/cubicecho/ai-router/compare/v0.3.0...v0.4.0) (2026-11-18)
+
+### Features
+
+* **agents:** agent-core 6, whose run events name an exchange where they said step ([2fac95e](https://github.com/cubicecho/ai-router/commit/2fac95e8265430a4904f53901c617a9c9d0416e0))
+
 # [0.3.0](https://github.com/cubicecho/ai-router/compare/v0.2.0...v0.3.0) (2026-11-18)
 
 ### Bug Fixes
