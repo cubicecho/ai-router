@@ -302,9 +302,15 @@ export function createForwarder({
    * @param upstream - The provider's answer.
    * @param served - Who the call counts under.
    * @param release - Frees the pool slot.
+   * @param [signal] - The caller's signal. A caller that gives up without reading the answer settles it too.
    * @returns The answer to hand back.
    */
-  const passThrough = (upstream: UpstreamResponse, served: ServedBy, release: () => void): Response => {
+  const passThrough = (
+    upstream: UpstreamResponse,
+    served: ServedBy,
+    release: () => void,
+    signal?: AbortSignal,
+  ): Response => {
     const headers = forwardedHeaders(upstream);
     const isEventStream = (headers.get('content-type') ?? '').includes(EVENT_STREAM_TYPE);
     const reader = new UsageReader(isEventStream, settings.maxResponseBytes);
@@ -325,6 +331,7 @@ export function createForwarder({
       settle();
       return new Response(null, { status: upstream.status, headers });
     }
+    signal?.addEventListener('abort', settle, { once: true });
     const source = upstream.body.getReader();
     const body = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -370,7 +377,7 @@ export function createForwarder({
       const sent = withStreamUsage(path, { ...body, model });
       const upstream = await ask(`${upstreamUrl(provider.baseUrl, path)}${search}`, sent, call, provider);
       const served: ServedBy = { ...call.attribution, providerId: provider.id, providerName: provider.name, model };
-      const answer = passThrough(upstream, served, routed.release);
+      const answer = passThrough(upstream, served, routed.release, call.signal);
       release = NOTHING_TO_RELEASE;
       return answer;
     } catch (error) {

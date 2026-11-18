@@ -269,6 +269,14 @@ describe('pools', () => {
     expect(balancer.inFlightTo(target)).toBe(0);
   });
 
+  it('frees the slot when the caller gives up without reading the answer', async () => {
+    const giveUp = new AbortController();
+    await call('chat/completions', { model: 'qwen3', messages: [], stream: true }, { signal: giveUp.signal });
+    expect(balancer.inFlightTo(target)).toBe(1);
+    giveUp.abort();
+    expect(balancer.inFlightTo(target)).toBe(0);
+  });
+
   it('frees the slot when the provider breaks off mid-stream', async () => {
     const answer = await call('broken', { model: 'qwen3' });
     await expect(answer.text()).rejects.toThrow();
