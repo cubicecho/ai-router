@@ -152,6 +152,11 @@ You help me run my household money. I budget monthly in Actual …
   `agent-core` lets an `extraBody` temperature quietly beat the real one
   ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)). A field the policy doesn't
   allow is refused with an error that names it.
+- **Other standard fields:**
+  - `response_format` is allowed by the default policy, because JSON output is task-specific.
+  - `parallel_tool_calls` passes through to the agent's model.
+  - `user` is recorded on the run, for the app's own reference.
+  - `n` above 1 is refused, because a run gives one answer.
 - **`X-Run-Id`** comes back on every agent response, so an app's own log can link to the
   router's run record.
 - **App tools.** An app keeps its own tools (`task_server`'s "create a task", `min-agent`'s
@@ -278,6 +283,11 @@ The check for phases 5–8.
       key, for its workspace.
     - Importers for Claude Code subagents, Copilot `.agent.md` and cagent YAML.
     - An agent editor in the UI.
+    - **App-supplied MCP servers:** an app passes a server in the request, and the router
+      connects to it for that run only, as OpenAI Responses does with `tools: [{ type: "mcp" }]`.
+      It needs to be allowed by the override policy, with a list of allowed hosts, because the
+      router would be calling a URL an app chose. Until then, an app gives an agent its own tools
+      as app tools.
     - **Override policies in full:** more than one, chosen per agent, with a UI.
     - **Import and export** of `.agent.json` and `.agent.md` files, and an
       `ai-router agents push` / `pull` CLI that signs in through the browser. This may be dropped
