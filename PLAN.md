@@ -9,7 +9,7 @@ Define "Personal Finance" once. Then chat with it in `min-agent`, and have `task
 every Friday, with the same prompt, tools and RAG behind both.
 
 The concepts and rules are in [`.agents/domain-model.md`](.agents/domain-model.md). This file is
-the order of work and the reasons for it. Nothing is built yet.
+the order of work and the reasons for it. Phase 1, the scaffold, is built.
 
 ## Decisions
 
@@ -25,6 +25,7 @@ the order of work and the reasons for it. Nothing is built yet.
 | Endpoints | **`/v1` is the agents endpoint: its model list holds only agents.** The plain pieces live under **`/bare`**: `/bare/v1` for models and pools, `/bare/mcp` for MCP servers. `/mcp` at the root is kept for agents offered as MCP tools, later | An app pointed at `/v1` sees agents and nothing else. Agent ids and pool names can't collide, so no `agent/` prefix is needed |
 | Scope | **The key decides what every endpoint contains.** One request carries one key, and a key belongs to one workspace. There are no `/w/<slug>` routes | The standard reads the caller from the credential, never the URL. Hermes picks profiles by URL and leaks state between them |
 | Key header | `Authorization: Bearer` or `x-api-key`. Both may be sent only if they match | OpenAI and MCP clients send Bearer, and the standard uses `x-api-key` |
+| Key storage | **The router's own `workspace_keys` table**, not better-auth's api-key plugin. A key is `air_` and 32 random bytes; the table keeps its SHA-256, its first characters, its workspace, who made it and its expiry | The plugin ties a key to a user (or to its organization plugin), so a key would die with whoever made it, and it reads and writes the database on every request. Here a key is checked against the snapshot, in memory |
 | Override policy | **Kept as a real thing in the database, with one seeded policy that every agent uses.** It lets an app add its own instructions, narrow the servers and set sampling settings (temperature, `top_p`, `top_k`, `min_p`, penalties, `max_tokens`, `seed`, `stop`). The model never changes: it's the one the agent was made with. There's no UI for policies yet | Sampling is task-specific, and the model is the agent's identity. Storing the policy as a row now means choosing per agent later needs no migration of the idea |
 | Agent reach | An agent uses the models and servers its own document names. The workspace decides which agents an app may run. It may also **configure** the agent's servers for its own runs, but never add to them | Scoping in two places disagrees. `task_server` reached the same rule in its #21. Configuring per workspace lets one Personal Finance agent work on each person's own budget |
 | Granting an agent | Grants the **run**, not the agent's reach. An app with only `personal-finance` cannot call `actual__…` on `/bare/mcp` | So a workspace can hold only agents, and "agents instead of models" means exactly that |
@@ -39,7 +40,7 @@ the order of work and the reasons for it. Nothing is built yet.
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
 | Admin tools | Later, as a built-in **admin server**, `ai-router`, built with `@cubicecho/graphql-mcp`. It's the only way in: a workspace gets it through a server entry with permission levels, and an agent must name it. There's no separate `/admin/mcp` | It answers "why did Friday's run fail?" and lets agents draft agents. With only workspace keys, a second door would need a second set of permission checks |
 | Discovery | **Later.** The AI Catalog, Server and Agent Cards, and LAN announce and discovery are not in the first pass. When they come, the public catalog names only the router's endpoints, and the agents and servers behind them are listed only to a key | Simpler first pass. mcp-router serves its catalog and cards to anyone, which here would show every agent and server on the network |
-| Untrusted code | **Each MCP server runs as its own user, through a purpose-built helper, `run-as-child`** (`spikes/child-user/`). The helper is the only thing in the image with any capability, and holds only `CAP_SETUID` and `CAP_SETGID`. It switches only into the id range 10000–19999, never root or the router. It drops every capability, sets no-new-privileges and then runs the server. The router itself holds none. Install scripts (`npm install`, `uvx`) run as the server's user too | A combined router puts every provider key next to code installed from npm and PyPI. The phase 0 spike showed the simpler options fail or overreach. With `USER node`, Docker gives the router no capabilities at all, so it can't switch users itself. A general `setpriv` with those capabilities lets the router become root with full capabilities |
+| Untrusted code | **Each MCP server runs as its own user, through a purpose-built helper, `run-as-child`** (`docker/run-as-child.c`). The helper is the only thing in the image with any capability, and holds only `CAP_SETUID` and `CAP_SETGID`. It switches only into the id range 10000–19999, never root or the router. It drops every capability, sets no-new-privileges and then runs the server. The router itself holds none. Install scripts (`npm install`, `uvx`) run as the server's user too | A combined router puts every provider key next to code installed from npm and PyPI. The phase 0 spike showed the simpler options fail or overreach. With `USER node`, Docker gives the router no capabilities at all, so it can't switch users itself. A general `setpriv` with those capabilities lets the router become root with full capabilities |
 
 ## Prior art
 
@@ -88,12 +89,12 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 
 | Area | Tables |
 | --- | --- |
-| auth | better-auth's `users`, `sessions`, `accounts`, `verifications`, `apikeys` |
+| auth | better-auth's `users` (with `role`), `sessions`, `accounts`, `verifications`; `oidc_settings`, the paired provider |
 | router | `settings`, a single row |
 | models | `providers`, `pools`, `pool_targets`, `usage` |
 | tools | `registries`, `servers`, `server_secrets`, `activity` |
 | agents | `agents` (with `override_policy_id`), `agent_revisions`, `override_policies` (seeded with one default row), `runs`, `run_events`, `conversations` |
-| workspaces | `workspaces`, `workspace_providers` (with an optional model list), `workspace_pools`, `workspace_servers` (with env, args, headers and URL overrides, and `offered_on_mcp`), `workspace_agents` |
+| workspaces | `workspaces`, `workspace_keys`, `workspace_providers` (with an optional model list), `workspace_pools`, `workspace_servers` (with env, args, headers and URL overrides, and `offered_on_mcp`), `workspace_agents` |
 
 Notes:
 - **Secret columns are excluded from GraphQL**, and each has a write-only mutation
@@ -374,5 +375,12 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   list of risky tools and a way to ask someone. Proposed: leave it out of v1.
 - **Per-tool scoping** (include and exclude lists per server). Proposed: leave it out, so a
   server is the unit.
+- **better-auth's organization plugin for workspace keys.** Keys are the router's own table for now
+  (the decisions above). The organization plugin could own them instead, with a workspace as an
+  organization, if it can verify a key without a database read and a usage write per request.
+  Look at it before phase 9, when the admin server's permission levels need per-workspace roles.
+- **drizzle-graphql warns about `workspace_keys.hash`** at every schema build: it is excluded and
+  NOT NULL, and the warning ignores that the table's generated inserts are switched off. Fix it
+  upstream so the warning respects `features.insert`.
 - **The spec's own open questions** (agent-level hooks, opt-in bundle parsing, `null` to unset
   an `extraBody` key) touch phase 6. Answer them in agent-core first.

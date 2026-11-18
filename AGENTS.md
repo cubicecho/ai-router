@@ -13,7 +13,8 @@ and one key per app.
 It replaces llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`). They are the
 reference implementations to port from, not dependencies.
 
-**Status: planning. No code yet.**
+**Status: phase 1, the scaffold.** Sign-in, roles, workspaces and their keys, the snapshot and the
+child-user check exist. The gateways and agents come in the phases after it (`PLAN.md`).
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
@@ -24,45 +25,52 @@ reference implementations to port from, not dependencies.
   archetype), `cubicecho_typescript` and `coding-standards`. Load all three from the skills server
   before writing code. This file holds only what is specific to ai-router.
 
-## Stack and layout (planned)
+## Stack and layout
 
 Laid out as a single-operator cubicecho service with no tenancy, shared by several users with
 roles:
 - Node 26, running TypeScript directly.
 - graphql-yoga on Express 5.
 - Drizzle `1.0.0-rc.5`, with `@vantreeseba/drizzle-graphql` and `@vantreeseba/graphql-casl`.
-- better-auth, with `@better-auth/api-key` for workspace keys. Users sign in through OIDC
-  (heautou), with no magic links, SMTP or passwords. Under `SECURE_LOCAL_NET`, whoever opens the
-  UI is signed in as the admin automatically, and nothing else changes.
+- better-auth for people's sessions, with its endpoints served as GraphQL by
+  `@cubicecho/graphql-better-auth`. Users sign in through OIDC (heautou), with no magic links,
+  SMTP or passwords. Under `SECURE_LOCAL_NET`, whoever opens the UI is signed in as the admin
+  automatically, and nothing else changes.
+- Workspace keys are the router's own `workspace_keys` table, not better-auth's api-key plugin:
+  only each key's SHA-256 is stored, and keys are checked against the snapshot.
 - zod and Vitest.
-- PGlite by default, or Postgres when `DATABASE_URL` is set.
-- Docker on `node:26-slim`.
+- PGlite under `DATA_DIR/pg` by default, or Postgres when `DATABASE_URL` is a `postgres://` URL.
+- Docker on `node:26-slim`, with `run-as-child` (`docker/run-as-child.c`) built in.
 
-One package: `server/`, `shared/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/`, `drizzle/`.
+One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the same folders as
+`server/`), `drizzle/` (migrations, committed), `docker/`, `scripts/`.
 
 | `server/` folder | Holds | May import |
 | --- | --- | --- |
-| `core/` | config, defaults, wire constants, errors, validation, preflight, context | nothing here |
-| `db/` | the client, migrations, waiting for Postgres, the tables, the snapshot | `core` |
-| `auth/` | better-auth, keys, the caller, rate limiting | `core`, `db` |
-| `models/` | providers, pools, the `/bare/v1` proxy, usage, `ModelScope` | `core`, `db`, `auth` |
-| `tools/` | registries, the installer, servers, instances, sessions, the `/bare/mcp` gateway, activity, `ToolScope` | `core`, `db`, `auth` |
-| `agents/` | revisions, import and export, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/agents`, `/runs` | the above and `models`, `tools` |
-| `workspaces/` | workspaces, server entries, and the scope every request gets | all of the above |
-| `graphql/` | schema assembly, permissions, operation limits | everything |
-| `http/` | `createApp`, routes, shutdown, health | everything |
+| `core/` | config, defaults, wire constants, errors, validation, name rules, preflight, context | nothing here, except types for `context.ts` |
+| `db/` | the client, the lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
+| `auth/` | better-auth, keys, the caller, roles, the trusted-network sign-in, rate limiting, and their GraphQL fields | `core`, `db`, `sso`, `graphql/object-type`, `http/sso` (for its path) |
+| `sso/` | pairing with an OIDC provider from the UI | `core`, `db`, `auth` |
+| `models/` | providers, pools, the `/bare/v1` proxy, usage, `ModelScope` (phase 2) | `core`, `db`, `auth` |
+| `tools/` | the child-user check; later registries, the installer, servers, instances, sessions, the `/bare/mcp` gateway, activity, `ToolScope` | `core`, `db`, `auth` |
+| `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/agents`, `/runs` (phases 5–7) | the above and `models`, `tools` |
+| `workspaces/` | workspaces, their keys' mutations, server entries, and the scope every request gets | all of the above |
+| `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
+| `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
 | `admin/` (phase 9) | the built-in admin server, the only way to the router's management tools | everything |
 
-A lint rule enforces the last column.
+`index.ts` at the root of `server/` is boot only. The last column is kept by reading for now; a
+lint rule is planned.
 
-## Commands (planned)
+## Commands
 
 ```bash
 npm run dev          # server (watch) + Vite
-npm run check        # biome + tsc
+npm run check        # codegen, biome, tsc
 npm test             # vitest on PGlite
 npm run db:generate  # a migration after a schema change; commit it
-npm run codegen
+npm run db:migrate   # apply migrations to DATABASE_URL (boot does this too)
+npm run codegen      # print the schema, then the UI's types
 docker compose up
 ```
 
@@ -114,7 +122,8 @@ non-negotiables apply on top of these.
   through `run-as-child <servers.child_uid> <command…>`, and the installer's `npm install` and
   `uvx` too, since install scripts are code. Never give the router or node a capability, and
   never swap the helper for a general tool like `setpriv`: with `CAP_SETUID`, that can become
-  root. The helper's source and checks are in `spikes/child-user/`.
+  root. The helper's source is `docker/run-as-child.c`, and its checks are
+  `scripts/check-children.sh`, which CI runs against the image.
 - **The gateways route from the snapshot.** They never query the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: PGlite's lockfile, or a Postgres advisory lock taken at boot, so a second

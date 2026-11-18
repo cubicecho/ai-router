@@ -248,7 +248,8 @@ Everything about the code comes after `Owner:`.
   `workspace_servers`, with its overrides and `offered_on_mcp`.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
-  revoked. Owner: `auth/keys`; a better-auth API key, with the workspace in its metadata.
+  revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
+  is checked against the snapshot.
 
 ### Models
 

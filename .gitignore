@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.local
+*.local
+coverage/
+__generated__
+# The PGlite store and anything else written at runtime (DATA_DIR in development).
+data/
+.DS_Store
+.claude/
