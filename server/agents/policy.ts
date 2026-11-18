@@ -36,6 +36,7 @@ export const DEFAULT_POLICY_RULES: OverridePolicyRules = Object.freeze({
     'repetition_penalty',
     'seed',
     'stop',
+    'repeat_penalty',
   ],
   responseFormat: true,
 });

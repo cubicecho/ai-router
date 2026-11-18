@@ -484,7 +484,7 @@ describe('the agents endpoint', () => {
     const { base } = await startRouter();
     const cases: [Record<string, unknown>, string][] = [
       [{ logit_bias: { 50256: -100 } }, 'logit_bias'],
-      [{ repeat_penalty: 1.1 }, 'repeat_penalty'],
+      [{ logprobs: true }, 'logprobs'],
       [{ n: 2 }, 'n'],
       [{ tools: [{ type: 'function', function: { name: 'ask_user', parameters: {} } }] }, 'tools'],
     ];

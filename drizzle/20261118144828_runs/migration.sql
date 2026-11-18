@@ -26,4 +26,5 @@ CREATE INDEX "idx_runs_revision_id" ON "runs" ("revision_id");--> statement-brea
 CREATE INDEX "idx_runs_status" ON "runs" ("status");--> statement-breakpoint
 ALTER TABLE "runs" ADD CONSTRAINT "runs_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "runs" ADD CONSTRAINT "runs_agent_id_agents_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE SET NULL;--> statement-breakpoint
-ALTER TABLE "runs" ADD CONSTRAINT "runs_revision_id_agent_revisions_id_fkey" FOREIGN KEY ("revision_id") REFERENCES "agent_revisions"("id") ON DELETE SET NULL;
+ALTER TABLE "runs" ADD CONSTRAINT "runs_revision_id_agent_revisions_id_fkey" FOREIGN KEY ("revision_id") REFERENCES "agent_revisions"("id") ON DELETE SET NULL;--> statement-breakpoint
+UPDATE "override_policies" SET "rules" = jsonb_set("rules", '{sampling}', ("rules"->'sampling') || '["repeat_penalty"]'::jsonb) WHERE "id" = '00000000-0000-4000-8000-000000000001' AND NOT ("rules"->'sampling') ? 'repeat_penalty';

@@ -368,9 +368,8 @@ The acceptance check for the first release.
      supported yet"). `ai_router.progress` is accepted and does nothing until phase 7.
    - **`ai_router.servers`** is how a request narrows the agent's servers (`narrowServers`).
    - **Strict fields.** Any field the router doesn't read itself is an override, refused unless
-     the policy's `sampling` lists it. The seeded policy names `repetition_penalty`, not llama.cpp's
-     `repeat_penalty`, so the latter is refused until the row says otherwise. A field sent as
-     `null` counts as not sent.
+     the policy's `sampling` lists it. The seeded policy names both `repetition_penalty` (vLLM) and
+     `repeat_penalty` (llama.cpp). A field sent as `null` counts as not sent.
    - **The answer** is every turn's text, a blank line between turns, as streamed. Reasoning is
      not sent: progress events carry it in phase 7.
    - **Streams** send their headers, with `X-Run-Id`, at once, a comment every 15 s while quiet,
