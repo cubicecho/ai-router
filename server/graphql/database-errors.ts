@@ -12,6 +12,8 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
   uq_servers_name: 'A server with that name already exists.',
   uq_registries_name: 'A registry with that name already exists.',
   uq_workspace_servers_workspace_id_server_id: 'This workspace already has an entry for that server.',
+  uq_agents_name: 'An agent with that name already exists.',
+  uq_workspace_agents_workspace_id_agent_id: 'This workspace can already run that agent.',
 };
 
 /** The parts of a driver error this reads. */

@@ -6,7 +6,9 @@ terms, and only these, in code, tests, docs and reviews.
 **Phases 1 to 3 are built:** sign-in, roles, workspaces, keys, the snapshot, the models area
 (providers, pools, forwarding, usage) and the tools area (registries, servers, secrets, server
 entries, install folders, instances, server login, activity) describe the code as it is, except
-shared groups and a user id per workspace instance. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
+shared groups and a user id per workspace instance. **Phase 5 is built too:** agents, revisions,
+history and rollback, warnings, the seeded override policy, and which workspaces may run which
+agents. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
 
@@ -158,7 +160,7 @@ created (shown once) --> in use --revoke--> deleted
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app | `agents/routes`, `http/app` |
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
-| An agent id is unique and follows the same name rule as providers and servers | the agent id check in `agents/revisions` |
+| An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
 | No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
@@ -167,7 +169,7 @@ created (shown once) --> in use --revoke--> deleted
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks | `agents/policy` |
-| The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, the part id check in `agents/revisions` |
+| The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, `RESERVED_PART_IDS` in `agents/document` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
 | A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused | `agents/run` |
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent | `agents/layers`, `models/forward` |
@@ -184,7 +186,8 @@ created (shown once) --> in use --revoke--> deleted
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own. Progress chunks are written with `agent-core`'s own encoder | `agents/progress` |
 | A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them | `agents/run`, `agents/run-bus` |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
-| A stored document keeps every key it was saved with, unknown ones included | `agents/revisions`, which stores the `jsonb` as received |
+| A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
+| An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent | `models/usage` |
@@ -283,16 +286,22 @@ Everything about the code comes after `Owner:`.
 
 ### Agents
 
-- **Agent:** a model, a prompt and tools defined once, for any app to use. Owner: `agents/`; the
-  `agents` table; its content is a `cubicecho.agent/1` document, `@cubicecho/agent-core`
-  `AgentSpec`.
-- **Revision:** one saved version of an agent. Each is a draft, live or retired, and every earlier
-  revision is kept. Owner: `agents/revisions`; the `agent_revisions` table.
+- **Agent:** a model, a prompt and tools defined once, for any app to use. Its name in the router
+  is its document's `id`, and can't change. Owner: `agents/`; the `agents` table; its content is
+  a `cubicecho.agent/1` document, `@cubicecho/agent-core` `AgentSpec`, kept as JSON.
+- **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed.
+  Each is a draft, live or retired, and every earlier revision is kept. Owner: `agents/resolvers`
+  (`createAgent`, `saveAgent`) and `agents/document` (the check); the `agent_revisions` table.
+  Retired is `promoted_at` set and not live.
+- **Warnings:** what a save found worth a person's attention, kept on its revision: agent-core's,
+  and the router's own (a provider, pool or server the router lacks; reach over every server; an
+  agent calling its own address). Never a reason to refuse. Owner: `agents/document`;
+  `agent_revisions.warnings`, and `checkAgent` to see them before saving.
 - **Draft:** a revision waiting for a user to promote it, made by an app or a run rather than a
   person. Owner: `agents/revisions`.
 - **Live revision:** the one revision an agent runs and serves. Owner: `agents.live_revision_id`.
-- **Promote:** make a revision live. Any user does it, or auto-promote does it for them. Owner:
-  `agents/revisions`.
+- **Promote:** make a revision live. Any user does it, or auto-promote does it for them. Promoting
+  an older one is a rollback. Owner: `agents/resolvers` `promoteRevision`.
 - **Auto-promote:** a user's choice to let one agent's drafts go live without review. Owner:
   `agents.auto_promote`.
 - **Prompt part:** one named piece of an agent's instructions. Layers add parts with new names and
@@ -310,8 +319,9 @@ Everything about the code comes after `Owner:`.
 - **Override policy:** what the layers above an agent may change. Anything it does not allow is
   refused. For now there is one policy, which every agent uses: an app may add its own
   instructions, narrow the servers and set sampling settings, but never change the model. Owner:
-  `agents/policy`; the `override_policies` table, seeded with one row, and
-  `agents.override_policy_id`. There is no UI for it yet.
+  `agents/policy` (`DEFAULT_POLICY_RULES`); the `override_policies` table, seeded with one row by
+  the migration, and `agents.override_policy_id`, which defaults to it. There is no UI for it, and
+  no API writes it.
 - **Reach:** the models and servers an agent may use, taken from the agent itself, not from the
   app's workspace. The workspace can still configure those servers for its own runs, but never
   add to them. Owner: `agents/reach`.

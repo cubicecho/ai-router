@@ -1,4 +1,5 @@
 import { bigint, date, index, integer, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { agents } from './agents.ts';
 import { providers } from './providers.ts';
 import { workspaces } from './workspaces.ts';
 
@@ -15,8 +16,8 @@ export const usageCounts = pgTable(
     workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
     /** Null for calls no workspace made, such as a user trying a model in the UI. */
     workspaceName: text('workspace_name'),
-    /** The agent whose run made the calls. Filled from phase 6; its foreign key comes with the agents table. */
-    agentId: uuid('agent_id'),
+    /** The agent whose run made the calls. Filled from phase 6. */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name'),
     providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'set null' }),
     providerName: text('provider_name').notNull(),

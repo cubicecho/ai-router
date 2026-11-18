@@ -1,0 +1,1261 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2531ff99-2da5-4906-964e-f609c0fd741c",
+  "prevIds": [
+    "bca7f498-5ef7-4acf-af5f-276abafcab05"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|tbl|public.agent_revisions",
+        "n|tbl|public.agent_revisions",
+        "e|tbl|public.agent_revisions",
+        "n|rel|public.agent_revisions",
+        "n|type|public.agent_revisions",
+        "n|rel|public.agent_revisions_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "agents"
+      ],
+      "writes": [
+        "s|tbl|public.agents",
+        "n|tbl|public.agents",
+        "e|tbl|public.agents",
+        "n|rel|public.agents",
+        "n|type|public.agents",
+        "n|rel|public.agents_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "override_policies"
+      ],
+      "writes": [
+        "s|tbl|public.override_policies",
+        "n|tbl|public.override_policies",
+        "e|tbl|public.override_policies",
+        "n|rel|public.override_policies",
+        "n|type|public.override_policies",
+        "n|rel|public.override_policies_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agents"
+      ],
+      "writes": [
+        "s|tbl|public.workspace_agents",
+        "n|tbl|public.workspace_agents",
+        "e|tbl|public.workspace_agents",
+        "n|rel|public.workspace_agents",
+        "n|type|public.workspace_agents",
+        "n|rel|public.workspace_agents_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agent_revisions",
+        "uq_agent_revisions_agent_id_number"
+      ],
+      "writes": [
+        "s|idx|public.uq_agent_revisions_agent_id_number",
+        "n|idx|public.uq_agent_revisions_agent_id_number",
+        "e|idx|public.uq_agent_revisions_agent_id_number",
+        "n|rel|public.uq_agent_revisions_agent_id_number"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.agent_id",
+        "n|col|public.agent_revisions.number"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agent_revisions",
+        "idx_agent_revisions_created_by"
+      ],
+      "writes": [
+        "s|idx|public.idx_agent_revisions_created_by",
+        "n|idx|public.idx_agent_revisions_created_by",
+        "e|idx|public.idx_agent_revisions_created_by",
+        "n|rel|public.idx_agent_revisions_created_by"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.created_by"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agents",
+        "uq_agents_name"
+      ],
+      "writes": [
+        "s|idx|public.uq_agents_name",
+        "n|idx|public.uq_agents_name",
+        "e|idx|public.uq_agents_name",
+        "n|rel|public.uq_agents_name"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.agents.name"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agents",
+        "idx_agents_override_policy_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_agents_override_policy_id",
+        "n|idx|public.idx_agents_override_policy_id",
+        "e|idx|public.idx_agents_override_policy_id",
+        "n|rel|public.idx_agents_override_policy_id"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.agents.override_policy_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "override_policies",
+        "uq_override_policies_name"
+      ],
+      "writes": [
+        "s|idx|public.uq_override_policies_name",
+        "n|idx|public.uq_override_policies_name",
+        "e|idx|public.uq_override_policies_name",
+        "n|rel|public.uq_override_policies_name"
+      ],
+      "reads": [
+        "n|tbl|public.override_policies",
+        "n|sch|public",
+        "n|col|public.override_policies.name"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agents",
+        "uq_workspace_agents_workspace_id_agent_id"
+      ],
+      "writes": [
+        "s|idx|public.uq_workspace_agents_workspace_id_agent_id",
+        "n|idx|public.uq_workspace_agents_workspace_id_agent_id",
+        "e|idx|public.uq_workspace_agents_workspace_id_agent_id",
+        "n|rel|public.uq_workspace_agents_workspace_id_agent_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|col|public.workspace_agents.workspace_id",
+        "n|col|public.workspace_agents.agent_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agents",
+        "idx_workspace_agents_agent_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_workspace_agents_agent_id",
+        "n|idx|public.idx_workspace_agents_agent_id",
+        "e|idx|public.idx_workspace_agents_agent_id",
+        "n|rel|public.idx_workspace_agents_agent_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|col|public.workspace_agents.agent_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "activity"
+      ],
+      "writes": [
+        "s|fk|public.activity.activity_agent_id_agents_id_fkey",
+        "n|fk|public.activity.activity_agent_id_agents_id_fkey",
+        "e|fk|public.activity.activity_agent_id_agents_id_fkey",
+        "n|con|public.activity.activity_agent_id_agents_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.activity",
+        "n|sch|public",
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.activity.agent_id",
+        "n|col|public.agents.id",
+        "e|uniqueness|public.agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|fk|public.agent_revisions.agent_revisions_agent_id_agents_id_fkey",
+        "n|fk|public.agent_revisions.agent_revisions_agent_id_agents_id_fkey",
+        "e|fk|public.agent_revisions.agent_revisions_agent_id_agents_id_fkey",
+        "n|con|public.agent_revisions.agent_revisions_agent_id_agents_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.agent_revisions.agent_id",
+        "n|col|public.agents.id",
+        "e|uniqueness|public.agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|fk|public.agent_revisions.agent_revisions_created_by_users_id_fkey",
+        "n|fk|public.agent_revisions.agent_revisions_created_by_users_id_fkey",
+        "e|fk|public.agent_revisions.agent_revisions_created_by_users_id_fkey",
+        "n|con|public.agent_revisions.agent_revisions_created_by_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.agent_revisions.created_by",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agents"
+      ],
+      "writes": [
+        "s|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "n|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "e|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "n|con|public.agents.agents_override_policy_id_override_policies_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|tbl|public.override_policies",
+        "n|sch|public",
+        "n|col|public.agents.override_policy_id",
+        "n|col|public.override_policies.id",
+        "e|uniqueness|public.override_policies.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agents"
+      ],
+      "writes": [
+        "s|fk|public.agents.agents_live_revision_id_agent_revisions_id_fkey",
+        "n|fk|public.agents.agents_live_revision_id_agent_revisions_id_fkey",
+        "e|fk|public.agents.agents_live_revision_id_agent_revisions_id_fkey",
+        "n|con|public.agents.agents_live_revision_id_agent_revisions_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agents.live_revision_id",
+        "n|col|public.agent_revisions.id",
+        "e|uniqueness|public.agent_revisions.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "usage_counts"
+      ],
+      "writes": [
+        "s|fk|public.usage_counts.usage_counts_agent_id_agents_id_fkey",
+        "n|fk|public.usage_counts.usage_counts_agent_id_agents_id_fkey",
+        "e|fk|public.usage_counts.usage_counts_agent_id_agents_id_fkey",
+        "n|con|public.usage_counts.usage_counts_agent_id_agents_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.usage_counts.agent_id",
+        "n|col|public.agents.id",
+        "e|uniqueness|public.agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agents"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agents.workspace_agents_workspace_id_workspaces_id_fkey",
+        "n|fk|public.workspace_agents.workspace_agents_workspace_id_workspaces_id_fkey",
+        "e|fk|public.workspace_agents.workspace_agents_workspace_id_workspaces_id_fkey",
+        "n|con|public.workspace_agents.workspace_agents_workspace_id_workspaces_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|tbl|public.workspaces",
+        "n|sch|public",
+        "n|col|public.workspace_agents.workspace_id",
+        "n|col|public.workspaces.id",
+        "e|uniqueness|public.workspaces.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agents"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agents.workspace_agents_agent_id_agents_id_fkey",
+        "n|fk|public.workspace_agents.workspace_agents_agent_id_agents_id_fkey",
+        "e|fk|public.workspace_agents.workspace_agents_agent_id_agents_id_fkey",
+        "n|con|public.workspace_agents.workspace_agents_agent_id_agents_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.workspace_agents.agent_id",
+        "n|col|public.agents.id",
+        "e|uniqueness|public.agents.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "agent_revisions",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "agents",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "override_policies",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "workspace_agents",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "number",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "document",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "warnings",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'[]'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "message",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "created_by",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "promoted_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "override_policy_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'00000000-0000-4000-8000-000000000001'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "live_revision_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "auto_promote",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "description",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "rules",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "workspace_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "uq_agent_revisions_agent_id_number",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "number",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "idx_agent_revisions_created_by",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "created_by",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "uq_agents_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "name",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "idx_agents_override_policy_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "override_policy_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "uq_override_policies_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "name",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "uq_workspace_agents_workspace_id_agent_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "idx_workspace_agents_agent_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "activity",
+        "name": "activity_agent_id_agents_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_agent_id_agents_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_created_by_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "created_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "agents_override_policy_id_override_policies_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "override_policy_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "override_policies",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "RESTRICT",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "agents_live_revision_id_agent_revisions_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "live_revision_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agent_revisions",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "usage_counts_agent_id_agents_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "workspace_agents_workspace_id_workspaces_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspaces",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "workspace_agents_agent_id_agents_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agents",
+        "name": "agents_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "override_policies",
+        "name": "override_policies_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agents",
+        "name": "workspace_agents_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

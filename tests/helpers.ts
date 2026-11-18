@@ -4,6 +4,7 @@ import { getTableName, is, sql, Table } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { type ExecutionResult, type GraphQLSchema, graphql } from 'graphql';
 import { inject } from 'vitest';
+import { DEFAULT_POLICY_RULES } from '../server/agents/policy.ts';
 import { type AuthHost, fixedAuthHost } from '../server/auth/auth-host.ts';
 import { type Auth, createAuth } from '../server/auth/better-auth.ts';
 import { hashKey, mintKey } from '../server/auth/keys.ts';
@@ -13,6 +14,7 @@ import { CALLER_USER, CALLER_WORKSPACE, type Caller, type Context, type UserCall
 import { relations } from '../server/db/relations.ts';
 import * as dbSchema from '../server/db/schema.ts';
 import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
+import { DEFAULT_POLICY_ID, overridePolicies } from '../server/db/tables/override-policies.ts';
 import { Role } from '../server/db/tables/users.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
 import type { UpstreamFetch } from '../server/models/outbound.ts';
@@ -65,16 +67,29 @@ export async function createTestDb(): Promise<TestDb> {
   for (const statement of inject('schemaSql')) {
     await client.exec(statement);
   }
-  return drizzle({ client, relations });
+  const db = drizzle({ client, relations });
+  await seedTestDb(db);
+  return db;
 }
 
 /**
- * Empties every table, so the next test starts from the database `createTestDb` returned.
+ * Adds what the migrations seed and the code counts on: the default override policy.
+ *
+ * @param db - A database with the tables and no rows.
+ */
+async function seedTestDb(db: TestDb): Promise<void> {
+  await db.insert(overridePolicies).values({ id: DEFAULT_POLICY_ID, name: 'default', rules: DEFAULT_POLICY_RULES });
+}
+
+/**
+ * Empties every table, so the next test starts from the database `createTestDb` returned, with the default
+ * override policy the migrations seed.
  *
  * @param db - A database from `createTestDb`.
  */
 export async function resetTestDb(db: TestDb): Promise<void> {
   await db.execute(sql.raw(`TRUNCATE TABLE ${TABLE_LIST} RESTART IDENTITY CASCADE`));
+  await seedTestDb(db);
 }
 
 /**

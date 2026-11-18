@@ -1,11 +1,16 @@
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
+import type { OverridePolicyRules } from '../agents/policy.ts';
 import type { ServerOAuth, ServerTransport } from '../tools/shapes.ts';
 import type { DB } from './client.ts';
+import { agentRevisions } from './tables/agent-revisions.ts';
+import { agents } from './tables/agents.ts';
+import { overridePolicies } from './tables/override-policies.ts';
 import { poolTargets } from './tables/pool-targets.ts';
 import { type PoolAffinity, type PoolStrategy, pools } from './tables/pools.ts';
 import { providers } from './tables/providers.ts';
 import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
+import { workspaceAgents } from './tables/workspace-agents.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
 import { workspaceServers } from './tables/workspace-servers.ts';
 import { workspaces } from './tables/workspaces.ts';
@@ -96,6 +101,20 @@ export interface SnapshotServer {
   entries: ReadonlyMap<string, SnapshotServerEntry>;
 }
 
+/** An agent as a run sees it: its live document, its policy and who may run it. */
+export interface SnapshotAgent {
+  id: string;
+  name: string;
+  /** null for an agent with no live revision, which cannot run. */
+  liveRevisionId: string | null;
+  /** The live revision's document, as stored. null with no live revision. */
+  document: Readonly<Record<string, unknown>> | null;
+  /** What the layers above it may change. */
+  policy: OverridePolicyRules;
+  /** The workspaces whose apps may run it. */
+  workspaceIds: ReadonlySet<string>;
+}
+
 /** Everything requests route by, read once and held in memory. */
 export interface Snapshot {
   /** By id. */
@@ -108,6 +127,8 @@ export interface Snapshot {
   pools: ReadonlyMap<string, SnapshotPool>;
   /** By name, as a tool's name starts. */
   servers: ReadonlyMap<string, SnapshotServer>;
+  /** By name, as an app picks one for its model. */
+  agents: ReadonlyMap<string, SnapshotAgent>;
 }
 
 /** A snapshot with nothing in it. */
@@ -117,6 +138,7 @@ export const EMPTY_SNAPSHOT: Snapshot = Object.freeze({
   providers: new Map(),
   pools: new Map(),
   servers: new Map(),
+  agents: new Map(),
 });
 
 /** Holds the current snapshot, and builds a new one after a write. */
@@ -193,34 +215,58 @@ function serversFrom(
  * @returns A new snapshot.
  */
 export async function loadSnapshot(db: DB): Promise<Snapshot> {
-  const [workspaceRows, keyRows, providerRows, poolRows, targetRows, serverRows, secretRows, entryRows] =
-    await Promise.all([
-      db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
-      db
-        .select({
-          keyId: workspaceKeys.id,
-          workspaceId: workspaceKeys.workspaceId,
-          hash: workspaceKeys.hash,
-          expiresAt: workspaceKeys.expiresAt,
-        })
-        .from(workspaceKeys),
-      db
-        .select({
-          id: providers.id,
-          name: providers.name,
-          enabled: providers.enabled,
-          baseUrl: providers.baseUrl,
-          apiKey: providers.apiKey,
-          headers: providers.headers,
-          updatedAt: providers.updatedAt,
-        })
-        .from(providers),
-      db.select().from(pools),
-      db.select().from(poolTargets).orderBy(asc(poolTargets.position)),
-      db.select().from(servers),
-      db.select().from(serverSecrets),
-      db.select().from(workspaceServers),
-    ]);
+  const [
+    workspaceRows,
+    keyRows,
+    providerRows,
+    poolRows,
+    targetRows,
+    serverRows,
+    secretRows,
+    entryRows,
+    agentRows,
+    policyRows,
+    grantRows,
+  ] = await Promise.all([
+    db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
+    db
+      .select({
+        keyId: workspaceKeys.id,
+        workspaceId: workspaceKeys.workspaceId,
+        hash: workspaceKeys.hash,
+        expiresAt: workspaceKeys.expiresAt,
+      })
+      .from(workspaceKeys),
+    db
+      .select({
+        id: providers.id,
+        name: providers.name,
+        enabled: providers.enabled,
+        baseUrl: providers.baseUrl,
+        apiKey: providers.apiKey,
+        headers: providers.headers,
+        updatedAt: providers.updatedAt,
+      })
+      .from(providers),
+    db.select().from(pools),
+    db.select().from(poolTargets).orderBy(asc(poolTargets.position)),
+    db.select().from(servers),
+    db.select().from(serverSecrets),
+    db.select().from(workspaceServers),
+    db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        liveRevisionId: agents.liveRevisionId,
+        overridePolicyId: agents.overridePolicyId,
+        document: agentRevisions.document,
+      })
+      .from(agents)
+      .leftJoin(agentRevisions, eq(agentRevisions.id, agents.liveRevisionId)),
+    db.select({ id: overridePolicies.id, rules: overridePolicies.rules }).from(overridePolicies),
+    db.select({ workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId }).from(workspaceAgents),
+  ]);
+  const policies = new Map(policyRows.map((row) => [row.id, row.rules]));
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
   for (const { poolId, providerId, model } of targetRows) {
@@ -229,6 +275,26 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
   }
   return {
     servers: serversFrom(serverRows, secretRows, entryRows),
+    agents: new Map(
+      agentRows.flatMap((row) => {
+        const policy = policies.get(row.overridePolicyId);
+        if (policy === undefined) {
+          return [];
+        }
+        const workspaceIds = new Set(
+          grantRows.filter((grant) => grant.agentId === row.id).map((grant) => grant.workspaceId),
+        );
+        const agent: SnapshotAgent = {
+          id: row.id,
+          name: row.name,
+          liveRevisionId: row.liveRevisionId,
+          document: row.document,
+          policy,
+          workspaceIds,
+        };
+        return [[row.name, agent] as const];
+      }),
+    ),
     workspaces: new Map(workspaceRows.map((row) => [row.id, row])),
     keys: new Map(keyRows.map(({ hash, ...key }) => [hash, key])),
     providers: new Map(providerRows.map((row) => [row.name, row])),

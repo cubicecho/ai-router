@@ -405,3 +405,16 @@ export const ACTIVITY_DEFAULTS: Readonly<ActivitySettings> = Object.freeze({
   maxPending: 10_000,
   maxErrorLength: 500,
 });
+
+/** What an agent's document and its revisions may hold. */
+export interface AgentConfigSettings {
+  /** The largest document, as JSON, in bytes. */
+  maxDocumentBytes: number;
+  /** Characters in a revision's message. */
+  maxMessageLength: number;
+}
+
+export const AGENT_CONFIG_DEFAULTS: Readonly<AgentConfigSettings> = Object.freeze({
+  maxDocumentBytes: 262_144,
+  maxMessageLength: 500,
+});

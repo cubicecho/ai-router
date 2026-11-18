@@ -1,4 +1,5 @@
 import { boolean, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { agents } from './agents.ts';
 import { servers } from './servers.ts';
 import { workspaces } from './workspaces.ts';
 
@@ -16,8 +17,8 @@ export const activity = pgTable(
     workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'set null' }),
     /** Null for a call no workspace made, such as a user trying a tool in the UI. */
     workspaceName: text('workspace_name'),
-    /** The agent whose run made the call. Filled from phase 6; its foreign key comes with the agents table. */
-    agentId: uuid('agent_id'),
+    /** The agent whose run made the call. Filled from phase 6. */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name'),
     /** The run, from phase 6. */
     runId: uuid('run_id'),

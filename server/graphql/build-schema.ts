@@ -1,6 +1,8 @@
 import { buildSchema } from '@vantreeseba/drizzle-graphql';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
 import { GraphQLObjectType, GraphQLSchema } from 'graphql';
+import { agentWriteHooks } from '../agents/hooks.ts';
+import { applyAgentsExtension } from '../agents/resolvers.ts';
 import { applyBetterAuthExtension } from '../auth/endpoints.ts';
 import { applyAuthExtension } from '../auth/resolvers.ts';
 import { OPERATION_LIMIT_DEFAULTS } from '../core/defaults.ts';
@@ -30,10 +32,18 @@ const WRITES_RESERVED = new Set<string>([
   'usageCounts',
   'serverSecrets',
   'activity',
+  'agentRevisions',
+  'overridePolicies',
 ]);
 
-/** Tables CRUD may update but not create or delete: a server is installed and removed by hand-written mutations. */
-const CREATE_DELETE_RESERVED = new Set<string>(['servers']);
+/** Tables whose rows are created by hand-written mutations: `installServer`, `createAgent`. */
+const CREATE_RESERVED = new Set<string>(['servers', 'agents']);
+
+/** Tables whose rows change only through hand-written mutations: an agent changes by its revisions. */
+const UPDATE_RESERVED = new Set<string>(['agents']);
+
+/** Tables whose rows are removed by hand-written mutations: `deleteServer` also stops it and removes its folder. */
+const DELETE_RESERVED = new Set<string>(['servers']);
 
 /**
  * Whether a table keeps its generated writes.
@@ -44,13 +54,15 @@ const CREATE_DELETE_RESERVED = new Set<string>(['servers']);
 const generatedWritesAllowed = (table: string): boolean => WRITES_RESERVED.has(table) === false;
 
 /**
- * Whether a table keeps its generated create and delete.
+ * Makes the check for one kind of generated write.
  *
- * @param table - Table key.
- * @returns false for reserved tables, and for those whose rows come and go by hand-written mutations.
+ * @param reserved - The tables whose writes of that kind are hand-written.
+ * @returns Whether a table keeps that generated write.
  */
-const generatedCreateDeleteAllowed = (table: string): boolean =>
-  generatedWritesAllowed(table) && CREATE_DELETE_RESERVED.has(table) === false;
+const allowedUnless =
+  (reserved: ReadonlySet<string>) =>
+  (table: string): boolean =>
+    generatedWritesAllowed(table) && reserved.has(table) === false;
 
 /**
  * Adds an empty Mutation root when every generated write is off, so `extend type Mutation` has a target.
@@ -81,10 +93,10 @@ export function createSchema(db: DB): GraphQLSchema {
       columns: { workspaceKeys: ['hash'], providers: ['apiKey'], servers: ['oauth'], serverSecrets: ['value'] },
     },
     features: {
-      insert: generatedCreateDeleteAllowed,
-      update: generatedWritesAllowed,
-      updateMany: generatedWritesAllowed,
-      delete: generatedCreateDeleteAllowed,
+      insert: allowedUnless(CREATE_RESERVED),
+      update: allowedUnless(UPDATE_RESERVED),
+      updateMany: allowedUnless(UPDATE_RESERVED),
+      delete: allowedUnless(DELETE_RESERVED),
       // The hooks read the root field's args, not a nested child's. Stated so nobody turns it on.
       nestedWrites: false,
     },
@@ -95,12 +107,12 @@ export function createSchema(db: DB): GraphQLSchema {
     complexity: true,
     // A stored value such as `least-busy` is no GraphQL name: it is served as `least_busy`, and stored as it was.
     enumValueNameMapper: ({ value }) => value.replaceAll('-', '_'),
-    onWrite: { ...workspaceWriteHooks, ...modelWriteHooks, ...toolWriteHooks },
+    onWrite: { ...workspaceWriteHooks, ...modelWriteHooks, ...toolWriteHooks, ...agentWriteHooks },
     onError: mapDatabaseError,
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)));
+  const extended = applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth))));
   return applyPermissions(extended, permissions, {
     // A refusal names the field, so a client can tell which call to stop making.
     fallbackError: (_original, _parent, _args, _context, info) =>
