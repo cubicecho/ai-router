@@ -525,8 +525,5 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   - A field added to a generated type gets only the columns the query selected, and the key only
     when it selected none. `Server.login` and `Server.instances` ask for `id` to be selected.
     Add a way for an added field to name the columns it needs.
-- **Starting a server login sends no headers.** The first request, which finds the login, goes
-  without the server's header secrets. A server that wants a header before it answers 401 can't
-  be signed in to yet.
 - **The spec's own open questions** (agent-level hooks, opt-in bundle parsing, `null` to unset
   an `extraBody` key) touch phase 6. Answer them in agent-core first.
