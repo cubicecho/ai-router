@@ -1,3 +1,4 @@
+import type { RunService } from '../agents/run.ts';
 import type { AuthHost } from '../auth/auth-host.ts';
 import type { Auth } from '../auth/better-auth.ts';
 import type { RateLimiter } from '../auth/rate-limit.ts';
@@ -45,6 +46,8 @@ export interface ContextDeps {
   models: ModelServices;
   /** The tools area: installing, instances, registries and server logins. */
   tools: ToolServices;
+  /** Agent runs, and the bus their live events are on. */
+  runs: RunService;
 }
 
 /** What every resolver, generated or hand-written, is handed. */
@@ -57,4 +60,6 @@ export interface Context extends ContextDeps {
   headers: Headers;
   /** The client's address as Express resolved it under `TRUST_PROXY`. Never an identity. */
   ip: string;
+  /** The fetch request, which Yoga adds. Its signal ends a subscription whose client left. Absent in tests. */
+  request?: Request;
 }

@@ -1,4 +1,6 @@
 import express, { type Express } from 'express';
+import { createAgentRoutes } from '../agents/routes.ts';
+import { createRunService, type RunService } from '../agents/run.ts';
 import { type AuthHost, createAuthHost } from '../auth/auth-host.ts';
 import { createRateLimiter, type RateLimiter } from '../auth/rate-limit.ts';
 import { trustProxy as configuredTrustProxy } from '../core/config.ts';
@@ -45,6 +47,11 @@ export interface AppDeps {
    */
   tools?: ToolServiceParts;
   /**
+   * Agent runs.
+   * @defaultValue `createRunService` over this app's snapshot, models and tools
+   */
+  runs?: RunService;
+  /**
    * What the boot check found about running MCP servers as their own users. Reported on /healthz.
    * @defaultValue shared, with no reason: tests start no servers.
    */
@@ -68,10 +75,12 @@ export interface BuiltApp {
   models: ModelServices;
   /** The tools area, whose activity recorder boot starts and whose instances shutdown stops. */
   tools: ToolServiceParts;
+  /** Agent runs, which boot recovers and prunes and shutdown stops. */
+  runs: RunService;
 }
 
 /**
- * Builds the Express app: /graphql, /healthz, the OIDC redirects and the UI.
+ * Builds the Express app: /graphql, the agents endpoint /v1, /healthz, the OIDC redirects and the UI.
  *
  * @param deps - What the router talks to.
  * @returns The app and its snapshot host. It does not listen, migrate or start timers.
@@ -83,6 +92,7 @@ export async function createApp({
   limiter = createRateLimiter(),
   models,
   tools,
+  runs,
   children = { mode: ChildMode.Shared, reason: '' },
   trustProxy = configuredTrustProxy(),
   staticDir,
@@ -95,6 +105,7 @@ export async function createApp({
   const routes = snapshot ?? (await createSnapshotHost(db));
   const services = models ?? createModelServices({ db, snapshot: routes });
   const toolServices = tools ?? createToolServices({ db, snapshot: routes, isolation: children });
+  const runService = runs ?? createRunService({ db, snapshot: routes, tools: toolServices });
   const contextFor = createContextFactory({
     db,
     authHost: host,
@@ -102,6 +113,7 @@ export async function createApp({
     limiter,
     models: services,
     tools: toolServices,
+    runs: runService,
   });
   const graphql = createGraphQLHandler(createSchema(db), contextFor);
 
@@ -109,6 +121,8 @@ export async function createApp({
   app.use(graphql.graphqlEndpoint, express.json({ limit: HTTP_DEFAULTS.bodyLimit }));
   // `all`, not `use`: a mounted `use` strips the path, and Yoga matches graphqlEndpoint itself.
   app.all(graphql.graphqlEndpoint, (request, response) => graphql(request, response));
+  // Workspace keys only: a session is never read here, on a trusted network too.
+  app.use('/v1', createAgentRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
   app.get('/healthz', async (_request, response) => {
     const health = await checkHealth(db, children);
     response.status(health.ok ? HttpStatus.Ok : HttpStatus.ServiceUnavailable).json(health);
@@ -122,5 +136,5 @@ export async function createApp({
     const serveStatic = createStaticHandler(staticDir);
     app.use((request, response) => serveStatic(request, response));
   }
-  return { app, snapshot: routes, models: services, tools: toolServices };
+  return { app, snapshot: routes, models: services, tools: toolServices, runs: runService };
 }

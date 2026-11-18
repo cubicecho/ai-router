@@ -63,6 +63,10 @@ export const permissions: PermissionsMap = {
     authConfig: notAKey,
     ssoSetup: notAKey,
   },
+  // A run's live events are for people. An app reads its runs at /runs from phase 7.
+  Subscription: {
+    '*': isUser,
+  },
   Mutation: {
     '*': deny,
     verifyOneTimeToken: notAKey,

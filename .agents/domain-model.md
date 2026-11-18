@@ -7,7 +7,9 @@ terms, and only these, in code, tests, docs and reviews.
 (providers, pools, forwarding, usage) and the tools area (registries, servers, secrets, server
 entries, install folders, shared groups, instances and their user ids, server login, activity)
 describe the code as it is. **Phase 5 is built too:** agents, revisions, history and rollback,
-warnings, the seeded override policy, and which workspaces may run which agents. Every other entry
+warnings, the seeded override policy, and which workspaces may run which agents. **So is phase 6:** runs on the
+agents endpoint `/v1` (layers, the override policy, reach, tool names, dispatch, model calls in process, the `runs`
+table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). Every other entry
 is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
@@ -90,12 +92,13 @@ saved --> draft --promote (a user, or auto-promote)--> live           (phase 9)
 
 ```
 received --resolve--> refused (4xx, not recorded)
-received --resolve--> running --model answers--> finished
-                      running --model calls an app tool--> waiting (finish_reason: tool_calls)
-                      waiting --app answers every handed-back call--> running
-                      waiting --no answer before the timeout--> expired
-                      running --error--> failed
+received --resolve--> running --model answers--> completed
+                      running --error, or past the run timeout--> failed
+                      running --the router stops or restarts--> failed
                       running --app disconnects--> cancelled
+                      running --model calls an app tool--> waiting (finish_reason: tool_calls)   (phase 7)
+                      waiting --app answers every handed-back call--> running                    (phase 7)
+                      waiting --no answer before the timeout--> expired                          (phase 7)
                       running --cancel (app, later)--> cancelled
 ```
 
@@ -111,8 +114,14 @@ received --resolve--> running --model answers--> finished
     a standard OpenAI client's tool handling is all the app needs.
   - **What is kept:** while it waits, the run keeps its transcript, loaded tools and step.
   - **A partial answer** to the handed-back calls is refused, never guessed at.
-- **Recording:** a run is recorded from `running` on, with the revision it ran. It is deleted
-  after the retention period.
+- **Recording:** a run is recorded from `running` on, with the revision it ran, and the end it came
+  to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
+  retention period. A run the router was running when it stopped is marked failed at the next boot.
+- **Repeating:** a request with an `Idempotency-Key` its workspace already used never starts a
+  run. The same body (less `stream` and `stream_options`) gets that run's answer again, streamed or
+  not as this request asks, after waiting for it if it is still going. A different body is
+  refused with 422. Once the idempotency window has passed, the key is cleared from the run and
+  may start a new one.
 
 ### Conversation
 
@@ -154,6 +163,7 @@ created (shown once) --> in use --revoke--> deleted
 | Keys are created, listed and revoked only from a session, never with a key. Any user may do it | `graphql/permissions` |
 | Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
 | A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1` or `/runs` | `auth/caller` |
+| `/v1` reads only workspace keys. A session token sent there is refused, never tried as a person | `auth/caller` `readWorkspaceCaller`, `agents/routes` |
 | Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code | `graphql/permissions`; `checkServerUpdate` in `tools/hooks` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
@@ -162,7 +172,7 @@ created (shown once) --> in use --revoke--> deleted
 | A child's groups are exactly its primary group, from the child range, and its server's extra groups. No extra group is a system group (below 100, so never root or shadow), a child id (another server's group), or one the router holds, and a server holds at most 8. The helper itself refuses anything else | `docker/run-as-child.c`; `tools/input` `extraGroupsInput` and `ck_servers_extra_groups` say so first |
 | The router itself holds no capabilities. The helper is the only binary with any, holds only `CAP_SETUID` and `CAP_SETGID`, and only the router's group may run it | the Dockerfile |
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
-| The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app | `agents/routes`, `http/app` |
+| The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app. An agent a workspace may not run gets the same 404 as one that doesn't exist, and every other `/v1` path a 404, all in OpenAI's error envelope | `agents/routes`, `http/app` |
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
@@ -172,23 +182,29 @@ created (shown once) --> in use --revoke--> deleted
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
-| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks | `agents/policy` |
+| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the policy doesn't allow refuses the request, naming the field | `agents/request`, `agents/layers`, read from `agents/policy` |
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, `RESERVED_PART_IDS` in `agents/document` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
-| A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused | `agents/run` |
-| Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent | `agents/layers`, `models/forward` |
+| A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused (phase 7) | `agents/run` |
+| Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run | `agents/run` |
+| Until app tools arrive (phase 7), a request with `tools` or `tool_choice`, or whose history holds `tool` messages or assistant tool calls, is refused with a 400 that says so. `ai_router.progress` is accepted and does nothing yet | `agents/request` |
+| A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
+| Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
+| An app disconnecting cancels its run. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
+| A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
+| A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
+| An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client | `agents/routes`; `ai_router.kind` |
 | Every agent has exactly one override policy. Until policies can be chosen, every agent uses the one seeded default | `db/schema`: `agents.override_policy_id`, defaulting to the seeded row |
 | An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if it answers every call that run handed back. A partial answer is refused | `agents/run` |
-| A key reads only the runs and run events of its own workspace | `agents/routes` |
+| A key reads only the runs and run events of its own workspace. A run's live events (`runEvents`) are for people; a key is refused | `agents/routes` (phase 7); `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own. Progress chunks are written with `agent-core`'s own encoder | `agents/progress` |
-| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them | `agents/run`, `agents/run-bus` |
+| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus` |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
 | An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
@@ -269,6 +285,13 @@ Everything about the code comes after `Owner:`.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
+- **Tool's model name:** the name a run's model calls a tool by. Models accept only letters,
+  digits, `_` and `-`, up to 64 characters, so a name that breaks that is changed in a way that is
+  the same every time, and the run remembers which tool each name stands for. Owner:
+  `agents/tool-names` `runToolNames`. Each character outside `[a-zA-Z0-9_-]` becomes `_`; a name
+  over 64 characters, or one two tools come to share, is cut and ends in `_` and the first 8 hex
+  characters of the SHA-256 of `<server>__<tool>`. A name that needed no change keeps it. The map
+  back to the server and tool lives for one run.
 - **Instance:** a running connection to a server: a base instance shared by everyone, or a
   workspace instance when a workspace overrides that server's settings. A server the router starts
   itself runs as a user of its own, walled off from the router and from other servers: the base
@@ -341,15 +364,27 @@ Everything about the code comes after `Owner:`.
   app's workspace. The workspace can still configure those servers for its own runs, but never
   add to them. Owner: `agents/reach`.
 - **Run:** one agent answering one request through the router, recorded with the revision it
-  ran. The app is told the run's id with every answer. Owner: `agents/run`; the `runs` table, the
-  `X-Run-Id` header; wraps `agent-core` `runAgentLoop`.
+  ran, how it ended (completed, failed or cancelled), its token counts and its answer. The app is
+  told the run's id with every answer. Owner: `agents/run` `createRunService`; the `runs` table
+  (the workspace's slug and the agent's name kept beside their ids, which are set to null on
+  delete), the `X-Run-Id` header; wraps `agent-core` `runAgentLoop`, in an agent-core runtime of
+  its own. The limits are `RUN_DEFAULTS`. GraphQL serves the table read-only, without
+  `request_hash`.
+- **Answer:** what a completed run said: the text of every turn, a blank line between turns, as
+  the stream sent it, and why its last turn ended. Kept on the run, so a repeated
+  `Idempotency-Key` gets it again. Owner: `runs.answer`; `agents/completion` writes it as a
+  `chat.completion` or as `chat.completion.chunk`s.
 - **Request options:** what an app that knows the router may add to a request: a task layer's
-  text, and whether to send progress events. Owner:
-  `agents/request`; the `ai_router` field of the request body.
+  text, a narrowing of the agent's servers, and whether to send progress events. Owner:
+  `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`,
+  which is accepted and does nothing until phase 7). Any other key is refused.
 - **Run events:** a run's steps, reasoning, tool calls and results, side tasks and usage, in
   order. The router's own pages and the app that started the run can follow them live or read
-  them afterwards. Owner: `agents/run-bus`; the `run_events` table, the `runEvents`
-  subscription and `/runs/<id>/events`; each one is an `agent-core` `RunEvent`.
+  them afterwards. Owner: `agents/run-bus`, over the run runtime's own agent-core event bus; the
+  `runEvents` subscription (`agents/run-resolvers`, type `LiveRunEvent`), for people. Held in
+  memory only until phase 7 adds the `run_events` table and `/runs/<id>/events`; each one is an
+  `agent-core` `RunEvent`, and the router adds a `notice` for each server left out and the
+  closing `done`.
 - **Progress events:** run events streamed to an app that asks for them, inside the answer
   itself. Standard clients skip them. Owner: `agents/progress`; chunks with empty `choices` and an
   `ai_router.event` field.
@@ -384,13 +419,15 @@ Everything about the code comes after `Owner:`.
 - **Resolved agent:** the flat settings a run uses, after layers and policy. Owner: `agent-core`
   `ResolvedAgent`.
 - **Dispatch:** the function that runs one of a run's tool calls on a tools instance. Owner:
-  `agents/run`; `agent-core` `ToolDispatch`.
+  `agents/run`; `agent-core` `ToolDispatch`, calling `ToolServices.callTool` with the run's
+  workspace, so its workspace instance and secrets are used. A tool's error answer reaches the
+  model as an error.
 - **Error formats:**
   - GraphQL answers `extensions.code` from the `ErrorCode` vocabulary.
   - `/v1` answers OpenAI's `{ error: { message, type, code } }`.
   - `/runs` answers `{ error, code }` with the same codes as GraphQL.
 
-  Owner: `core/errors`, `agents/openai-error`.
+  Owner: `core/errors`, `models/openai-error` (`ModelFailure`, `openAiErrorBody`).
 
 ## Explain test
 

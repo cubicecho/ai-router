@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { type ExecutionResult, type GraphQLSchema, graphql } from 'graphql';
 import { inject } from 'vitest';
 import { DEFAULT_POLICY_RULES } from '../server/agents/policy.ts';
+import { createRunService, type RunService } from '../server/agents/run.ts';
 import { type AuthHost, fixedAuthHost } from '../server/auth/auth-host.ts';
 import { type Auth, createAuth } from '../server/auth/better-auth.ts';
 import { hashKey, mintKey } from '../server/auth/keys.ts';
@@ -194,6 +195,8 @@ export interface ClientDeps {
   models?: ModelServices;
   /** @defaultValue the tools area over this client's snapshot, sharing the router's user, reaching no registry */
   tools?: ToolServices;
+  /** @defaultValue the run service over this client's snapshot and tools */
+  runs?: RunService;
   /** @defaultValue none */
   headers?: Headers;
 }
@@ -257,6 +260,7 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
       isolation: { mode: ChildMode.Shared, reason: '' },
       registryFetch: NO_REGISTRY,
     });
+  const runs = deps.runs ?? createRunService({ db, snapshot, tools });
   const schema = schemas.get(db) ?? createSchema(db);
   schemas.set(db, schema);
 
@@ -272,6 +276,7 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
       limiter,
       models,
       tools,
+      runs,
       caller,
       headers,
       ip,

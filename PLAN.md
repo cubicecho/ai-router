@@ -352,7 +352,7 @@ The acceptance check for the first release.
    - Postgres `jsonb` keeps a document's content but not its key order, so `spec` may not come
      first when it is shown again.
    - Not yet: the agent editor beyond JSON (phase 10), drafts and auto-promote (phase 9).
-6. **Agents: runs.** The agents endpoint `/v1`:
+6. **Agents: runs. Done.** The agents endpoint `/v1`:
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls in process through the models area, so usage
      counts them under the run's workspace and agent
@@ -361,6 +361,28 @@ The acceptance check for the first release.
    - tool names a model accepts: OpenAI function names are `^[a-zA-Z0-9_-]{1,64}$`, but a
      server name may hold `.` and `<server>__<tool>` may pass 64 characters. Map or refuse them;
    - the runs table, `X-Run-Id`, the `runEvents` subscription, and usage per agent.
+
+   Notes:
+   - **Keys only.** `/v1` reads workspace keys and never a session, on a trusted network too.
+   - **Refused for now:** `tools`, `tool_choice` and tool history (400, "app tools aren't
+     supported yet"). `ai_router.progress` is accepted and does nothing until phase 7.
+   - **`ai_router.servers`** is how a request narrows the agent's servers (`narrowServers`).
+   - **Strict fields.** Any field the router doesn't read itself is an override, refused unless
+     the policy's `sampling` lists it. The seeded policy names `repetition_penalty`, not llama.cpp's
+     `repeat_penalty`, so the latter is refused until the row says otherwise. A field sent as
+     `null` counts as not sent.
+   - **The answer** is every turn's text, a blank line between turns, as streamed. Reasoning is
+     not sent: progress events carry it in phase 7.
+   - **Streams** send their headers, with `X-Run-Id`, at once, a comment every 15 s while quiet,
+     and a failure as an `error` data line.
+   - **Idempotency.** The hash leaves out `stream` and `stream_options`. A failed or cancelled run
+     is answered again with its error (500, or 409 for cancelled), never run again. Keys are freed
+     after 24 hours. A disconnect cancels a run, so a retry after one gets the cancellation.
+   - **Elicitation** is declined: the router's MCP client offers no elicitation capability.
+   - **Model calls** go through agent-core's `Endpoint.fetch` (#224). Only endpoints at the
+     router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
+     The forwarder keeps one `fetch` per workspace and agent, so agent-core's client pool and probe
+     caches last across runs.
 7. **Agents: app tools, progress events and conversations.**
    - **App tools:** waiting runs, kept on the `runs` row and resumed by the call ids they handed
      back.
@@ -423,8 +445,8 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
-  app's MCP client, but an agent run has no MCP client to forward to. Options for phase 3 or 6:
-  refuse it, or hand it to the app as a progress event and wait, like an app tool.
+  app's MCP client, but an agent run has no MCP client to forward to. Phase 6 declines it. Later:
+  hand it to the app as a progress event and wait, like an app tool.
 
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.

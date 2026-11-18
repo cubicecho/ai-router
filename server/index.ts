@@ -36,7 +36,7 @@ if (children.mode === ChildMode.Shared) {
 
 // After migrating: the provider may be a pairing, which lives in the database.
 const authHost = await createAuthHost(database.db);
-const { app, models, tools } = await createApp({
+const { app, models, tools, runs } = await createApp({
   db: database.db,
   authHost,
   children,
@@ -44,6 +44,12 @@ const { app, models, tools } = await createApp({
 });
 models.usage.start();
 tools.activity.start();
+// Before listening, so a retried request never finds a run that nothing is running.
+const recovered = await runs.recover();
+if (recovered > 0) {
+  console.warn(`[runs] ${recovered} runs were going when the router stopped; they are marked failed.`);
+}
+runs.start();
 
 const server = app.listen(port(), LISTEN_HOST, () => {
   console.log(`[server] ready at ${appUrl()}`);
@@ -65,7 +71,9 @@ const server = app.listen(port(), LISTEN_HOST, () => {
 
 stopOnSignals(server, {
   after: async () => {
-    // MCP servers stop first, then counts and calls gathered since the last write go in before the database closes.
+    // Runs still going end first and are recorded, then MCP servers stop, then counts and calls gathered since the
+    // last write go in before the database closes.
+    await runs.stop();
     await tools.stop();
     await models.usage.stop();
     await database.close();
