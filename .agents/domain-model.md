@@ -3,8 +3,10 @@
 What ai-router is made of: its concepts, who may change them, and what always holds. Use these
 terms, and only these, in code, tests, docs and reviews.
 
-**Phases 1 and 2 are built:** sign-in, roles, workspaces, keys, the snapshot, and the models
-area (providers, pools, forwarding, usage) describe the code as it is. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
+**Phases 1 to 3 are built:** sign-in, roles, workspaces, keys, the snapshot, the models area
+(providers, pools, forwarding, usage) and the tools area (registries, servers, secrets, server
+entries, install folders, instances, server login, activity) describe the code as it is, except
+shared groups and a user id per workspace instance. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
 

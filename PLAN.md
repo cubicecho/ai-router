@@ -303,6 +303,14 @@ The acceptance check for the first release.
    child range and its own install folder (mode 0700), shared groups for servers that use mounted
    folders (below), instances (as the child user), server login, activity, and the UI pages.
    mcp-router's own MCP endpoint, its sessions and its discovery are not ported.
+   - **Built:** everything above but shared groups. Checked in the image: a real npm server
+     installed, listed, called and deleted as uid 10000, with the router refused its folder.
+   - **Left:** shared groups, and a user id per workspace instance (both below). Both change
+     `run-as-child`, so they go together, after a spike.
+   - **How a child is handled without capabilities:** the router can't enter a child's folder or
+     signal it. A child changes into its folder itself (`env -C` after the helper), and is
+     stopped by closing its stdin, then by `process.kill` run through the helper as its own uid
+     (the image has no `kill` program). Short commands run under GNU `timeout`, as the child.
 4. **(Dropped.)** An import of llm-router's and mcp-router's configs. Providers, pools and
    servers are added in the UI.
 5. **Agents: store.** Agents and revisions, history and rollback, warnings, and the
@@ -313,6 +321,8 @@ The acceptance check for the first release.
      counts them under the run's workspace and agent
      ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224) lands first);
    - `Idempotency-Key`, so a retried request never starts a second run;
+   - tool names a model accepts: OpenAI function names are `^[a-zA-Z0-9_-]{1,64}$`, but a
+     server name may hold `.` and `<server>__<tool>` may pass 64 characters. Map or refuse them;
    - the runs table, `X-Run-Id`, the `runEvents` subscription, and usage per agent.
 7. **Agents: app tools, progress events and conversations.**
    - **App tools:** waiting runs, kept on the `runs` row and resumed by the call ids they handed
@@ -412,8 +422,17 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   (the decisions above). The organization plugin could own them instead, with a workspace as an
   organization, if it can verify a key without a database read and a usage write per request.
   Look at it before phase 9, when the admin server's permission levels need per-workspace roles.
-- **drizzle-graphql warns about `workspace_keys.hash`** at every schema build: it is excluded and
-  NOT NULL, and the warning ignores that the table's generated inserts are switched off. Fix it
-  upstream so the warning respects `features.insert`.
+- **drizzle-graphql, upstream:**
+  - It warns about `workspace_keys.hash` and `server_secrets.value` at every schema build: they
+    are excluded and NOT NULL, and the warning ignores that those tables' generated inserts are
+    switched off. Make the warning respect `features.insert`.
+  - A generated update input can't leave out a column: `UpdateServerInput` lists `childUid`,
+    `installDir` and `source`, which the hook refuses. Add per-column write exclusion.
+  - A field added to a generated type gets only the columns the query selected, and the key only
+    when it selected none. `Server.login` and `Server.instances` ask for `id` to be selected.
+    Add a way for an added field to name the columns it needs.
+- **Starting a server login sends no headers.** The first request, which finds the login, goes
+  without the server's header secrets. A server that wants a header before it answers 401 can't
+  be signed in to yet.
 - **The spec's own open questions** (agent-level hooks, opt-in bundle parsing, `null` to unset
   an `extraBody` key) touch phase 6. Answer them in agent-core first.
