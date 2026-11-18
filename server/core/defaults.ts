@@ -199,6 +199,8 @@ export interface ModelSettings {
   maxResponseBytes: number;
   /** How long an idle connection to a provider is kept for the next call. */
   keepAliveMs: number;
+  /** How long a pool passes over a target it could not reach, unless it can reach none of its targets. */
+  unreachableCooldownSeconds: number;
 }
 
 export const MODEL_DEFAULTS: Readonly<ModelSettings> = Object.freeze({
@@ -208,6 +210,7 @@ export const MODEL_DEFAULTS: Readonly<ModelSettings> = Object.freeze({
   errorBodyMaxChars: 500,
   maxResponseBytes: 8_388_608,
   keepAliveMs: 30_000,
+  unreachableCooldownSeconds: 30,
 });
 
 /** Counting usage. */

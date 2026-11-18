@@ -315,6 +315,71 @@ describe('pools', () => {
     expect(balancer.inFlightTo(target)).toBe(0);
   });
 
+  describe('with a target that cannot be reached', () => {
+    const deadTarget = { providerName: 'dead', providerId: 'id-dead', model: 'qwen3:8b' };
+
+    beforeEach(() => {
+      const dead = providerEntry('dead', { baseUrl: 'http://127.0.0.1:1/v1' });
+      snapshot = {
+        ...snapshot,
+        providers: new Map([...snapshot.providers, ['dead', dead]]),
+        // Round-robin, the dead target first: every first call goes to it, unless it is passed over.
+        pools: new Map([
+          [
+            'qwen3',
+            {
+              id: 'p1',
+              name: 'qwen3',
+              enabled: true,
+              strategy: PoolStrategy.RoundRobin,
+              affinity: AFFINITY_NONE,
+              maxLoadFactor: null,
+              targets: [deadTarget, target],
+            },
+          ],
+        ]),
+      };
+    });
+
+    it("sends the call to the pool's next target, and passes the dead one over after", async () => {
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const first = await call('chat/completions', { model: 'qwen3', messages: [] });
+        expect(first.status).toBe(200);
+        await first.text();
+        expect(balancer.isReachable(deadTarget)).toBe(false);
+        expect(balancer.inFlightTo(deadTarget)).toBe(0);
+        expect(recorded.map((entry) => entry.served.providerName)).toEqual(['ollama']);
+        const second = await call('chat/completions', { model: 'qwen3', messages: [] });
+        await second.text();
+        expect(received).toHaveLength(2);
+        expect(warned).toHaveBeenCalledTimes(1);
+      } finally {
+        warned.mockRestore();
+      }
+    });
+
+    it('answers 502 when no target of the pool can be reached', async () => {
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const dead = providerEntry('ollama', { baseUrl: 'http://127.0.0.1:1/v1' });
+        snapshot = { ...snapshot, providers: new Map([...snapshot.providers, ['ollama', dead]]) };
+        const answer = await call('chat/completions', { model: 'qwen3' });
+        expect(answer.status).toBe(502);
+        expect(await answer.json()).toMatchObject({ error: { code: 'upstream_failed' } });
+        expect(balancer.inFlightTo(target)).toBe(0);
+      } finally {
+        warned.mockRestore();
+      }
+    });
+
+    it('does not retry a target that answered with an error', async () => {
+      const answer = await call('fail', { model: 'ollama/qwen3:8b' });
+      expect(answer.status).toBe(429);
+      expect(received).toHaveLength(1);
+    });
+  });
+
   it('answers 503 for a pool whose providers are all off', async () => {
     snapshot = { ...snapshot, providers: new Map([['ollama', providerEntry('ollama', { enabled: false })]]) };
     expect((await call('chat/completions', { model: 'qwen3' })).status).toBe(503);

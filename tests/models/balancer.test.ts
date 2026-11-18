@@ -137,3 +137,32 @@ describe('PoolBalancer sticky affinity', () => {
     expect(second).toBe(first);
   });
 });
+
+describe('PoolBalancer unreachable targets', () => {
+  const COOLDOWN_SECONDS = 30;
+  const COOLDOWN_MS = COOLDOWN_SECONDS * 1000;
+
+  it('passes over a target it could not reach, until the cooldown ends', () => {
+    let now = 0;
+    const balancer = new PoolBalancer(Math.random, () => now, COOLDOWN_SECONDS);
+    const config = pool({ strategy: PoolStrategy.RoundRobin });
+    balancer.markUnreachable(GPU_A);
+    expect(place(balancer, config, [null, null, null])).toEqual(['gpu-b', 'gpu-c', 'gpu-b']);
+    now = COOLDOWN_MS;
+    expect(balancer.isReachable(GPU_A)).toBe(true);
+  });
+
+  it('still offers calls when no target can be reached', () => {
+    const balancer = new PoolBalancer(Math.random, () => 0, COOLDOWN_SECONDS);
+    for (const candidate of CANDIDATES) {
+      balancer.markUnreachable(candidate);
+    }
+    expect(place(balancer, pool(), [null])).toEqual(['gpu-a']);
+  });
+
+  it('passes the target over in every pool that has it', () => {
+    const balancer = new PoolBalancer(Math.random, () => 0, COOLDOWN_SECONDS);
+    balancer.markUnreachable(GPU_A);
+    expect(place(balancer, pool({ id: 'other', strategy: PoolStrategy.RoundRobin }), [null])).toEqual(['gpu-b']);
+  });
+});

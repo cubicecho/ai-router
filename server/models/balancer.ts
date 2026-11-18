@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { MODEL_DEFAULTS } from '../core/defaults.ts';
+import { MS_PER_SECOND } from '../core/wire.ts';
 import type { SnapshotPool, SnapshotTarget } from '../db/snapshot.ts';
 import { AFFINITY_STICKY, PoolStrategy } from '../db/tables/pools.ts';
 import { modelId } from './naming.ts';
@@ -67,31 +69,48 @@ function targetId(target: SnapshotTarget): string {
  * A sticky call goes to the target its key ranks highest (rendezvous hashing), so a target leaving moves only its
  * own keys. With bounded load on, a target over `maxLoadFactor` times the average is passed over for the next in the
  * key's ranking. Counts are per target, so pools that share a target share its count: it is one server's load.
+ * A target that could not be reached is passed over for a while, by every pool, unless none of a pool's targets can
+ * be reached.
  */
 export class PoolBalancer {
   private readonly inFlight = new Map<string, number>();
   private readonly turns = new Map<string, Turn>();
+  /** When each target that could not be reached may be tried again, in epoch milliseconds. */
+  private readonly unreachableUntil = new Map<string, number>();
   private readonly random: () => number;
+  private readonly now: () => number;
+  private readonly cooldownMs: number;
 
   /**
    * Builds a balancer with nothing in flight.
    *
    * @param [random] - Returns a number in [0, 1); the random strategy reads it.
+   * @param [now] - The clock, in epoch milliseconds.
+   * @param [cooldownSeconds] - How long a target that could not be reached is passed over.
    */
-  constructor(random: () => number = Math.random) {
+  constructor(
+    random: () => number = Math.random,
+    now: () => number = Date.now,
+    cooldownSeconds = MODEL_DEFAULTS.unreachableCooldownSeconds,
+  ) {
     this.random = random;
+    this.now = now;
+    this.cooldownMs = cooldownSeconds * MS_PER_SECOND;
   }
 
   /**
    * Picks the target for one call and holds a slot on it.
    *
    * @param pool - The pool the call named.
-   * @param candidates - Its targets whose provider is enabled, in the pool's order.
+   * @param offered - Its targets whose provider is enabled, in the pool's order. Those that could not be reached
+   * lately are passed over, unless that leaves none.
    * @param key - The call's affinity key; null when it has none.
    * @returns The target, with `release` to call when the answer ends.
    * @throws When there is no candidate: the caller answers that case itself.
    */
-  acquire(pool: SnapshotPool, candidates: readonly SnapshotTarget[], key: string | null): PoolLease {
+  acquire(pool: SnapshotPool, offered: readonly SnapshotTarget[], key: string | null): PoolLease {
+    const reachable = offered.filter((target) => this.isReachable(target));
+    const candidates = reachable.length === 0 ? offered : reachable;
     const loads = candidates.map((candidate) => this.inFlightTo(candidate));
     const isSticky = pool.affinity === AFFINITY_STICKY && key !== null;
     const index = isSticky
@@ -102,6 +121,34 @@ export class PoolBalancer {
       throw new Error(`Pool "${pool.name}" has no target to send a call to.`);
     }
     return this.hold(chosen);
+  }
+
+  /**
+   * Passes over a target for a while, since a call could not reach it.
+   *
+   * @param target - The target.
+   */
+  markUnreachable(target: SnapshotTarget): void {
+    this.unreachableUntil.set(targetId(target), this.now() + this.cooldownMs);
+  }
+
+  /**
+   * Whether a target is offered calls, or is being passed over because a call could not reach it.
+   *
+   * @param target - The target.
+   * @returns false while it is passed over.
+   */
+  isReachable(target: SnapshotTarget): boolean {
+    const id = targetId(target);
+    const until = this.unreachableUntil.get(id);
+    if (until === undefined) {
+      return true;
+    }
+    const hasCooledDown = this.now() >= until;
+    if (hasCooledDown) {
+      this.unreachableUntil.delete(id);
+    }
+    return hasCooledDown;
   }
 
   /**
