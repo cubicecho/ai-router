@@ -282,7 +282,10 @@ The acceptance check for the first release.
      included, so a name that works there (`llama.cpp`, `gpu_box`) works here. Servers (phase 3) also may not contain `__`.
    - **Providers and pools can be renamed.** The UI says which agents name the old model id,
      since their runs will fail until they are changed.
-   - **Provider headers stay visible in the UI** for now (see the open questions).
+   - **Provider headers are visible in the UI** and any user may edit them, unlike the key. Apps
+     never read them: a workspace key can't use `/graphql`, and `/v1` serves agents only. A header
+     that holds a key (Azure's `api-key`) is shown to every user, so the key field is the place
+     for a Bearer key.
    - **Forwarding is a function** (`models/forward`), not an HTTP door: a run's `fetch` calls it
      ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)).
    - **Usage:** one row per UTC day, workspace, agent, provider and model, with requests, input
@@ -484,9 +487,6 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 - **Failover and health for pools.** llm-router has none, and phase 2 ports it as it is. Open:
   retrying the next target when one is unreachable, health checks that take a target out of a
   pool, and per-target weights.
-- **Provider headers may hold a key** (Azure's `api-key`, a proxy's `x-api-key`). Phase 2 keeps
-  them visible, as llm-router does. Later: make header values write-only and admin-only, serving
-  only their names, like `api_key`.
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
