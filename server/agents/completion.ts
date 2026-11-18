@@ -1,3 +1,4 @@
+import type { RunEvent } from '@cubicecho/agent-core';
 import type { Response } from 'express';
 import { HttpStatus, MS_PER_SECOND } from '../core/wire.ts';
 import type { OpenAiErrorBody } from '../models/openai-error.ts';
@@ -60,11 +61,13 @@ function usageOf(finished: FinishedRun): CompletionUsage {
  * Builds the non-streamed answer of a completed run.
  *
  * @param finished - The run. It completed, so it has an answer.
+ * @param [events] - Its events, when the app asked for progress: they go beside `choices`, as `ai_router.events`.
  * @returns A `chat.completion`.
  */
-export function completionBody(finished: FinishedRun) {
+export function completionBody(finished: FinishedRun, events: RunEvent[] | null = null) {
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
   return {
+    ...(events === null ? {} : { ai_router: { runId: finished.runId, events } }),
     ...header(meta),
     object: 'chat.completion',
     choices: [
@@ -86,6 +89,13 @@ export interface ChunkStream {
    * @param content - What arrived.
    */
   text(content: string): void;
+  /**
+   * Sends one of the run's events as a progress chunk: empty `choices`, so a standard client skips it, and the event
+   * as `ai_router.event`.
+   *
+   * @param event - The event.
+   */
+  event(event: RunEvent): void;
   /**
    * Ends a run that completed: the finish chunk, the usage chunk when asked for, and `[DONE]`.
    *
@@ -177,6 +187,7 @@ export function openChunkStream(
   send(chunk({ role: 'assistant', content: '' }, null));
   return {
     text: (content) => send(chunk({ content }, null)),
+    event: (event) => send({ ...header(meta), object: 'chat.completion.chunk', choices: [], ai_router: { event } }),
     end: (finished) => {
       send(chunk({}, finished.answer?.finishReason ?? 'stop'));
       if (includeUsage) {

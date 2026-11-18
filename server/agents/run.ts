@@ -3,6 +3,7 @@ import {
   type CatalogServer,
   createRuntime,
   failedRun,
+  type RunEvent,
   type RunEventInput,
   RunEventKind,
   type Runtime,
@@ -67,6 +68,22 @@ export interface FinishedRun {
   error: string | null;
 }
 
+/** Who hears a run as it goes: the request that is waiting on it. */
+export interface RunListener {
+  /**
+   * Hears the answer's text as it arrives, a blank line between turns.
+   *
+   * @param text - What arrived.
+   */
+  onText(text: string): void;
+  /**
+   * Hears each event, as recorded, for the progress events an app asked for.
+   *
+   * @param event - The event.
+   */
+  onEvent(event: RunEvent): void;
+}
+
 /** A run this request started. */
 export interface StartedRun {
   kind: 'started';
@@ -75,11 +92,11 @@ export interface StartedRun {
   /**
    * Runs it to its end.
    *
-   * @param onText - Hears the answer's text as it arrives, a blank line between turns.
+   * @param listener - Hears its text and its events.
    * @param signal - The app's connection: aborting it cancels the run.
    * @returns How it ended. Never rejects: a failure is a failed run.
    */
-  execute(onText: (text: string) => void, signal: AbortSignal): Promise<FinishedRun>;
+  execute(listener: RunListener, signal: AbortSignal): Promise<FinishedRun>;
 }
 
 /** A run an earlier request with the same `Idempotency-Key` started. */
@@ -235,14 +252,20 @@ export function createRunService({
   /**
    * Lists the tools of every server the run reaches, as its workspace's instances, and names them for the model.
    *
-   * @param runId - The run, whose events say what was left out.
+   * @param runId - The run.
    * @param config - The resolved agent, for its servers and discovery.
    * @param workspaceId - Whose instances to use.
+   * @param say - Records the run's events, which say what was left out.
    * @returns The tools. A server that can't start or list is left out and said so, never failing the run.
    */
-  const reachedTools = async (runId: string, config: RunConfig, workspaceId: string): Promise<RunTools> => {
+  const reachedTools = async (
+    runId: string,
+    config: RunConfig,
+    workspaceId: string,
+    say: (input: RunEventInput) => void,
+  ): Promise<RunTools> => {
     const notice = (text: string): void => {
-      bus.publish(runId, { kind: RunEventKind.Notice, text });
+      say({ kind: RunEventKind.Notice, text });
     };
     const reach = reachOf(config.servers, snapshot.current());
     for (const name of reach.missing) {
@@ -311,14 +334,14 @@ export function createRunService({
    *
    * @param input - The run.
    * @param row - Its row, just written.
-   * @param onText - Hears the answer's text.
+   * @param listener - Hears the answer's text and the run's events.
    * @param signal - The app's connection.
    * @returns How it ended.
    */
   const run = async (
     input: RunInput,
     row: RunRow,
-    onText: (text: string) => void,
+    listener: RunListener,
     signal: AbortSignal,
   ): Promise<FinishedRun> => {
     const { workspace, agent, request, config } = input;
@@ -327,8 +350,11 @@ export function createRunService({
     const runSignal = AbortSignal.any([signal, deadline, stopping.signal]);
     let answer = '';
     let isNewTurn = false;
+    const say = (event: RunEventInput): void => {
+      listener.onEvent(bus.publish(runId, event));
+    };
     const onEvent = (event: RunEventInput): void => {
-      bus.publish(runId, event);
+      say(event);
       if (event.kind === RunEventKind.Turn) {
         isNewTurn = answer !== '';
       }
@@ -337,7 +363,7 @@ export function createRunService({
         const delta = isNewTurn ? `${TURN_JOIN}${text}` : text;
         isNewTurn = false;
         answer += delta;
-        onText(delta);
+        listener.onText(delta);
       }
     };
     const ended = (status: RunStatus, usage: { promptTokens: number; completionTokens: number } | undefined) => ({
@@ -350,7 +376,7 @@ export function createRunService({
     });
     let finished: FinishedRun;
     try {
-      const reached = await reachedTools(runId, config, workspace.id);
+      const reached = await reachedTools(runId, config, workspace.id, say);
       const dispatch: ToolDispatch = async (call, callSignal) => {
         const target = reached.names.get(call.name);
         if (target === undefined) {
@@ -399,7 +425,7 @@ export function createRunService({
       }
     }
     const isCompleted = finished.status === RunStatus.Completed;
-    bus.publish(runId, { kind: RunEventKind.Done, ok: isCompleted, text: finished.error ?? '' });
+    say({ kind: RunEventKind.Done, ok: isCompleted, text: finished.error ?? '' });
     await record(finished);
     await bus.close(runId);
     return finished;
@@ -442,8 +468,8 @@ export function createRunService({
       kind: 'started',
       runId: row.id,
       startedAt: row.startedAt,
-      execute: async (onText, signal) => {
-        const finished = await run(input, row, onText, signal);
+      execute: async (listener, signal) => {
+        const finished = await run(input, row, listener, signal);
         settle(finished);
         live.delete(row.id);
         return finished;

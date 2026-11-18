@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { RunEvent } from '@cubicecho/agent-core';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
@@ -12,7 +13,7 @@ import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
-import { RequestRefusal, readRunRequest, requestedAgent, requestedStream } from './request.ts';
+import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
 import type { FinishedRun, Idempotency, RepeatedRun, RunService } from './run.ts';
 
 /** The header a retry-safe request carries. */
@@ -34,6 +35,14 @@ export interface AgentRoutesDeps {
   overrides?: Partial<RunSettings>;
   /** The clock keys' expiry is judged by. */
   now?: () => Date;
+}
+
+/** How an answer is delivered. */
+interface Delivery {
+  stream: boolean;
+  includeUsage: boolean;
+  /** The events a non-streamed answer carries as `ai_router.events`, when the app asked for progress. */
+  events?: RunEvent[] | null;
 }
 
 /** A request that got past the key check: who it is from. */
@@ -128,15 +137,10 @@ function modelEntry(agent: SnapshotAgent & { document: Readonly<Record<string, u
  *
  * @param response - The answer, with `X-Run-Id` set.
  * @param finished - The run.
- * @param delivery - Whether to stream, and with a usage chunk.
+ * @param delivery - Whether to stream, and with a usage chunk, and the events a non-streamed answer carries.
  * @param heartbeatSeconds - How often a quiet stream is sent a comment.
  */
-function answerFinished(
-  response: Response,
-  finished: FinishedRun,
-  delivery: { stream: boolean; includeUsage: boolean },
-  heartbeatSeconds: number,
-): void {
+function answerFinished(response: Response, finished: FinishedRun, delivery: Delivery, heartbeatSeconds: number): void {
   if (finished.status === RunStatus.Running) {
     refuse(response, ModelFailure.RunInProgress, 'That run is still going.');
     return;
@@ -150,7 +154,7 @@ function answerFinished(
     return;
   }
   if (delivery.stream === false) {
-    response.json(completionBody(finished));
+    response.json(completionBody(finished, delivery.events ?? null));
     return;
   }
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
@@ -176,6 +180,7 @@ export function createAgentRoutes({
   now = () => new Date(),
 }: AgentRoutesDeps): Router {
   const settings = { ...RUN_DEFAULTS, ...overrides };
+  const { heartbeatSeconds } = settings;
   const router = express.Router();
 
   /**
@@ -195,7 +200,7 @@ export function createAgentRoutes({
       );
       return;
     }
-    answerFinished(response, await repeat.finished(), requestedStream(body), settings.heartbeatSeconds);
+    answerFinished(response, await repeat.finished(), requestedStream(body), heartbeatSeconds);
   };
 
   router.use((request: Request, response: Response<unknown, AppLocals>, next: NextFunction) => {
@@ -267,7 +272,7 @@ export function createAgentRoutes({
       return;
     }
     let started: Awaited<ReturnType<RunService['begin']>>;
-    let delivery: { stream: boolean; includeUsage: boolean };
+    let delivery: RunRequest;
     try {
       const runRequest = readRunRequest(body, agent.policy);
       delivery = runRequest;
@@ -306,13 +311,23 @@ export function createAgentRoutes({
       }
     });
     if (delivery.stream === false) {
-      const finished = await started.execute(() => {}, disconnected.signal);
-      answerFinished(response, finished, delivery, settings.heartbeatSeconds);
+      const events: RunEvent[] = [];
+      const listener = { onText: () => {}, onEvent: (event: RunEvent) => events.push(event) };
+      const finished = await started.execute(listener, disconnected.signal);
+      answerFinished(response, finished, { ...delivery, events: delivery.progress ? events : null }, heartbeatSeconds);
       return;
     }
     const meta = { runId: started.runId, model: agent.name, startedAt: started.startedAt };
-    const stream = openChunkStream(response, meta, delivery.includeUsage, settings.heartbeatSeconds);
-    const finished = await started.execute((text) => stream.text(text), disconnected.signal);
+    const stream = openChunkStream(response, meta, delivery.includeUsage, heartbeatSeconds);
+    const listener = {
+      onText: (text: string) => stream.text(text),
+      onEvent: (event: RunEvent) => {
+        if (delivery.progress) {
+          stream.event(event);
+        }
+      },
+    };
+    const finished = await started.execute(listener, disconnected.signal);
     if (finished.status === RunStatus.Completed) {
       stream.end(finished);
     } else {

@@ -189,7 +189,8 @@ created (shown once) --> in use --revoke--> deleted
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| Until app tools arrive (phase 7), a request with `tools` or `tool_choice`, or whose history holds `tool` messages or assistant tool calls, is refused with a 400 that says so. `ai_router.progress` is accepted and does nothing yet | `agents/request` |
+| Until app tools arrive (phase 7), a request with `tools` or `tool_choice`, or whose history holds `tool` messages or assistant tool calls, is refused with a 400 that says so | `agents/request` |
+| A standard client's answer is the same with progress events as without: they come only when `ai_router.progress` asks, in chunks with empty `choices`, or beside `choices` as `ai_router.events`. A repeated `Idempotency-Key` answers without them, and the app reads them from `/runs/<id>/events` | `agents/completion`, `agents/routes` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
 | An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
@@ -203,7 +204,7 @@ created (shown once) --> in use --revoke--> deleted
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if it answers every call that run handed back. A partial answer is refused | `agents/run` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
-| Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own. Progress chunks are written with `agent-core`'s own encoder | `agents/progress` |
+| Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own, each with `runId` set to the router's run id. agent-core has no encoder for them, so they are written as JSON, as they are | `agents/completion`, `agents/run-records`, `agents/run-bus` |
 | A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
@@ -379,8 +380,8 @@ Everything about the code comes after `Owner:`.
   `chat.completion` or as `chat.completion.chunk`s.
 - **Request options:** what an app that knows the router may add to a request: a task layer's
   text, a narrowing of the agent's servers, and whether to send progress events. Owner:
-  `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`,
-  which is accepted and does nothing until phase 7). Any other key is refused.
+  `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`).
+  Any other key is refused.
 - **Run events:** a run's steps, reasoning, tool calls and results, side tasks and usage, in
   order, numbered from 1 with no gaps. The router's own pages and the app that started the run can
   follow them live or read them afterwards, and a follower gets the stored ones first, then the
@@ -392,9 +393,12 @@ Everything about the code comes after `Owner:`.
   `RunEvent`, stored as it was sent in `run_events.event`, and deleted with its run. The router
   adds a `notice` for each server left out and the closing `done`, which a run a restart cut short
   is given at the next boot.
-- **Progress events:** run events streamed to an app that asks for them, inside the answer
-  itself. Standard clients skip them. Owner: `agents/progress`; chunks with empty `choices` and an
-  `ai_router.event` field.
+- **Progress events:** run events sent to an app that asks for them, inside the answer itself:
+  each one as it happens in a stream, or all of them beside the answer. Standard clients skip
+  them. Owner: `agents/completion` (`ChunkStream.event`, `completionBody`); with
+  `ai_router.progress: true`, chunks with empty `choices` and an `ai_router.event` field, or
+  `ai_router: { runId, events }` beside `choices`, holding the events of this request's part of
+  the run.
 - **App tool (client tool):** a tool the app sends with its request. The agent may call it. The
   run then hands the call back to the app and waits, and resumes when the app sends the result.
   Owner: `agents/run`; passed to the loop as `hostTools`.

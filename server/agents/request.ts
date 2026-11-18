@@ -90,7 +90,7 @@ type ParsedMessage = z.infer<typeof messageSchema>;
 const routerOptionsSchema = z.strictObject({
   /** A task layer's text. */
   task: z.string().optional(),
-  /** Progress events, from phase 7. Accepted and not yet acted on. */
+  /** Whether the answer carries the run's events. */
   progress: z.boolean().optional(),
   /** Narrows the agent's servers to these. Never widens them. */
   servers: z.array(z.string()).optional(),
@@ -120,6 +120,8 @@ export interface RunRequest {
   includeUsage: boolean;
   /** The request's `user`, recorded on the run. */
   user: string | null;
+  /** `ai_router.progress`: whether the answer carries the run's events. */
+  progress: boolean;
 }
 
 /**
@@ -341,5 +343,6 @@ export function readRunRequest(body: unknown, policy: OverridePolicyRules): RunR
     sampling,
     ...requestedStream(body),
     user,
+    progress: options.progress === true,
   };
 }
