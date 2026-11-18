@@ -497,8 +497,6 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   declined and retry the tool call once the app answers. Worth doing when `min-agent` has a
   server that asks.
 
-- **`servers` absent means every server** under the spec. On a router with many servers, should
-  the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels
   it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one
   survives a dropped connection. The later
