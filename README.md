@@ -69,6 +69,11 @@ npm run check        # codegen, biome, tsc
 npm test             # vitest, on PGlite
 ```
 
+`npm run db:up` binds Postgres to the Docker host's loopback. When that host is another machine
+(`docker context ls`), reach it through a tunnel, `ssh -fN -L 127.0.0.1:5440:127.0.0.1:5440 <host>`,
+and `.env.example`'s `DATABASE_URL` works as it is. Or start it with `DEV_BIND=0.0.0.0`, which
+exposes it on the network, and put the host's name in `DATABASE_URL`.
+
 [AGENTS.md](AGENTS.md) has the layout and the rules, and
 [.agents/domain-model.md](.agents/domain-model.md) the concepts.
 
