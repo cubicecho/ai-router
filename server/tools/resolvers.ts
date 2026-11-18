@@ -1,6 +1,6 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
-import type { Context } from '../core/context.ts';
+import { CALLER_RUN, type Context } from '../core/context.ts';
 import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -12,7 +12,7 @@ import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
 import type { InstallServerRequest } from './api.ts';
-import { refuseIfBuiltin } from './builtin.ts';
+import { BUILTIN_PEOPLE_ONLY, refuseIfBuiltin } from './builtin.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
 import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
@@ -290,7 +290,11 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     args: { id: string; workspaceId?: string | null },
     ctx: Context,
   ) => {
-    serverById(ctx, args.id);
+    const server = serverById(ctx, args.id);
+    // A run restarting the admin server would close the connection its own call is on.
+    if (ctx.caller?.kind === CALLER_RUN) {
+      refuseIfBuiltin(server, BUILTIN_PEOPLE_ONLY);
+    }
     await ctx.tools.restart(args.id, args.workspaceId ?? null);
     return true;
   };

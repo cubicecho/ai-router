@@ -1,7 +1,7 @@
 import type { OnWriteConfig, WriteHookPayload } from '@vantreeseba/drizzle-graphql';
 import { eq } from 'drizzle-orm';
 import type { z } from 'zod';
-import { CALLER_USER, type Context } from '../core/context.ts';
+import { CALLER_RUN, CALLER_USER, type Context } from '../core/context.ts';
 import { badInput, forbidden } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { type ServerRow, servers } from '../db/tables/servers.ts';
@@ -9,7 +9,7 @@ import { Role } from '../db/tables/users.ts';
 import type { WorkspaceServer } from '../db/tables/workspace-servers.ts';
 import { rebuildAfterCommit, writtenRows } from '../graphql/write-guards.ts';
 import type { DeletedEntry } from './api.ts';
-import { BUILTIN_EDITABLE, isBuiltin, refuseIfBuiltin } from './builtin.ts';
+import { BUILTIN_EDITABLE, BUILTIN_PEOPLE_ONLY, isBuiltin, refuseIfBuiltin } from './builtin.ts';
 import { registryInput, serverUpdateInput, workspaceServerInput } from './input.ts';
 import { dropLoginOnMove } from './oauth/service.ts';
 import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
@@ -46,19 +46,24 @@ function checkServerUpdate(payload: WriteHookPayload): void {
 }
 
 /**
- * Refuses a change to the admin server past its name, description and whether it is on. Its name and transport are
- * kept by `ck_servers_name_reserved` before this runs.
+ * Refuses a change to the admin server past its display name, description and whether it is on, and any change to it
+ * by an agent run, which would be switching off or renaming its own way in. Its name and transport are kept by
+ * `ck_servers_name_reserved` before this runs.
  *
  * @param payload - The write that just ran. Throwing rolls it back.
  * @param updated - The rows it changed.
- * @throws BAD_USER_INPUT when it changed anything else about the admin server.
+ * @throws BAD_USER_INPUT when it changed anything else about the admin server, or a run changed it at all.
  */
 function checkBuiltinUpdate(payload: WriteHookPayload, updated: readonly Pick<ServerRow, 'transport'>[]): void {
+  const { caller }: Context = payload.context;
   const changesMore = writtenRows(payload.args).some((row) =>
     Object.keys(row).some((column) => BUILTIN_EDITABLE.has(column) === false),
   );
-  if (changesMore) {
-    for (const row of updated) {
+  for (const row of updated) {
+    if (caller?.kind === CALLER_RUN) {
+      refuseIfBuiltin(row, BUILTIN_PEOPLE_ONLY);
+    }
+    if (changesMore) {
       refuseIfBuiltin(row, 'only whether it is on, its display name and its description change');
     }
   }

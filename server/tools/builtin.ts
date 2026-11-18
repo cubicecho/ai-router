@@ -24,6 +24,9 @@ export type RunMeta = z.infer<typeof runMetaSchema>;
 /** What a person is told when they try to give a server the built-in transport or source. */
 export const BUILTIN_ONLY = `The built-in transport is the router's own: only "${RESERVED_SERVER_NAME}" has it.`;
 
+/** Why an agent run may not change or restart the admin server: it is the run's own way in. */
+export const BUILTIN_PEOPLE_ONLY = 'only a person changes or restarts it, never an agent run through it';
+
 /** The admin server's columns a write may change. Everything else about it is the router's. */
 export const BUILTIN_EDITABLE: ReadonlySet<string> = new Set(['enabled', 'displayName', 'description', 'updatedAt']);
 
