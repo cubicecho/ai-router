@@ -1,7 +1,8 @@
+import { ADMIN_ROLES } from '../core/admin-roles.ts';
 import type { SnapshotServer, SnapshotServerEntry } from '../db/snapshot.ts';
 import type { ChildUser } from './child-users.ts';
 import { homeOf, installFolderPath } from './install-folder.ts';
-import { type ResolvedServer, TRANSPORT_STDIO } from './shapes.ts';
+import { type ResolvedServer, TRANSPORT_BUILTIN, TRANSPORT_STDIO } from './shapes.ts';
 
 /** The timeouts a server gets when it sets none of its own. */
 export interface ServerTimeouts {
@@ -65,7 +66,8 @@ export function workspaceInstanceEntry(
  * @remarks
  * Env and headers merge, the workspace's winning. Arguments and the address replace the server's. A stdio workspace
  * instance runs as its entry's own uid, with the server's group and extra groups, in the server's install folder,
- * with the entry's folder as its HOME.
+ * with the entry's folder as its HOME. The admin server has an instance per workspace, entry or not, granting its
+ * entry's roles, and a base instance granting every role, which only lists its tools for a person.
  */
 export function resolveServer(
   server: SnapshotServer,
@@ -82,6 +84,18 @@ export function resolveServer(
     callTimeoutMs: server.callTimeoutMs ?? defaults.callTimeoutMs,
   };
   const { transport } = server;
+  if (transport.type === TRANSPORT_BUILTIN) {
+    const roles = workspaceId === null ? ADMIN_ROLES : (server.entries.get(workspaceId)?.roles ?? []);
+    return {
+      ...common,
+      workspaceId,
+      transport: { type: TRANSPORT_BUILTIN, roles: [...roles] },
+      env: {},
+      runAs: null,
+      installDir: null,
+      homeDir: null,
+    };
+  }
   if (transport.type === TRANSPORT_STDIO) {
     const runAs: ChildUser = {
       uid: entry?.childUid ?? server.childUid,

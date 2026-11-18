@@ -33,7 +33,7 @@ export const workspaceServers = pgTable(
     /** Its workspace instance's own folder, made by that uid. Null until the instance first starts. */
     installDir: text('install_dir'),
     /** For the admin server `ai-router` only: what the workspace's agent runs may do through it. Empty grants nothing. */
-    roles: text('roles').array().$type<AdminRole[]>().notNull().default([]),
+    roles: text('roles').$type<AdminRole>().array().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

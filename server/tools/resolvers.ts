@@ -12,6 +12,7 @@ import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
 import type { InstallServerRequest } from './api.ts';
+import { refuseIfBuiltin } from './builtin.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
 import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
@@ -210,6 +211,9 @@ function serverById(ctx: Context, id: string): SnapshotServer {
   return found;
 }
 
+/** Why the admin server has no login. */
+const NO_LOGIN = 'it has no login';
+
 /**
  * Reads a server's login as the API serves it.
  *
@@ -303,11 +307,13 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     return ctx.tools.callTool(args.id, args.workspaceId ?? null, args.tool, toolArgs);
   };
 
-  mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) =>
-    ctx.tools.logins.start(args.serverId);
+  mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) => {
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
+    return ctx.tools.logins.start(args.serverId);
+  };
 
   mutations.signOutServer.resolve = async (_parent: unknown, args: { serverId: string }, ctx: Context) => {
-    serverById(ctx, args.serverId);
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
     await ctx.tools.logins.signOut(args.serverId);
     return servedServer(ctx, args.serverId);
   };
@@ -320,7 +326,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     },
     ctx: Context,
   ) => {
-    serverById(ctx, args.serverId);
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
     await ctx.tools.logins.setClient(args.serverId, args.client ?? null);
     return loginOf(serverById(ctx, args.serverId));
   };
@@ -337,6 +343,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
       if (found === undefined) {
         throw notFound('Server not found.');
       }
+      refuseIfBuiltin(found, 'it takes no secrets');
       if (workspaceId !== null) {
         const [workspace] = await tx
           .select({ id: workspaces.id })

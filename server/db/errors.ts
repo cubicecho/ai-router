@@ -1,5 +1,7 @@
 /** Postgres's code for a unique violation. */
 const PG_UNIQUE_VIOLATION = '23505';
+/** Postgres's code for a check constraint violation. */
+const PG_CHECK_VIOLATION = '23514';
 
 /** The parts of a driver error this reads. */
 interface PgErrorFields {
@@ -30,7 +32,28 @@ function pgErrorOf(error: unknown): PgErrorFields | null {
  * @returns The index's name, or null for any other error.
  */
 export function violatedUniqueIndex(error: unknown): string | null {
+  return violated(error, PG_UNIQUE_VIOLATION);
+}
+
+/**
+ * Reads which check constraint a write broke.
+ *
+ * @param error - What the write threw.
+ * @returns The check's name, or null for any other error.
+ */
+export function violatedCheck(error: unknown): string | null {
+  return violated(error, PG_CHECK_VIOLATION);
+}
+
+/**
+ * Reads which constraint of one kind a write broke.
+ *
+ * @param error - What the write threw.
+ * @param code - The Postgres error code of that kind.
+ * @returns The constraint's name, or null for any other error.
+ */
+function violated(error: unknown, code: string): string | null {
   const pgError = pgErrorOf(error);
-  const isUniqueViolation = pgError?.code === PG_UNIQUE_VIOLATION && typeof pgError.constraint === 'string';
-  return isUniqueViolation ? String(pgError?.constraint) : null;
+  const isViolation = pgError?.code === code && typeof pgError.constraint === 'string';
+  return isViolation ? String(pgError?.constraint) : null;
 }

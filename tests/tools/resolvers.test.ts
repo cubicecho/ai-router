@@ -212,8 +212,13 @@ describe('server secrets', () => {
     });
     expect(set.setServerSecret.secrets).toEqual([{ kind: 'env', name: 'ACTUAL_PASSWORD', workspaceId: null }]);
     await asAdmin.expectOk(SET_SECRET, { serverId: id, kind: 'env', name: 'ACTUAL_PASSWORD', value: null });
-    const { servers: listed } = await asAdmin.expectOk('{ servers { secrets { name } } }');
-    expect(listed).toEqual([{ secrets: [] }]);
+    const { server: listed } = await asAdmin.expectOk(
+      'query ($id: UUID!) { server(where: { id: { eq: $id } }) { secrets { name } } }',
+      {
+        id,
+      },
+    );
+    expect(listed).toEqual({ secrets: [] });
   });
 
   it('are refused to a user who is not an admin', async () => {

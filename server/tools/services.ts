@@ -21,6 +21,7 @@ import type {
   ServedTool,
   ToolServices,
 } from './api.ts';
+import { BUILTIN_ONLY, isBuiltin, refuseIfBuiltin, runMeta } from './builtin.ts';
 import { type ChildIsolation, serverChildUser } from './child-users.ts';
 import { envInput, transportInput } from './input.ts';
 import { createInstallFolder, FolderKind, type FolderOptions, removeInstallFolder } from './install-folder.ts';
@@ -32,11 +33,12 @@ import { ServerLoginService } from './oauth/service.ts';
 import { RegistryClient, type RegistryFetch, type RegistryServerEntry } from './registry.ts';
 import { resolveServer, workspaceInstanceEntry } from './resolve.ts';
 import {
+  type InstallSource,
+  installSourceSchema,
   type ResolvedServer,
-  type ServerSource,
   SourceType,
   serverNameSchema,
-  serverSourceSchema,
+  TRANSPORT_BUILTIN,
   TRANSPORT_STDIO,
   TRANSPORT_STREAMABLE_HTTP,
 } from './shapes.ts';
@@ -236,7 +238,11 @@ export function createToolServices({
   };
 
   const install = async (request: InstallServerRequest): Promise<ServedServer> => {
-    const source: ServerSource = parseOrThrow(serverSourceSchema, {
+    const asksForBuiltin = request.source.type === SourceType.Builtin || request.transport?.type === TRANSPORT_BUILTIN;
+    if (asksForBuiltin) {
+      throw badInput(BUILTIN_ONLY);
+    }
+    const source: InstallSource = parseOrThrow(installSourceSchema, {
       type: request.source.type,
       ...Object.fromEntries(
         Object.entries(request.source).filter(([, value]) => value !== null && value !== undefined),
@@ -334,6 +340,7 @@ export function createToolServices({
     if (row === undefined) {
       return false;
     }
+    refuseIfBuiltin(row, "it can't be deleted");
     const entries = await db
       .select({ childUid: workspaceServers.childUid, installDir: workspaceServers.installDir })
       .from(workspaceServers)
@@ -383,6 +390,9 @@ export function createToolServices({
     run?: RunToolCall,
   ): Promise<CallToolResult> => {
     const resolved = await resolve(serverId, workspaceId);
+    if (run === undefined) {
+      refuseIfBuiltin(resolved, 'its tools are for agent runs that name it, and a person does the same in the UI');
+    }
     const workspace = workspaceId === null ? undefined : snapshot.current().workspaces.get(workspaceId);
     const startedAt = performance.now();
     const record = (ok: boolean, error: string | null): void =>
@@ -400,12 +410,11 @@ export function createToolServices({
         error,
       });
     try {
-      const result = await instances.callTool(
-        resolved,
-        tool,
-        args,
-        run?.signal === undefined ? {} : { signal: run.signal },
-      );
+      const result = await instances.callTool(resolved, tool, args, {
+        ...(run?.signal === undefined ? {} : { signal: run.signal }),
+        // Who the call is for, which only the admin server reads. Another server is never told.
+        ...(run !== undefined && isBuiltin(resolved) ? { meta: runMeta(run) } : {}),
+      });
       record(result.isError !== true, result.isError === true ? 'The tool answered an error.' : null);
       return result;
     } catch (error) {

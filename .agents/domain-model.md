@@ -206,7 +206,8 @@ created (shown once) --> in use --revoke--> deleted
 | A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
-| No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
+| `ai-router` is the admin server, the one server with the built-in transport and source. A migration adds it, and nobody adds another, renames or deletes it, or gives it a transport, env, arguments, secrets or a login. Only whether it is on, its display name and its description change | `tools/shapes` `serverNameSchema` and `installSourceSchema`, the checks `ck_servers_name_reserved` and `ck_servers_builtin_source`; `tools/builtin` `refuseIfBuiltin`, from `tools/hooks`, `tools/services` and `tools/resolvers` |
+| Roles are held only by a workspace's entry for the admin server: each one from the role vocabulary, none twice. That entry takes no env, arguments, address or secrets, and every other entry's roles stay empty | `tools/input` `rolesInput`, `ck_workspace_servers_roles`; `tools/hooks` `afterEntryWrite` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
@@ -284,8 +285,9 @@ Everything about the code comes after `Owner:`.
 - **Workspace:** what one app may run: chosen agents, and how their servers are configured for
   its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
 - **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
-  account's credentials. Owner: `workspace_servers`, with its overrides; its secret overrides are
-  `server_secrets` rows that name the workspace. `tools/resolve` merges them over the server's.
+  account's credentials. A workspace's entry for the admin server holds roles instead. Owner:
+  `workspace_servers`, with its overrides and `roles`; its secret overrides are `server_secrets` rows that
+  name the workspace. `tools/resolve` merges them over the server's.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -317,10 +319,11 @@ Everything about the code comes after `Owner:`.
   reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
   values and every header value are in `server_secrets`, written by `setServerSecret` and served
   only by name.
-- **Source:** where a server came from: a registry, npm, PyPI, or added by hand by its address.
-  Owner: `servers.source`.
-- **Transport:** how the router reaches a server: a program it starts, or an address it connects
-  to. Owner: `servers.transport`; stdio or streamable HTTP.
+- **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
+  router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
+- **Transport:** how the router reaches a server: a program it starts, an address it connects to,
+  or, for the admin server, inside the router itself. Owner: `servers.transport`; stdio, streamable
+  HTTP, or built in (`builtin`, only `ai-router`'s), connected in process.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
@@ -455,8 +458,11 @@ Everything about the code comes after `Owner:`.
   workspace or an agent is given it like any other server, and that is the only way in. Owner:
   `admin/server`; the reserved name `ai-router`, `@cubicecho/graphql-mcp` over the GraphQL
   schema.
-- **Permission level:** what an admin client may do: read, author drafts, operate, install.
-  Owner: `graphql/permissions`; set on the admin server and per server entry.
+- **Role:** what a workspace lets its agent runs do through the admin server, such as reading agents
+  or restarting servers. Roles add up, and none reaches what only people do: promoting, deleting an
+  agent, secrets, settings, users, workspaces and keys. Owner: `core/admin-roles` (`AdminRole`), held
+  by the workspace's entry for `ai-router` (`workspace_servers.roles`); what each grants is
+  `graphql/abilities` `ROLE_GRANTS`.
 
 ### Internals
 

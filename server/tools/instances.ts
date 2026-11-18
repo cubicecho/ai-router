@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { InstanceSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
+import type { BuiltinConnector } from './builtin.ts';
 import type { ChildIsolation } from './child-users.ts';
-import { type CallOptions, Instance, type ToolCallHook } from './instance.ts';
+import { type CallOptions, Instance, InstanceError, InstanceErrorCode, type ToolCallHook } from './instance.ts';
 import type { ResolvedServer } from './shapes.ts';
 
 /** What the manager is built with. */
@@ -82,6 +84,8 @@ export class InstanceManager {
   private readonly held = new Map<string, Held>();
   /** Replaced instances still finishing their calls. */
   private readonly retiring = new Set<Instance>();
+  /** Connects the admin server, once the app has built it. */
+  private builtin: BuiltinConnector | undefined;
 
   /**
    * Builds a manager with no instances.
@@ -113,11 +117,26 @@ export class InstanceManager {
     const { isolation, onCall, authProviderFor } = this.options;
     const instance = new Instance(
       resolved,
-      { isolation, onCall, authProvider: authProviderFor?.(resolved) },
+      {
+        isolation,
+        onCall,
+        authProvider: authProviderFor?.(resolved),
+        // Looked up when it starts, so an instance made before the admin server was handed over can still reach it.
+        builtin: (server) => this.connectBuiltin(server),
+      },
       this.overrides,
     );
     this.held.set(key, { instance, fingerprint });
     return instance;
+  }
+
+  /**
+   * Hands over how the built-in admin server is connected. The app does it once the schema the server serves is built.
+   *
+   * @param connector - Connects one instance of it in process.
+   */
+  serveBuiltin(connector: BuiltinConnector): void {
+    this.builtin = connector;
   }
 
   /**
@@ -213,6 +232,19 @@ export class InstanceManager {
     this.held.clear();
     this.retiring.clear();
     await Promise.all(instances.map((instance) => instance.stop()));
+  }
+
+  /**
+   * Connects an instance of the built-in server.
+   *
+   * @param server - The instance's server as resolved.
+   * @returns The client's end of the in-process transport. Throws a refusal before the app has handed one over.
+   */
+  private async connectBuiltin(server: ResolvedServer): Promise<Transport> {
+    if (this.builtin === undefined) {
+      throw new InstanceError(InstanceErrorCode.Refused, server.name, 'has no admin server to connect to yet');
+    }
+    return this.builtin(server);
   }
 
   /**
