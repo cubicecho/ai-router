@@ -84,7 +84,7 @@ export function HistorySection({ liveRevisionId, revisions }: HistorySectionProp
                                 : 'Runs use it from their next request.'
                             }
                             onClick={() => promote.mutate(revision)}
-                            content={isOlder ? 'Roll back to this' : 'Make live'}
+                            content={isOlder ? 'Roll back to this' : 'Promote'}
                           />
                         )}
                       </>
