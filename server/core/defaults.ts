@@ -71,9 +71,9 @@ export const OPERATION_LIMIT_DEFAULTS: Readonly<OperationLimitSettings> = Object
 
 /** The sign-in throttle. */
 export interface RateLimitSettings {
-  /** Attempts allowed per key inside one window. */
+  /** Failed attempts allowed per key inside one window. One that succeeds is given back. */
   maxAttempts: number;
-  /** How long an attempt counts against its key. */
+  /** How long a failed attempt counts against its key. */
   windowMinutes: number;
   /** Past this many keys, a hit sweeps out the ones whose window has passed. */
   sweepAtKeys: number;

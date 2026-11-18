@@ -96,13 +96,13 @@ export function applyAuthExtension(schema: GraphQLSchema): GraphQLSchema {
     return loadUser(ctx, userId);
   };
 
-  mutations.signInOnTrustedNetwork.resolve = async (_parent: unknown, _args: unknown, ctx: Context) => {
-    throttle(ctx, AuthFlow.TrustedNetwork);
-    if (secureLocalNet() === false) {
-      throw forbidden(NOT_TRUSTED);
-    }
-    return signInLocalAdmin(ctx.db, ctx.auth);
-  };
+  mutations.signInOnTrustedNetwork.resolve = (_parent: unknown, _args: unknown, ctx: Context) =>
+    throttle(ctx, AuthFlow.TrustedNetwork, async () => {
+      if (secureLocalNet() === false) {
+        throw forbidden(NOT_TRUSTED);
+      }
+      return signInLocalAdmin(ctx.db, ctx.auth);
+    });
 
   mutations.setUserRole.resolve = async (_parent: unknown, args: { id: string; role: string }, ctx: Context) => {
     const role = parseOrThrow(roleInput, args.role);

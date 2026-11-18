@@ -73,6 +73,33 @@ describe('createRateLimiter', () => {
     expect(refusal('a')).toBeUndefined();
   });
 
+  it('takes back a refunded attempt, on every key it was charged to', () => {
+    limiter.hit('ip', 'email')();
+    limiter.hit('ip', 'email')();
+    limiter.hit('ip', 'email');
+    expect(refusal('ip')).toBeUndefined();
+    expect(refusal('email')).toBeUndefined();
+    expect(refusal('ip')).toBeDefined();
+  });
+
+  it('counts an attempt in flight until it is refunded, so a burst cannot pass at once', () => {
+    const inFlight = [limiter.hit('a'), limiter.hit('a')];
+    expect(refusal('a')).toBeDefined();
+    for (const refund of inFlight) {
+      refund();
+    }
+    expect(refusal('a')).toBeUndefined();
+  });
+
+  it('refunds only its own attempt, and nothing once that has left the window', () => {
+    const late = limiter.hit('a');
+    clock = WINDOW_MS;
+    limiter.hit('a');
+    late();
+    limiter.hit('a');
+    expect(refusal('a')).toBeDefined();
+  });
+
   it('forgets quiet keys once it holds too many', () => {
     const small = createRateLimiter({ ...SETTINGS, maxAttempts: 1, sweepAtKeys: 2 }, () => clock);
     small.hit('a');
@@ -110,24 +137,33 @@ describe('sign-in throttling', () => {
     expect(error.extensions).toMatchObject({ code: ErrorCode.TooManyRequests, retryAfter: WINDOW_SECONDS });
   });
 
-  it('limits signing in on a trusted network', async () => {
+  it('never counts a trusted-network sign-in that succeeds', async () => {
     const client = await createClient(db, null, { limiter });
-    await client.expectOk(TRUSTED);
-    await client.expectOk(TRUSTED);
+    for (let attempt = 0; attempt <= SETTINGS.maxAttempts; attempt += 1) {
+      await client.expectOk(TRUSTED);
+    }
+  });
+
+  it('limits trusted-network sign-ins that fail', async () => {
+    vi.stubEnv('SECURE_LOCAL_NET', 'false');
+    const client = await createClient(db, null, { limiter });
+    expect((await client.expectError(TRUSTED)).code).toBe(ErrorCode.Forbidden);
+    expect((await client.expectError(TRUSTED)).code).toBe(ErrorCode.Forbidden);
     expect((await client.expectError(TRUSTED)).code).toBe(ErrorCode.TooManyRequests);
   });
 
   it('counts each address on its own', async () => {
     const here = await createClient(db, null, { limiter, ip: TEST_IP });
-    await here.expectOk(TRUSTED);
-    await here.expectOk(TRUSTED);
-    await (await createClient(db, null, { limiter, ip: OTHER_IP })).expectOk(TRUSTED);
+    await here.expectError(VERIFY, { token: 'not-a-token' });
+    await here.expectError(VERIFY, { token: 'nor-this' });
+    const there = await createClient(db, null, { limiter, ip: OTHER_IP });
+    expect((await there.expectError(VERIFY, { token: 'a-third' })).code).toBe(ErrorCode.BadUserInput);
   });
 
   it('gives each step a budget of its own', async () => {
     const client = await createClient(db, null, { limiter });
+    await client.expectError(VERIFY, { token: 'not-a-token' });
+    await client.expectError(VERIFY, { token: 'nor-this' });
     await client.expectOk(TRUSTED);
-    await client.expectOk(TRUSTED);
-    expect((await client.expectError(VERIFY, { token: 'not-a-token' })).code).toBe(ErrorCode.BadUserInput);
   });
 });

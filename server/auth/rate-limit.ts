@@ -2,14 +2,20 @@ import { RATE_LIMIT_DEFAULTS, type RateLimitSettings } from '../core/defaults.ts
 import { rateLimited } from '../core/errors.ts';
 import { MS_PER_SECOND, SECONDS_PER_MINUTE } from '../core/wire.ts';
 
+/** Gives back an attempt that succeeded, so only failures use up a key's budget. */
+export type Refund = () => void;
+
 /** Sliding-window counter, in process. Per process is the right size for one router. */
 export interface RateLimiter {
   /**
    * Records one attempt against every key, or throws `TOO_MANY_REQUESTS` when
    * any of them has used its budget. A refused attempt is not recorded, so
    * hammering a closed door does not keep it closed.
+   *
+   * The attempt counts from the start, so a burst of attempts in flight at once
+   * can't all pass before the first one fails. Call the refund when it succeeds.
    */
-  hit(...keys: string[]): void;
+  hit(...keys: string[]): Refund;
 }
 
 /**
@@ -25,7 +31,7 @@ export function createRateLimiter(
 ): RateLimiter {
   const { maxAttempts, windowMinutes, sweepAtKeys } = { ...RATE_LIMIT_DEFAULTS, ...overrides };
   const windowMs = windowMinutes * SECONDS_PER_MINUTE * MS_PER_SECOND;
-  /** When each key was last let through, oldest first. */
+  /** When each key's attempts were let through, oldest first, less those refunded. */
   const attempts = new Map<string, number[]>();
 
   const recent = (key: string, at: number): number[] =>
@@ -41,7 +47,7 @@ export function createRateLimiter(
   };
 
   return {
-    hit(...keys: string[]): void {
+    hit(...keys: string[]): Refund {
       const at = now();
       const live = keys.map((key) => recent(key, at));
       const spent = live.filter((times) => times.length >= maxAttempts);
@@ -61,6 +67,15 @@ export function createRateLimiter(
       if (attempts.size > sweepAtKeys) {
         sweep(at);
       }
+      return () => {
+        for (const key of keys) {
+          const times = attempts.get(key) ?? [];
+          const index = times.indexOf(at);
+          if (index >= 0) {
+            attempts.set(key, times.toSpliced(index, 1));
+          }
+        }
+      };
     },
   };
 }

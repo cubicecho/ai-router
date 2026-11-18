@@ -69,19 +69,19 @@ function isVerifiedToken(value: unknown): value is VerifiedToken {
  */
 const verifyOneTimeToken: OperationOptions<Context> = {
   result: () => SESSION_RESULT,
-  around: async (call, next) => {
-    throttle(call.context, AuthFlow.VerifyOneTimeToken);
-    let result: unknown;
-    try {
-      result = await next();
-    } catch (error) {
-      throw error instanceof GraphQLError ? badInput(BAD_SSO_TOKEN) : error;
-    }
-    if (isVerifiedToken(result) === false) {
-      throw badInput(BAD_SSO_TOKEN);
-    }
-    return { token: result.session.token, userId: result.user.id };
-  },
+  around: (call, next) =>
+    throttle(call.context, AuthFlow.VerifyOneTimeToken, async () => {
+      let result: unknown;
+      try {
+        result = await next();
+      } catch (error) {
+        throw error instanceof GraphQLError ? badInput(BAD_SSO_TOKEN) : error;
+      }
+      if (isVerifiedToken(result) === false) {
+        throw badInput(BAD_SSO_TOKEN);
+      }
+      return { token: result.session.token, userId: result.user.id };
+    }),
 };
 
 /** Ends the caller's session. Signing out with none is `success: false`, not an error. */
