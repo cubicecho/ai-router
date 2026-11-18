@@ -232,6 +232,20 @@ export function runAsChildPath(): string {
   return configured === '' ? CHILD_DEFAULTS.helperPath : configured;
 }
 
+/**
+ * Where MCP servers' install folders go, one per server, each owned by that server's user.
+ *
+ * @returns `SERVERS_DIR`, else `<DATA_DIR>/servers`, else `.data/servers` under the repo, for development.
+ */
+export function serversDir(): string {
+  const configured = process.env.SERVERS_DIR?.trim() ?? '';
+  if (configured !== '') {
+    return path.resolve(configured);
+  }
+  const dataDir = process.env.DATA_DIR?.trim() ?? '';
+  return path.join(dataDir === '' ? path.join(ROOT, '.data') : path.resolve(dataDir), 'servers');
+}
+
 /** The id the OIDC provider is registered under in better-auth, and so the last part of its callback path. */
 export const OIDC_PROVIDER_ID = 'oidc';
 /** The `OIDC_CLIENT_AUTH` values a provider can expect. */
