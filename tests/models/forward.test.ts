@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import express from 'express';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_SNAPSHOT, type Snapshot, type SnapshotHost, type SnapshotProvider } from '../../server/db/snapshot.ts';
 import { AFFINITY_NONE, PoolStrategy } from '../../server/db/tables/pools.ts';
 import { PoolBalancer } from '../../server/models/balancer.ts';
@@ -124,6 +124,11 @@ beforeAll(async () => {
   });
   app.post('/v1/slow', () => {
     // Never answers.
+  });
+  app.post('/v1/trickle', (_req, res) => {
+    res.setHeader('content-type', 'text/event-stream');
+    res.write('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n');
+    setTimeout(() => res.end('data: [DONE]\n\n'), 200);
   });
   app.post('/v1/broken', (_req, res) => {
     res.setHeader('content-type', 'text/event-stream');
@@ -267,6 +272,26 @@ describe('pools', () => {
     const answer = await call('chat/completions', { model: 'qwen3', messages: [], stream: true });
     await answer.body?.cancel();
     expect(balancer.inFlightTo(target)).toBe(0);
+  });
+
+  it('says nothing is wrong when the caller stops reading with the next chunk still on its way', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const answer = await call('trickle', { model: 'qwen3' });
+      const reader = answer.body?.getReader();
+      await reader?.read();
+      // A client waiting on the next chunk when it decides it has heard enough, as the OpenAI SDK does at [DONE].
+      const waiting = reader?.read();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await reader?.cancel();
+      await waiting;
+      // Past the provider's last chunk, which lands on the read that was waiting when the caller cancelled.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(warned).not.toHaveBeenCalled();
+      expect(balancer.inFlightTo(target)).toBe(0);
+    } finally {
+      warned.mockRestore();
+    }
   });
 
   it('frees the slot when the caller gives up without reading the answer', async () => {
