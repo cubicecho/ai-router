@@ -4,6 +4,12 @@
 
 * **models:** a pool sends a call on when its target can't be reached ([804bf67](https://github.com/cubicecho/ai-router/commit/804bf67845798d147b7972cddcd8e03199a460b3))
 
+# [0.2.0](https://github.com/cubicecho/ai-router/compare/v0.1.2...v0.2.0) (2026-11-18)
+
+### Features
+
+* **models:** a pool sends a call on when its target can't be reached ([804bf67](https://github.com/cubicecho/ai-router/commit/804bf67845798d147b7972cddcd8e03199a460b3))
+
 ## [0.1.2](https://github.com/cubicecho/ai-router/compare/v0.1.1...v0.1.2) (2026-11-18)
 
 ### Bug Fixes
