@@ -120,10 +120,18 @@ export function openChunkStream(
   response.setHeader('cache-control', 'no-cache');
   response.setHeader('x-accel-buffering', 'no');
   response.flushHeaders();
-  const heartbeat = setInterval(() => response.write(HEARTBEAT), heartbeatSeconds * MS_PER_SECOND);
+  // A run with an Idempotency-Key outlives its connection, so what it says after the app has gone goes nowhere.
+  const isGone = (): boolean => response.destroyed || response.writableEnded;
+  const write = (text: string): void => {
+    if (isGone() === false) {
+      response.write(text);
+    }
+  };
+  const heartbeat = setInterval(() => write(HEARTBEAT), heartbeatSeconds * MS_PER_SECOND);
   heartbeat.unref();
+  response.on('close', () => clearInterval(heartbeat));
   const send = (data: unknown): void => {
-    response.write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
+    write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
   };
   const chunk = (delta: Record<string, unknown>, finishReason: string | null) => ({
     ...header(meta),
@@ -132,7 +140,9 @@ export function openChunkStream(
   });
   const close = (): void => {
     clearInterval(heartbeat);
-    response.end();
+    if (isGone() === false) {
+      response.end();
+    }
   };
   send(chunk({ role: 'assistant', content: '' }, null));
   return {

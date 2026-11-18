@@ -618,6 +618,24 @@ describe("a run's end", () => {
     expect(row.error).toBe('The app disconnected.');
   });
 
+  it('goes on when the app disconnects from a run with an Idempotency-Key, so its retry gets the answer', async () => {
+    script = () => ({ call: { name: 'fix_ture__sleep', args: { ms: 300 } } });
+    const { base } = await startRouter();
+    const body = { model: 'helper', messages: [QUESTION], stream: true };
+    const response = await complete(base, body, { 'idempotency-key': 'dropped' });
+    const runId = response.headers.get('x-run-id') ?? '';
+    while (received.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await response.body?.cancel();
+    script = () => ({ content: 'Done.' });
+    await runReaches(runId, RunStatus.Completed);
+    const retry = await complete(base, { ...body, stream: false }, { 'idempotency-key': 'dropped' });
+    expect(retry.headers.get('x-run-id')).toBe(runId);
+    expect(retry.status).toBe(HttpStatus.Ok);
+    expect((await retry.json()).choices[0].message.content).toBe('Done.');
+  });
+
   it('fails at the run timeout', async () => {
     script = () => ({ call: { name: 'fix_ture__sleep', args: { ms: 5_000 } } });
     const { base } = await startRouter({ timeoutMinutes: 0.005 });

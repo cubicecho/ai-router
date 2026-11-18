@@ -314,9 +314,11 @@ export function createAgentRoutes({
       return;
     }
     response.setHeader(RUN_ID_HEADER, started.runId);
+    // A run without a key ends with its connection. One with a key goes on to its timeout, so the retry the key
+    // is for finds the answer rather than a cancellation.
     const disconnected = new AbortController();
     response.on('close', () => {
-      if (response.writableFinished === false) {
+      if (response.writableFinished === false && idempotency === null) {
         disconnected.abort();
       }
     });

@@ -95,7 +95,7 @@ received --resolve--> refused (4xx, not recorded)
 received --resolve--> running --model answers--> completed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
-                      running --app disconnects--> cancelled
+                      running --app without a key disconnects--> cancelled
                       running --model calls an app tool--> waiting (finish_reason: tool_calls)   (phase 7)
                       waiting --app answers every handed-back call--> running                    (phase 7)
                       waiting --no answer before the timeout--> expired                          (phase 7)
@@ -192,7 +192,7 @@ created (shown once) --> in use --revoke--> deleted
 | Until app tools arrive (phase 7), a request with `tools` or `tool_choice`, or whose history holds `tool` messages or assistant tool calls, is refused with a 400 that says so. `ai_router.progress` is accepted and does nothing yet | `agents/request` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
-| An app disconnecting cancels its run. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
+| An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |

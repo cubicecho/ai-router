@@ -376,7 +376,8 @@ The acceptance check for the first release.
      and a failure as an `error` data line.
    - **Idempotency.** The hash leaves out `stream` and `stream_options`. A failed or cancelled run
      is answered again with its error (500, or 409 for cancelled), never run again. Keys are freed
-     after 24 hours. A disconnect cancels a run, so a retry after one gets the cancellation.
+     after 24 hours. A disconnect cancels a run without a key. A run with one goes on to its timeout,
+     so the retry the key is for gets the answer.
    - **Elicitation** is declined: the router's MCP client offers no elicitation capability.
    - **Model calls** go through agent-core's `Endpoint.fetch` (#224). Only endpoints at the
      router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
@@ -450,7 +451,8 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 - **`servers` absent means every server** under the spec. On a router with many servers, should
   the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels
-  it. That's right for chat, but a Friday job shouldn't die with its connection. The later
+  it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one
+  survives a dropped connection. The later
   option is to start a run, get its id, and fetch the result afterwards, as Hermes's Runs API
   and A2A tasks do. Proposed: not in v1. Make sure the router's, proxies' and apps' timeouts
   allow long streams.
