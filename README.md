@@ -58,6 +58,11 @@ curl http://localhost:3000/v1/chat/completions \
   them resumes the same run.
 - **Run records:** `GET /runs/<id>` gives the run, and `GET /runs/<id>/events` its events, live
   with `Accept: text/event-stream`.
+- **Long runs:** a run may take 30 minutes. A stream gets a `: keep-alive` comment every 15
+  seconds, so a proxy in front needs a read timeout longer than that. An answer without `stream`
+  sends nothing until the run ends, so the proxy's and the client's timeouts must outlast the run:
+  the OpenAI SDKs give up after 10 minutes. A dropped connection cancels the run, unless the
+  request sent an `Idempotency-Key`.
 
 ## Development
 

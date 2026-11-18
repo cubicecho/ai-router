@@ -503,8 +503,10 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one
   survives a dropped connection. The later
   option is to start a run, get its id, and fetch the result afterwards, as Hermes's Runs API
-  and A2A tasks do. Proposed: not in v1. Make sure the router's, proxies' and apps' timeouts
-  allow long streams.
+  and A2A tasks do. Proposed: not in v1. The router's own timeouts allow long streams (checked
+  2026-11-18: Node's `requestTimeout` covers only receiving the request, and streams get a
+  heartbeat), and the README says what a proxy and a client need. The apps' timeouts are checked
+  with phase 8.
 - **Approval of risky tool calls** (Hermes's command approval). It is not in the model: it needs a
   list of risky tools and a way to ask someone. Proposed: leave it out of v1.
 - **Per-tool scoping** (include and exclude lists per server). Proposed: leave it out, so a
