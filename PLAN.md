@@ -497,22 +497,25 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   declined and retry the tool call once the app answers. Worth doing when `min-agent` has a
   server that asks.
 
-- **`servers` absent means every server** under the spec. On a router with many servers, should
-  the UI warn about such an agent, or should the router refuse to save it? Proposed: warn.
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels
   it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one
   survives a dropped connection. The later
   option is to start a run, get its id, and fetch the result afterwards, as Hermes's Runs API
-  and A2A tasks do. Proposed: not in v1. Make sure the router's, proxies' and apps' timeouts
-  allow long streams.
+  and A2A tasks do. Proposed: not in v1. The router's own timeouts allow long streams (checked
+  2026-11-18: Node's `requestTimeout` covers only receiving the request, and streams get a
+  heartbeat), and the README says what a proxy and a client need. The apps' timeouts are checked
+  with phase 8.
 - **Approval of risky tool calls** (Hermes's command approval). It is not in the model: it needs a
   list of risky tools and a way to ask someone. Proposed: leave it out of v1.
 - **Per-tool scoping** (include and exclude lists per server). Proposed: leave it out, so a
   server is the unit.
-- **better-auth's organization plugin for workspace keys.** Keys are the router's own table for now
-  (the decisions above). The organization plugin could own them instead, with a workspace as an
-  organization, if it can verify a key without a database read and a usage write per request.
-  Look at it before phase 9, when the admin server's permission levels need per-workspace roles.
+- **better-auth's organization plugin for workspace keys: no** (reviewed 2026-11-18, better-auth
+  1.7). The api-key plugin (`@better-auth/api-key`) can make keys an organization owns, but every
+  verify writes the key's `lastRequest`, even with its rate limit off, and the only way to skip
+  the database is its secondary storage, which wants Redis or a store of our own. The
+  organization plugin's roles are people's roles in an organization, and here every user sees
+  every workspace. Phase 9's permission levels belong to an app's server entry for the admin
+  server, not to a person, so they can be a column on `workspace_servers` rather than a role.
 - **drizzle-graphql, upstream:**
   - It warns about `workspace_keys.hash` and `server_secrets.value` at every schema build: they
     are excluded and NOT NULL, and the warning ignores that those tables' generated inserts are

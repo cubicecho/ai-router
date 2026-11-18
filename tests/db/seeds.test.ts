@@ -9,8 +9,13 @@ import { relations } from '../../server/db/relations.ts';
 import { DEFAULT_POLICY_ID, overridePolicies } from '../../server/db/tables/override-policies.ts';
 import { registries } from '../../server/db/tables/registries.ts';
 
+// Every migration runs on a fresh PGlite: about 4 s alone, and past Vitest's 5 s default when the machine is busy.
+const MIGRATE_TIMEOUT_MS = 30_000;
+
 describe('the migrations', () => {
-  it('seed the official registry and the default override policy, as the code describes it', async () => {
+  it('seed the official registry and the default override policy, as the code describes it', {
+    timeout: MIGRATE_TIMEOUT_MS,
+  }, async () => {
     const client = new PGlite('memory://');
     const db = drizzle({ client, relations });
     try {
