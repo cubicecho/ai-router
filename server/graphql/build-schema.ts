@@ -6,6 +6,8 @@ import { applyAuthExtension } from '../auth/resolvers.ts';
 import { OPERATION_LIMIT_DEFAULTS } from '../core/defaults.ts';
 import { forbidden } from '../core/errors.ts';
 import type { DB } from '../db/client.ts';
+import { modelWriteHooks } from '../models/hooks.ts';
+import { applyModelsExtension } from '../models/resolvers.ts';
 import { applySsoExtension } from '../sso/resolvers.ts';
 import { workspaceWriteHooks } from '../workspaces/hooks.ts';
 import { applyWorkspacesExtension } from '../workspaces/resolvers.ts';
@@ -15,8 +17,8 @@ import { permissions } from './permissions.ts';
 /** better-auth's tables, and the pairing's secrets. Never served: every read of them goes through the server. */
 const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
-/** Tables whose writes belong to hand-written mutations: the sign-in flow, roles and keys. */
-const WRITES_RESERVED = new Set<string>(['users', 'workspaceKeys']);
+/** Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets, usage. */
+const WRITES_RESERVED = new Set<string>(['users', 'workspaceKeys', 'poolTargets', 'usageCounts']);
 
 /**
  * Whether a table keeps its generated writes.
@@ -50,7 +52,7 @@ export function createSchema(db: DB): GraphQLSchema {
     prefixes: { insert: 'create', update: 'update', delete: 'delete' },
     // Table keys are plural (`workspaces`). Types and single-row fields are singular (Workspace, workspace).
     typeNameMapper: 'singularize',
-    exclude: { tables: SERVER_TABLES, columns: { workspaceKeys: ['hash'] } },
+    exclude: { tables: SERVER_TABLES, columns: { workspaceKeys: ['hash'], providers: ['apiKey'] } },
     features: {
       insert: generatedWritesAllowed,
       update: generatedWritesAllowed,
@@ -64,12 +66,14 @@ export function createSchema(db: DB): GraphQLSchema {
       maxLimit: OPERATION_LIMIT_DEFAULTS.maxPageSize,
     },
     complexity: true,
-    onWrite: { ...workspaceWriteHooks },
+    // A stored value such as `least-busy` is no GraphQL name: it is served as `least_busy`, and stored as it was.
+    enumValueNameMapper: ({ value }) => value.replaceAll('-', '_'),
+    onWrite: { ...workspaceWriteHooks, ...modelWriteHooks },
     onError: mapDatabaseError,
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applyWorkspacesExtension(withAuth);
+  const extended = applyModelsExtension(applyWorkspacesExtension(withAuth));
   return applyPermissions(extended, permissions, {
     // A refusal names the field, so a client can tell which call to stop making.
     fallbackError: (_original, _parent, _args, _context, info) =>

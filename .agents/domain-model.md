@@ -3,8 +3,8 @@
 What ai-router is made of: its concepts, who may change them, and what always holds. Use these
 terms, and only these, in code, tests, docs and reviews.
 
-**Phase 1 is built:** sign-in, roles, workspaces, keys and the snapshot describe the code as it
-is. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
+**Phases 1 and 2 are built:** sign-in, roles, workspaces, keys, the snapshot, and the models
+area (providers, pools, forwarding, usage) describe the code as it is. Every other entry is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
 
@@ -227,18 +227,19 @@ Everything about the code comes after `Owner:`.
 ### Models
 
 - **Provider:** a model server the router's agents call, such as OpenAI, Ollama or llama.cpp: its
-  address, an optional key and extra headers. Owner: `models/`; the `providers` table.
+  address, an optional key and extra headers. Owner: `models/`; the `providers` table, whose
+  `api_key` is never served and whose generated `api_key_set` is.
 - **Model id:** how an agent names its model: one provider's model, named after the provider, or a
   pool. Owner: `models/naming`; `<provider>/<model>`, split at the first `/`, or a pool's name.
 - **Pool:** one model name served by several targets, with the router choosing one for each
-  request. Owner: `models/pool`; the `pools` table.
-- **Target:** one place a pool can send a request: a provider and the model's name there. Owner:
-  `models/pool`; the `pool_targets` table.
+  call: the least busy, in turn, or at random. Owner: `models/balancer`; the `pools` table.
+- **Target:** one place a pool can send a call: a provider and the model's name there. Owner:
+  `models/balancer`; the `pool_targets` table, written whole by `setPoolTargets`.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
 - **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Usage
-  stays after its provider or workspace is deleted. Owner: `models/usage`; the `usage` table,
-  which keeps both names, with optional foreign keys to them.
+  stays after its provider or workspace is deleted. Owner: `models/usage`; the `usage_counts`
+  table, which keeps both names, with optional foreign keys to them, written every few seconds.
 
 ### Tools
 

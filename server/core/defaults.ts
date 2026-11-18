@@ -174,3 +174,72 @@ export const CHILD_DEFAULTS: Readonly<ChildSettings> = Object.freeze({
   uidMax: 19_999,
   checkTimeoutMs: 5_000,
 });
+
+/** Calling providers on a run's behalf. */
+export interface ModelSettings {
+  /** How long a provider may take to start answering a call, before it is a 504. A stream then runs as long as it needs. */
+  responseTimeoutMs: number;
+  /** How long a provider's model list is reused before it is asked again. */
+  modelListCacheSeconds: number;
+  /** How long a provider may take to list its models. */
+  modelListTimeoutMs: number;
+  /** How much of a provider's failed answer is kept in an error message. */
+  errorBodyMaxChars: number;
+  /** A JSON answer larger than this is passed on but not read for its token counts. */
+  maxResponseBytes: number;
+  /** How long an idle connection to a provider is kept for the next call. */
+  keepAliveMs: number;
+}
+
+export const MODEL_DEFAULTS: Readonly<ModelSettings> = Object.freeze({
+  responseTimeoutMs: 600_000,
+  modelListCacheSeconds: 60,
+  modelListTimeoutMs: 10_000,
+  errorBodyMaxChars: 500,
+  maxResponseBytes: 8_388_608,
+  keepAliveMs: 30_000,
+});
+
+/** Counting usage. */
+export interface UsageSettings {
+  /** How often counts gathered in memory are written. A crash loses at most this much. */
+  flushSeconds: number;
+  /** How many days stay one row per day before they fold into the all-time row. */
+  detailDays: number;
+  /** How often days past the detail window are folded. */
+  foldEveryHours: number;
+}
+
+export const USAGE_DEFAULTS: Readonly<UsageSettings> = Object.freeze({
+  flushSeconds: 5,
+  detailDays: 90,
+  foldEveryHours: 24,
+});
+
+/** Limits on what a provider or a pool may hold. */
+export interface ModelConfigSettings {
+  /** Longest display name, in characters. */
+  maxDisplayNameLength: number;
+  /** Longest description, in characters. */
+  maxDescriptionLength: number;
+  /** Most headers one provider may send. */
+  maxHeaders: number;
+  /** Longest header value, in characters. */
+  maxHeaderValueLength: number;
+  /** Longest API key, in characters. */
+  maxApiKeyLength: number;
+  /** Most targets one pool may have. */
+  maxTargets: number;
+  /** Longest model id at a provider, in characters. */
+  maxModelLength: number;
+}
+
+export const MODEL_CONFIG_DEFAULTS: Readonly<ModelConfigSettings> = Object.freeze({
+  maxDisplayNameLength: 120,
+  maxDescriptionLength: 2_000,
+  maxHeaders: 32,
+  maxHeaderValueLength: 4_096,
+  maxApiKeyLength: 4_096,
+  maxTargets: 64,
+  maxModelLength: 256,
+});

@@ -4,6 +4,7 @@ import type { RateLimiter } from '../auth/rate-limit.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import type { Role } from '../db/tables/users.ts';
+import type { ModelServices } from '../models/services.ts';
 
 /** What `Context.ip` holds when the socket reports no address. One shared budget, not none. */
 export const UNKNOWN_IP = 'unknown';
@@ -39,6 +40,8 @@ export interface ContextDeps {
   snapshot: SnapshotHost;
   /** Sign-in throttle. The sign-in mutations call it. */
   limiter: RateLimiter;
+  /** The models area: providers' model lists, pool load, forwarding and usage. */
+  models: ModelServices;
 }
 
 /** What every resolver, generated or hand-written, is handed. */

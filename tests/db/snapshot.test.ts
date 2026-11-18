@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { hashKey } from '../../server/auth/keys.ts';
 import { workspaces } from '../../server/db/schema.ts';
-import { createSnapshotHost, loadSnapshot, type Snapshot } from '../../server/db/snapshot.ts';
+import { createSnapshotHost, EMPTY_SNAPSHOT, loadSnapshot, type Snapshot } from '../../server/db/snapshot.ts';
 import { closeTestDb, createTestDb, createWorkspaceWithKey, resetTestDb, type TestDb } from '../helpers.ts';
 
 let db: TestDb;
@@ -35,7 +35,7 @@ describe('the snapshot', () => {
   it('shares one read between calls waiting for it, and queues one more behind a read in progress', async () => {
     let reads = 0;
     let release: () => void = () => {};
-    const empty: Snapshot = { workspaces: new Map(), keys: new Map() };
+    const empty: Snapshot = EMPTY_SNAPSHOT;
     const host = await createSnapshotHost(db, async () => {
       reads += 1;
       if (reads === 2) {
@@ -58,7 +58,7 @@ describe('the snapshot', () => {
 
   it('keeps the old snapshot when a read fails', async () => {
     let shouldFail = false;
-    const kept: Snapshot = { workspaces: new Map(), keys: new Map() };
+    const kept: Snapshot = { ...EMPTY_SNAPSHOT };
     const host = await createSnapshotHost(db, async () => {
       if (shouldFail) {
         throw new Error('database down');

@@ -12,9 +12,11 @@ import type { OidcConfig } from '../server/core/config.ts';
 import { CALLER_USER, CALLER_WORKSPACE, type Caller, type Context, type UserCaller } from '../server/core/context.ts';
 import { relations } from '../server/db/relations.ts';
 import * as dbSchema from '../server/db/schema.ts';
-import { loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
+import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
 import { Role } from '../server/db/tables/users.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
+import type { UpstreamFetch } from '../server/models/outbound.ts';
+import { createModelServices, type ModelServices } from '../server/models/services.ts';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -30,6 +32,11 @@ export type TestDb = ReturnType<typeof drizzle<typeof relations>>;
 export const TEST_SECRET = 'test-secret-0123456789abcdef0123456789';
 /** Where a test client's requests come from unless it says otherwise. */
 export const TEST_IP = '127.0.0.1';
+
+/** A provider fetch that reaches nothing, for tests that don't call providers. */
+const UNREACHABLE: UpstreamFetch = async (url) => {
+  throw new Error(`No provider is reachable in this test (${url}).`);
+};
 
 /** Every table in the schema, quoted for a statement that names them all. */
 const TABLE_LIST = Object.values(dbSchema)
@@ -159,6 +166,8 @@ export interface ClientDeps {
   limiter?: RateLimiter;
   /** @defaultValue `TEST_IP` */
   ip?: string;
+  /** @defaultValue the models area over this client's snapshot, reaching no provider */
+  models?: ModelServices;
   /** @defaultValue none */
   headers?: Headers;
 }
@@ -191,7 +200,7 @@ export interface TestClient {
  * @returns The host.
  */
 function freshSnapshot(db: TestDb): SnapshotHost {
-  let snapshot: Snapshot = { workspaces: new Map(), keys: new Map() };
+  let snapshot: Snapshot = EMPTY_SNAPSHOT;
   return {
     current: () => snapshot,
     rebuild: async () => {
@@ -213,6 +222,7 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
   const authHost = deps.authHost ?? fixedAuthHost(createTestAuth(db));
   const isFresh = deps.snapshot === undefined;
   const snapshot = deps.snapshot ?? freshSnapshot(db);
+  const models = deps.models ?? createModelServices({ db, snapshot, fetch: UNREACHABLE });
   const schema = schemas.get(db) ?? createSchema(db);
   schemas.set(db, schema);
 
@@ -220,7 +230,17 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
     if (isFresh) {
       await snapshot.rebuild();
     }
-    const contextValue: Context = { db, auth: authHost.current(), authHost, snapshot, limiter, caller, headers, ip };
+    const contextValue: Context = {
+      db,
+      auth: authHost.current(),
+      authHost,
+      snapshot,
+      limiter,
+      models,
+      caller,
+      headers,
+      ip,
+    };
     return graphql({ schema, source: query, contextValue, variableValues: variables });
   };
 

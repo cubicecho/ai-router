@@ -10,6 +10,7 @@ export const ErrorCode = {
   QueryTooComplex: 'QUERY_TOO_COMPLEX',
   Forbidden: 'FORBIDDEN',
   Conflict: 'CONFLICT',
+  UpstreamFailed: 'UPSTREAM_FAILED',
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
@@ -34,6 +35,8 @@ export const unauthenticated = withCode(ErrorCode.Unauthenticated);
 export const forbidden = withCode(ErrorCode.Forbidden);
 /** The request is fine, but the router is in a state that refuses it, such as demoting the last admin. */
 export const conflict = withCode(ErrorCode.Conflict);
+/** A provider the router asked on the caller's behalf could not answer: unreachable, slow, or answering wrongly. */
+export const upstreamFailed = withCode(ErrorCode.UpstreamFailed);
 
 /**
  * Builds the rate-limit refusal.

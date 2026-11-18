@@ -81,5 +81,13 @@ export const permissions: PermissionsMap = {
     deleteWorkspace: isUser,
     createWorkspaceKey: isUser,
     revokeWorkspaceKey: isUser,
+    createProvider: isUser,
+    updateProvider: isUser,
+    deleteProvider: isUser,
+    setProviderApiKey: isAdmin,
+    createPool: isUser,
+    updatePool: isUser,
+    deletePool: isUser,
+    setPoolTargets: isUser,
   },
 };

@@ -9,7 +9,9 @@ export const HttpStatus = {
   MethodNotAllowed: 405,
   PayloadTooLarge: 413,
   TooManyRequests: 429,
+  BadGateway: 502,
   ServiceUnavailable: 503,
+  GatewayTimeout: 504,
 } as const;
 export type HttpStatus = (typeof HttpStatus)[keyof typeof HttpStatus];
 

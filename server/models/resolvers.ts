@@ -1,0 +1,159 @@
+import { eq, inArray } from 'drizzle-orm';
+import { extendSchema, type GraphQLSchema, parse } from 'graphql';
+import type { Context } from '../core/context.ts';
+import { badInput, notFound, upstreamFailed } from '../core/errors.ts';
+import { parseOrThrow } from '../core/validation.ts';
+import type { Snapshot, SnapshotProvider } from '../db/snapshot.ts';
+import { poolTargets } from '../db/tables/pool-targets.ts';
+import { pools } from '../db/tables/pools.ts';
+import { providers } from '../db/tables/providers.ts';
+import { objectType } from '../graphql/object-type.ts';
+import { ModelListError } from './catalog.ts';
+import { apiKeyInput, targetsInput } from './input.ts';
+
+const MODELS_SDL = parse(`
+  "One model as its provider lists it."
+  type ProviderModel {
+    "The model's id at the provider. An agent names it as <provider>/<id>."
+    id: String!
+    "Who the provider says made it, when it says."
+    ownedBy: String
+  }
+
+  "How busy one of a pool's targets is right now."
+  type TargetLoad {
+    providerId: UUID!
+    providerName: String!
+    model: String!
+    "Calls sent to it that haven't finished."
+    inFlight: Int!
+  }
+
+  "One of a pool's targets, as setPoolTargets takes them."
+  input PoolTargetInput {
+    providerId: UUID!
+    "The model's id at the provider."
+    model: String!
+  }
+
+  extend type Query {
+    "What a provider serves now, from its own model list. Cached for a minute unless refresh is true."
+    providerModels(id: UUID!, refresh: Boolean): [ProviderModel!]!
+    "How many calls each of a pool's targets has in flight."
+    poolLoad(id: UUID!): [TargetLoad!]!
+  }
+
+  extend type Mutation {
+    "Sets a provider's key, sent as Authorization: Bearer. Null or empty clears it. Admin only."
+    setProviderApiKey(id: UUID!, apiKey: String): Provider!
+    "Replaces a pool's targets with these, in this order."
+    setPoolTargets(poolId: UUID!, targets: [PoolTargetInput!]!): Pool!
+  }
+`);
+
+/**
+ * Finds a provider in the snapshot by its id.
+ *
+ * @param snapshot - What the router routes by.
+ * @param id - The provider.
+ * @returns The provider.
+ * @throws NOT_FOUND when there is none.
+ */
+function providerById(snapshot: Snapshot, id: string): SnapshotProvider {
+  const found = [...snapshot.providers.values()].find((provider) => provider.id === id);
+  if (found === undefined) {
+    throw notFound('Provider not found.');
+  }
+  return found;
+}
+
+/**
+ * Adds the models fields CRUD can't express: the write-only key, a pool's targets, model lists and load.
+ *
+ * @param schema - Schema to extend.
+ * @returns The extended schema.
+ */
+export function applyModelsExtension(schema: GraphQLSchema): GraphQLSchema {
+  const extended = extendSchema(schema, MODELS_SDL);
+  const queries = objectType(extended, 'Query').getFields();
+  const mutations = objectType(extended, 'Mutation').getFields();
+
+  queries.providerModels.resolve = async (
+    _parent: unknown,
+    args: { id: string; refresh?: boolean | null },
+    ctx: Context,
+  ) => {
+    const provider = providerById(ctx.snapshot.current(), args.id);
+    if (args.refresh === true) {
+      ctx.models.catalog.forget(provider.id);
+    }
+    try {
+      const models = await ctx.models.catalog.list(provider);
+      return models.map((model) => ({
+        id: model.id,
+        ownedBy: typeof model.owned_by === 'string' ? model.owned_by : null,
+      }));
+    } catch (error) {
+      throw error instanceof ModelListError ? upstreamFailed(error.message) : error;
+    }
+  };
+
+  queries.poolLoad.resolve = (_parent: unknown, args: { id: string }, ctx: Context) => {
+    const pool = [...ctx.snapshot.current().pools.values()].find((candidate) => candidate.id === args.id);
+    if (pool === undefined) {
+      throw notFound('Pool not found.');
+    }
+    return pool.targets.map((target) => ({ ...target, inFlight: ctx.models.balancer.inFlightTo(target) }));
+  };
+
+  mutations.setProviderApiKey.resolve = async (
+    _parent: unknown,
+    args: { id: string; apiKey?: string | null },
+    ctx: Context,
+  ) => {
+    const typed = parseOrThrow(apiKeyInput, args.apiKey ?? null);
+    const apiKey = typed === null || typed === '' ? null : typed;
+    const [updated] = await ctx.db.update(providers).set({ apiKey }).where(eq(providers.id, args.id)).returning();
+    if (updated === undefined) {
+      throw notFound('Provider not found.');
+    }
+    await ctx.snapshot.rebuild();
+    const { apiKey: _secret, ...served } = updated;
+    return served;
+  };
+
+  mutations.setPoolTargets.resolve = async (
+    _parent: unknown,
+    args: { poolId: string; targets: { providerId: string; model: string }[] },
+    ctx: Context,
+  ) => {
+    const targets = parseOrThrow(targetsInput, args.targets);
+    const pool = await ctx.db.transaction(async (tx) => {
+      const [found] = await tx.select().from(pools).where(eq(pools.id, args.poolId)).for('update');
+      if (found === undefined) {
+        throw notFound('Pool not found.');
+      }
+      const providerIds = [...new Set(targets.map((target) => target.providerId))];
+      const known =
+        providerIds.length === 0
+          ? []
+          : await tx.select({ id: providers.id }).from(providers).where(inArray(providers.id, providerIds));
+      if (known.length !== providerIds.length) {
+        throw badInput('A target names a provider that does not exist.');
+      }
+      await tx.delete(poolTargets).where(eq(poolTargets.poolId, found.id));
+      if (targets.length > 0) {
+        await tx
+          .insert(poolTargets)
+          .values(targets.map((target, position) => ({ ...target, poolId: found.id, position })));
+      }
+      // So the pool reads as changed: a model list cached for it is stale.
+      const [touched] = await tx.update(pools).set({ updatedAt: new Date() }).where(eq(pools.id, found.id)).returning();
+      return touched ?? found;
+    });
+    await ctx.snapshot.rebuild();
+    return pool;
+  };
+
+  return extended;
+}

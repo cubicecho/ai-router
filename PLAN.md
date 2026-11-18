@@ -86,7 +86,7 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 | --- | --- |
 | auth | better-auth's `users` (with `role`), `sessions`, `accounts`, `verifications`; `oidc_settings`, the paired provider |
 | router | `settings`, a single row |
-| models | `providers`, `pools`, `pool_targets`, `usage` (all internal: used by agent runs) |
+| models | `providers`, `pools`, `pool_targets`, `usage_counts` (all internal: used by agent runs) |
 | tools | `registries`, `servers`, `server_secrets`, `activity` (all internal) |
 | agents | `agents` (with `override_policy_id`), `agent_revisions`, `override_policies` (seeded with one default row), `runs`, `run_events`, `conversations` |
 | workspaces | `workspaces`, `workspace_keys`, `workspace_agents`, `workspace_servers` (env, args, headers and URL overrides for the workspace's agent runs) |
@@ -250,7 +250,7 @@ The acceptance check for the first release.
        as the router's own user, with a warning at boot. That's refused when
        `NODE_ENV=production`.
      - **CI:** the boot job runs the spike's checks against the real image.
-2. **Models**, internal: what agent runs call. Port llm-router's providers, pools, balancer and
+2. **Models**, internal: what agent runs call. The server side is built; the UI pages are next. Port llm-router's providers, pools, balancer and
    affinity, its forwarding (as a function, not an HTTP door), model listing for the UI, usage,
    and the GraphQL admin with its UI pages. Reviewed with the user:
    - **Kept from llm-router:** OpenAI-compatible providers only, with no translation. Model lists

@@ -7,6 +7,8 @@ const PG_UNIQUE_VIOLATION = '23505';
 /** What a caller is told when a write breaks a unique index, by the index's name. */
 const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
   uq_workspaces_slug: 'A workspace with that slug already exists.',
+  uq_providers_name: 'A provider with that name already exists.',
+  uq_pools_name: 'A pool with that name already exists.',
 };
 
 /** The parts of a driver error this reads. */

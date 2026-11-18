@@ -8,6 +8,7 @@ import type { DB } from '../db/client.ts';
 import { createSnapshotHost, type SnapshotHost } from '../db/snapshot.ts';
 import { createSchema } from '../graphql/build-schema.ts';
 import { createContextFactory, createGraphQLHandler } from '../graphql/handler.ts';
+import { createModelServices, type ModelServices } from '../models/services.ts';
 import { type ChildIsolation, ChildMode } from '../tools/child-users.ts';
 import { checkHealth } from './health.ts';
 import { mountSso } from './sso.ts';
@@ -32,6 +33,11 @@ export interface AppDeps {
    */
   limiter?: RateLimiter;
   /**
+   * The models area.
+   * @defaultValue `createModelServices` over this app's snapshot
+   */
+  models?: ModelServices;
+  /**
    * What the boot check found about running MCP servers as their own users. Reported on /healthz.
    * @defaultValue shared, with no reason: tests start no servers.
    */
@@ -51,6 +57,8 @@ export interface BuiltApp {
   app: Express;
   /** The snapshot host the app routes by, for background work that writes. */
   snapshot: SnapshotHost;
+  /** The models area, whose usage recorder boot starts and shutdown stops. */
+  models: ModelServices;
 }
 
 /**
@@ -64,6 +72,7 @@ export async function createApp({
   authHost,
   snapshot,
   limiter = createRateLimiter(),
+  models,
   children = { mode: ChildMode.Shared, reason: '' },
   trustProxy = configuredTrustProxy(),
   staticDir,
@@ -74,7 +83,8 @@ export async function createApp({
   app.disable('x-powered-by');
   const host = authHost ?? (await createAuthHost(db));
   const routes = snapshot ?? (await createSnapshotHost(db));
-  const contextFor = createContextFactory({ db, authHost: host, snapshot: routes, limiter });
+  const services = models ?? createModelServices({ db, snapshot: routes });
+  const contextFor = createContextFactory({ db, authHost: host, snapshot: routes, limiter, models: services });
   const graphql = createGraphQLHandler(createSchema(db), contextFor);
 
   // Yoga reads a body Express already parsed, so the size cap goes here. Over it: 413.
@@ -92,5 +102,5 @@ export async function createApp({
     const serveStatic = createStaticHandler(staticDir);
     app.use((request, response) => serveStatic(request, response));
   }
-  return { app, snapshot: routes };
+  return { app, snapshot: routes, models: services };
 }

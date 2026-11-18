@@ -1,0 +1,1333 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "cc99d1ed-c28d-4cf8-b27c-dc1b3753d5a3",
+  "prevIds": [
+    "a060acfc-f5a7-456a-9d9c-a7159ac6173f"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "pool_targets"
+      ],
+      "writes": [
+        "s|tbl|public.pool_targets",
+        "n|tbl|public.pool_targets",
+        "e|tbl|public.pool_targets",
+        "n|rel|public.pool_targets",
+        "n|type|public.pool_targets",
+        "n|rel|public.pool_targets_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "pools"
+      ],
+      "writes": [
+        "s|tbl|public.pools",
+        "n|tbl|public.pools",
+        "e|tbl|public.pools",
+        "n|rel|public.pools",
+        "n|type|public.pools",
+        "n|rel|public.pools_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "providers"
+      ],
+      "writes": [
+        "s|tbl|public.providers",
+        "n|tbl|public.providers",
+        "e|tbl|public.providers",
+        "n|rel|public.providers",
+        "n|type|public.providers",
+        "n|rel|public.providers_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "usage_counts"
+      ],
+      "writes": [
+        "s|tbl|public.usage_counts",
+        "n|tbl|public.usage_counts",
+        "e|tbl|public.usage_counts",
+        "n|rel|public.usage_counts",
+        "n|type|public.usage_counts",
+        "n|rel|public.usage_counts_pkey",
+        "n|rel|public.uq_usage_counts_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "pool_targets",
+        "uq_pool_targets_pool_id_provider_id_model"
+      ],
+      "writes": [
+        "s|idx|public.uq_pool_targets_pool_id_provider_id_model",
+        "n|idx|public.uq_pool_targets_pool_id_provider_id_model",
+        "e|idx|public.uq_pool_targets_pool_id_provider_id_model",
+        "n|rel|public.uq_pool_targets_pool_id_provider_id_model"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public",
+        "n|col|public.pool_targets.pool_id",
+        "n|col|public.pool_targets.provider_id",
+        "n|col|public.pool_targets.model"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "pool_targets",
+        "idx_pool_targets_provider_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_pool_targets_provider_id",
+        "n|idx|public.idx_pool_targets_provider_id",
+        "e|idx|public.idx_pool_targets_provider_id",
+        "n|rel|public.idx_pool_targets_provider_id"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public",
+        "n|col|public.pool_targets.provider_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "pools",
+        "uq_pools_name"
+      ],
+      "writes": [
+        "s|idx|public.uq_pools_name",
+        "n|idx|public.uq_pools_name",
+        "e|idx|public.uq_pools_name",
+        "n|rel|public.uq_pools_name"
+      ],
+      "reads": [
+        "n|tbl|public.pools",
+        "n|sch|public",
+        "n|col|public.pools.name"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "providers",
+        "uq_providers_name"
+      ],
+      "writes": [
+        "s|idx|public.uq_providers_name",
+        "n|idx|public.uq_providers_name",
+        "e|idx|public.uq_providers_name",
+        "n|rel|public.uq_providers_name"
+      ],
+      "reads": [
+        "n|tbl|public.providers",
+        "n|sch|public",
+        "n|col|public.providers.name"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "usage_counts",
+        "idx_usage_counts_workspace_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_usage_counts_workspace_id",
+        "n|idx|public.idx_usage_counts_workspace_id",
+        "e|idx|public.idx_usage_counts_workspace_id",
+        "n|rel|public.idx_usage_counts_workspace_id"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|col|public.usage_counts.workspace_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "usage_counts",
+        "idx_usage_counts_provider_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_usage_counts_provider_id",
+        "n|idx|public.idx_usage_counts_provider_id",
+        "e|idx|public.idx_usage_counts_provider_id",
+        "n|rel|public.idx_usage_counts_provider_id"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|col|public.usage_counts.provider_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "usage_counts",
+        "idx_usage_counts_day"
+      ],
+      "writes": [
+        "s|idx|public.idx_usage_counts_day",
+        "n|idx|public.idx_usage_counts_day",
+        "e|idx|public.idx_usage_counts_day",
+        "n|rel|public.idx_usage_counts_day"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|col|public.usage_counts.day"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "pool_targets"
+      ],
+      "writes": [
+        "s|fk|public.pool_targets.pool_targets_pool_id_pools_id_fkey",
+        "n|fk|public.pool_targets.pool_targets_pool_id_pools_id_fkey",
+        "e|fk|public.pool_targets.pool_targets_pool_id_pools_id_fkey",
+        "n|con|public.pool_targets.pool_targets_pool_id_pools_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public",
+        "n|tbl|public.pools",
+        "n|sch|public",
+        "n|col|public.pool_targets.pool_id",
+        "n|col|public.pools.id",
+        "e|uniqueness|public.pools.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "pool_targets"
+      ],
+      "writes": [
+        "s|fk|public.pool_targets.pool_targets_provider_id_providers_id_fkey",
+        "n|fk|public.pool_targets.pool_targets_provider_id_providers_id_fkey",
+        "e|fk|public.pool_targets.pool_targets_provider_id_providers_id_fkey",
+        "n|con|public.pool_targets.pool_targets_provider_id_providers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public",
+        "n|tbl|public.providers",
+        "n|sch|public",
+        "n|col|public.pool_targets.provider_id",
+        "n|col|public.providers.id",
+        "e|uniqueness|public.providers.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "usage_counts"
+      ],
+      "writes": [
+        "s|fk|public.usage_counts.usage_counts_workspace_id_workspaces_id_fkey",
+        "n|fk|public.usage_counts.usage_counts_workspace_id_workspaces_id_fkey",
+        "e|fk|public.usage_counts.usage_counts_workspace_id_workspaces_id_fkey",
+        "n|con|public.usage_counts.usage_counts_workspace_id_workspaces_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|tbl|public.workspaces",
+        "n|sch|public",
+        "n|col|public.usage_counts.workspace_id",
+        "n|col|public.workspaces.id",
+        "e|uniqueness|public.workspaces.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "usage_counts"
+      ],
+      "writes": [
+        "s|fk|public.usage_counts.usage_counts_provider_id_providers_id_fkey",
+        "n|fk|public.usage_counts.usage_counts_provider_id_providers_id_fkey",
+        "e|fk|public.usage_counts.usage_counts_provider_id_providers_id_fkey",
+        "n|con|public.usage_counts.usage_counts_provider_id_providers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.usage_counts",
+        "n|sch|public",
+        "n|tbl|public.providers",
+        "n|sch|public",
+        "n|col|public.usage_counts.provider_id",
+        "n|col|public.providers.id",
+        "e|uniqueness|public.providers.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "pool_targets",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "pools",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "providers",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "usage_counts",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "pool_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "provider_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "model",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "position",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "display_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "description",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "enabled",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "true",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "strategy",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'least-busy'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "affinity",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'sticky'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "max_load_factor",
+        "type": "real",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "display_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "description",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "enabled",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "true",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "base_url",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "api_key",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "api_key_set",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": {
+          "as": "api_key is not null and api_key <> ''",
+          "type": "stored"
+        },
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "headers",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "day",
+        "type": "date",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "workspace_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "workspace_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "agent_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "provider_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "provider_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "model",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "requests",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "input_tokens",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "output_tokens",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "uq_pool_targets_pool_id_provider_id_model",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "pool_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "model",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "idx_pool_targets_provider_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "uq_pools_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "name",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "uq_providers_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "name",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "idx_usage_counts_workspace_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "idx_usage_counts_provider_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "idx_usage_counts_day",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "day",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "pool_targets_pool_id_pools_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "pool_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "pools",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "pool_targets_provider_id_providers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "providers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "usage_counts_workspace_id_workspaces_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspaces",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "usage_counts_provider_id_providers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "providers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "pool_targets_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "pools_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "providers",
+        "name": "providers_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "usage_counts_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "usage_counts",
+        "name": "uq_usage_counts_key",
+        "nameExplicit": true,
+        "columns": [
+          "day",
+          "workspace_name",
+          "agent_name",
+          "provider_name",
+          "model"
+        ],
+        "nullsNotDistinct": true,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "ck_pools_strategy",
+        "value": "\"strategy\" in ('least-busy', 'round-robin', 'random')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "ck_pools_affinity",
+        "value": "\"affinity\" in ('sticky', 'none')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "ck_pools_max_load_factor",
+        "value": "\"max_load_factor\" is null or \"max_load_factor\" >= 1",
+        "entityType": "checks"
+      }
+    }
+  ]
+}
