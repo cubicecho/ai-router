@@ -157,6 +157,7 @@ export const permissions: PermissionsMap = {
     setServerSecret: isAdmin,
     setServerLoginClient: isAdmin,
     promoteRevision: isUser,
+    setAgentAutoPromote: isUser,
     deleteAgent: isUser,
     createWorkspaceAgent: isUser,
     deleteWorkspaceAgent: isUser,

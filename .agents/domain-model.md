@@ -10,7 +10,9 @@ describe the code as it is. **Phase 5 is built too:** agents, revisions, history
 warnings, the seeded override policy, and which workspaces may run which agents. **So is phase 6:** runs on the
 agents endpoint `/v1` (layers, the override policy, reach, tool names, dispatch, model calls in process, the `runs`
 table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). **So is phase 7:** app tools and waiting
-runs, progress events, stored run events and the run records at `/runs`, and conversations. Every other entry
+runs, progress events, stored run events and the run records at `/runs`, and conversations. **Of phase 9:** the
+roles a run calls the admin server with, drafts, discarding a draft, auto-promote and who saved a revision, though
+the admin server itself is not built yet. Every other entry
 is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
@@ -72,8 +74,9 @@ Dependencies point one way:
 
 ```
 saved --> live --next promote--> retired --promote again (rollback)--> live
-saved --> draft --promote (a user, or auto-promote)--> live           (phase 9)
-          draft --discard (a user)--> gone                            (phase 9)
+saved --> draft --promote (a user)--> live
+saved --auto-promote on--> live
+          draft --discard (a user, or the run's own agent)--> gone
 ```
 
 - **Saved:** every save makes a new revision. `parseSpec` checks it on the way in.
@@ -83,11 +86,22 @@ saved --> draft --promote (a user, or auto-promote)--> live           (phase 9)
 - **Rollback:** promoting a retired revision makes it live again.
 - **Who promotes:**
   - A user's own saves are promoted at once.
-  - A save by a workspace key or a run stays a draft until a user promotes it, unless that agent
-    has auto-promote turned on.
+  - A save by anything but a user (in practice an agent run, through the admin server) stays a draft
+    until a user promotes it, unless that agent has auto-promote turned on. Then it goes live as a
+    user's save does.
+  - A new agent's first revision goes live whoever saves it: there is nothing live yet to protect.
   - An agent has at most one live revision. An agent with none cannot run.
-- **Drafts come with the admin server** (phase 9), the first way anything other than a user can save
-  an agent. Revisions, history and rollback come first (phase 5).
+- **Who saved it:** a user's save records the user (`created_by`). A run's records its workspace
+  and agent (`saved_by_workspace_id`, `saved_by_agent_id`) and no user.
+- **Based on:** a save may name the revision it started from, one of the same agent's; left out,
+  it is the live one. Kept as `based_on_id`, and set null if that revision is discarded.
+- **Discard:** deletes a draft, which leaves no trace. A user may discard any draft. A run may
+  discard only a draft its own agent saved for its own workspace; any other is refused as
+  FORBIDDEN, since the run can read that it exists. A revision that is live or was ever live can't
+  be discarded, so the history of what ran is never rewritten. Discarding the newest draft frees its
+  number for the next save.
+- **Auto-promote** is turned on and off by a user (`setAgentAutoPromote`). Turning it on leaves the
+  drafts already saved as drafts.
 
 ### Run
 
@@ -240,9 +254,10 @@ created (shown once) --> in use --revoke--> deleted
 | A conversation has at most one run running or waiting. A request that overlaps one gets 409 `conversation_busy`, unless it answers that waiting run's calls | `agents/run` `begin`, `uq_runs_conversation_id_going` |
 | A conversation belongs to one workspace and one agent. Its history is changed only by a completed run of it, and a request with history of its own (assistant or tool messages) is refused once it has some | `agents/conversation` |
 | An idle conversation is deleted after `CONVERSATION_DEFAULTS.idleHours`, never while a run of it is running or waiting. Its runs stay | `agents/conversation` `pruneConversations`, `runs.conversation_id` set null |
-| Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
+| Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document, and only a user sets it | `agents/revisions` (`savesAsDraft`), `graphql/permissions` (`promoteRevision`, `setAgentAutoPromote`: people only) |
+| A draft is a revision never promoted. Every live revision has been promoted, so a draft is never live, and only a draft is ever deleted on its own. A run deletes only the drafts its own agent saved for its own workspace | `agents/revisions` (`isDraft`, `mayDiscard`), `agents/resolvers` `discardRevision` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
-| An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
+| An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent and run | `models/usage`, `tools/activity` |
@@ -366,21 +381,25 @@ Everything about the code comes after `Owner:`.
 - **Agent:** a model, a prompt and tools defined once, for any app to use. Its name in the router
   is its document's `id`, and can't change. Owner: `agents/`; the `agents` table; its content is
   a `cubicecho.agent/1` document, `@cubicecho/agent-core` `AgentSpec`, kept as JSON.
-- **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed.
-  Each is a draft, live or retired, and every earlier revision is kept. Owner: `agents/resolvers`
-  (`createAgent`, `saveAgent`) and `agents/document` (the check); the `agent_revisions` table.
-  Retired is `promoted_at` set and not live.
+- **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed,
+  who saved it and the revision it started from. Each is a draft, live or retired. Every revision
+  that has been live is kept; a draft can be discarded. Owner: `agents/resolvers` (`createAgent`,
+  `saveAgent`) and `agents/document` (the check); the `agent_revisions` table (`created_by`,
+  `saved_by_workspace_id`, `saved_by_agent_id`, `based_on_id`). Retired is `promoted_at` set and
+  not live.
 - **Warnings:** what a save found worth a person's attention, kept on its revision: agent-core's,
   and the router's own (a provider, pool or server the router lacks; reach over every server; an
   agent calling its own address). Never a reason to refuse. Owner: `agents/document`;
   `agent_revisions.warnings`, and `checkAgent` to see them before saving.
-- **Draft:** a revision waiting for a user to promote it, made by an app or a run rather than a
-  person. Owner: `agents/revisions`.
+- **Draft:** a revision waiting for a user to promote it, made by an agent run rather than a
+  person. Owner: `agents/revisions` (`savesAsDraft`, `isDraft`); `promoted_at` null.
+- **Discard:** delete a draft. Any user may, and a run may for the drafts its own agent saved.
+  Owner: `agents/resolvers` `discardRevision`, `agents/revisions` `mayDiscard`.
 - **Live revision:** the one revision an agent runs and serves. Owner: `agents.live_revision_id`.
 - **Promote:** make a revision live. Any user does it, or auto-promote does it for them. Promoting
   an older one is a rollback. Owner: `agents/resolvers` `promoteRevision`.
-- **Auto-promote:** a user's choice to let one agent's drafts go live without review. Owner:
-  `agents.auto_promote`.
+- **Auto-promote:** a user's choice to let a run's saves of one agent go live without review. It
+  promotes nothing already saved. Owner: `agents.auto_promote`, set by `setAgentAutoPromote`.
 - **Prompt part:** one named piece of an agent's instructions. Layers add parts with new names and
   replace parts with the same name. The router adds the app's instructions as a host part and a
   scheduled job's as a task part, after the agent's own. Owner: `agent-core` `PromptPart`; the

@@ -161,9 +161,11 @@ non-negotiables apply on top of these.
   means exactly those. An emptied list means none, never all.
 - **A waiting run resumes only when every handed-back call is answered.** It is matched by the
   call ids the router minted. Refuse a partial answer.
-- **Revisions are append-only, and only a user promotes.** A user's saves go live, and an app's
-  or a run's saves are drafts. Auto-promote is a column on `agents`, never a field in the
-  document, so no draft can switch it on. A run keeps the revision it started with.
+- **Revisions are append-only, but for drafts, and only a user promotes.** A user's saves go live,
+  and a run's saves are drafts unless the agent auto-promotes. Only a draft is ever deleted
+  (`discardRevision`), and a run deletes only its own agent's drafts for its workspace. Auto-promote
+  is a column on `agents`, set only by a user, never a field in the document, so no draft can
+  switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag

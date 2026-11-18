@@ -113,6 +113,8 @@ export const FIELD_GRANTS = {
   Mutation: {
     createAgent: { action: create, subject: Subject.Agent },
     saveAgent: { action: create, subject: Subject.AgentRevision },
+    // The resolver lets a run discard only the drafts its own agent saved for its workspace.
+    discardRevision: { action: remove, subject: Subject.AgentRevision },
     createProvider: { action: create, subject: Subject.Provider },
     updateProvider: { action: update, subject: Subject.Provider },
     deleteProvider: { action: remove, subject: Subject.Provider },

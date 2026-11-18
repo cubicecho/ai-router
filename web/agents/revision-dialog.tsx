@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Findings } from './findings';
-import { documentText, stringsOf, whenOf, whoOf } from './shapes';
+import { whoOf } from './revisions';
+import { documentText, stringsOf, whenOf } from './shapes';
 
 /** What the revision dialog is given. */
 export interface RevisionDialogProps {
@@ -16,7 +17,8 @@ export interface RevisionDialogProps {
 /** One saved revision, read only: its document and the warnings it was saved with. */
 export function RevisionDialog({ open, onOpenChange, revision }: RevisionDialogProps) {
   const text = documentText(revision.document);
-  const saved = `Saved by ${whoOf(revision.creator)}, ${whenOf(revision.createdAt)}.`;
+  const basedOn = revision.basedOn === null ? '' : ` Based on revision ${revision.basedOn.number}.`;
+  const saved = `Saved by ${whoOf(revision)}, ${whenOf(revision.createdAt)}.${basedOn}`;
 
   return (
     <DialogLayout
