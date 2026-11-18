@@ -151,7 +151,11 @@ You help me run my household money. I budget monthly in Actual …
   layer and apply to the agent's main model, never to its side tasks. `temperature` becomes the
   model's temperature and `max_tokens` its ceiling. Only the rest go into `extraBody`, because
   `agent-core` lets an `extraBody` temperature quietly beat the real one
-  ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)). A field the policy doesn't
+  ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)).
+  - **A sampling field the app didn't choose must not be sent.** Today `runAgentLoop` always
+    sends a temperature, filled from the host's default, so every app would override the
+    temperature the agent was tuned with. Under the agent flag it sends only what the host set
+    for that call ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223#issuecomment-6967515889)). A field the policy doesn't
   allow is refused with an error that names it.
 - **Other standard fields:**
   - `response_format` is allowed by the default policy, because JSON output is task-specific.
@@ -214,6 +218,15 @@ The acceptance check is `min-agent`:
 
 The same check, with an llm-router and an mcp-router `DATA_DIR` imported, proves phase 4.
 
+**Walked against `min-agent`'s code in phase 0.** Steps 1–5 hold: `min-agent` takes a base URL
+and key, and HTTP MCP servers with headers. Two limits carry over from the old routers:
+- **Server-to-client MCP requests.** `min-agent` answers MCP elicitations, and mcp-router forwards
+  form elicitation. Phase 3 must port that. Sampling and roots are not forwarded, as in
+  mcp-router today.
+- **Audio isn't routed.** `/bare/v1` routes JSON bodies only, like llm-router, so speech-to-text
+  (multipart) can't go through it. `min-agent` keeps its `voiceBaseUrl` pointed straight at the
+  voice server.
+
 ## Use case: two agents for `task_server`
 
 The check for phases 5–8.
@@ -227,6 +240,10 @@ The check for phases 5–8.
 6. **A `task_server` agent profile** names `personal-finance` with **`servers: []`**, so it adds
    no tools and no second loop around the agent's. A Friday task sends `task_server`'s system
    prompt, which becomes the `host` layer, and the task's text in `ai_router.task`.
+   **Walked against `task_server`'s code in phase 0: this step doesn't work yet.** A profile's
+   empty `mcpServerIds` means *every* enabled server, not none, so `task_server` can't say
+   `servers: []` today. Its MCP tools would reach the agent as app tools. Phase 8 fixes it on
+   `task_server`'s side: a profile that names a router agent sends no MCP tools.
 7. **The run is recorded in the router** under workspace `task_server` and agent
    `personal-finance`. `task_server` asks for progress, so its Runs tab shows every step and tool
    call as it does today. It keeps `X-Run-Id` to fetch the detail again from `/runs/<id>`.
@@ -252,7 +269,8 @@ The check for phases 5–8.
 2. **Models.** Port llm-router onto tables: providers, pools, balancer and affinity, the
    `/bare/v1` proxy, model listing, the usage table, the GraphQL admin and its UI pages.
 3. **Tools.** Port mcp-router: registries, the installer, servers and their secrets, instances
-   (as the child user), MCP sessions, `/bare/mcp` and `/bare/mcp/<server>`, server login,
+   (as the child user), MCP sessions, `/bare/mcp` and `/bare/mcp/<server>`, forwarding form
+   elicitation to the client as mcp-router does, server login,
    activity, and the UI pages. mcp-router's discovery is left for later.
 4. **Migration.** Import an existing llm-router and mcp-router `DATA_DIR` into tables, merging
    their two kinds of workspace by slug and minting a key for each.
@@ -276,7 +294,8 @@ The check for phases 5–8.
    first). Each shows the router's events in the timeline it already has:
    - `min-agent`: "chat with an agent", rendering progress events in its chat.
    - `task_server`: a profile that names a router agent, with its Runs tab filled from the events
-     or from `/runs/<id>`.
+     or from `/runs/<id>`. Such a profile sends no MCP tools (today an empty server list means
+     all of them), and no compaction or tool-select model.
    - telos: a lane whose agent is a router agent, with its Runs tab filled the same way.
 9. **Admin server.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`, with
    permission levels (read, author drafts, operate, install) on its server entries. Agents must
@@ -292,6 +311,8 @@ The check for phases 5–8.
       key, for its workspace.
     - Importers for Claude Code subagents, Copilot `.agent.md` and cagent YAML.
     - An agent editor in the UI.
+    - **Multipart endpoints** on `/bare/v1` (audio transcription, files), which llm-router
+      doesn't route either.
     - **App-supplied MCP servers:** an app passes a server in the request, and the router
       connects to it for that run only, as OpenAI Responses does with `tools: [{ type: "mcp" }]`.
       It needs to be allowed by the override policy, with a list of allowed hosts, because the
