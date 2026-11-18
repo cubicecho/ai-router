@@ -1,0 +1,89 @@
+fragment RunRowFields on Run {
+  id
+  agentId
+  agentName
+  workspaceId
+  workspaceName
+  status
+  startedAt
+  finishedAt
+  inputTokens
+  outputTokens
+  error
+}
+
+# The higher priority sorts first: newest first, and the id breaks a tie so pages don't overlap.
+query Runs($where: RunFilters, $limit: Int!, $offset: Int!) {
+  runs(
+    where: $where
+    orderBy: { startedAt: { direction: desc, priority: 2 }, id: { direction: desc, priority: 1 } }
+    limit: $limit
+    offset: $offset
+  ) {
+    ...RunRowFields
+  }
+  runsAggregate(where: $where) {
+    count
+  }
+}
+
+query RunFilterChoices {
+  agents(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    liveRevision {
+      id
+      document
+    }
+  }
+  workspaces(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    slug
+  }
+}
+
+query Run($id: UUID!) {
+  run(where: { id: { eq: $id } }) {
+    ...RunRowFields
+    revisionId
+    user
+    stream
+    idempotencyKey
+    answer
+    agent {
+      id
+      name
+      liveRevision {
+        id
+        document
+      }
+    }
+    revision {
+      id
+      number
+    }
+    workspace {
+      id
+      name
+    }
+  }
+}
+
+subscription RunEvents($runId: UUID!) {
+  runEvents(runId: $runId) {
+    runId
+    seq
+    at
+    kind
+    text
+    name
+    id
+    step
+    ok
+    usage
+    level
+    link
+    loads
+  }
+}

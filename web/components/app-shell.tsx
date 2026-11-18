@@ -3,7 +3,7 @@ import { createLink, Outlet, useNavigate, useRouterState } from '@tanstack/react
 import { MeDocument, SignOutDocument } from '@/__generated__/graphql';
 import { AppBarItem, Sidebar, SidebarItem, SidebarSection } from '@/components/sidebar';
 import { SidebarLayout } from '@/components/split-layout';
-import { Bot, KeyRound, Layers, LogOut, Plug, Route, Server, UserRound } from '@/components/ui/icons';
+import { Activity, Bot, KeyRound, Layers, LogOut, Plug, Route, Server, UserRound } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { forgetSession } from '@/lib/session';
@@ -11,6 +11,7 @@ import { forgetSession } from '@/lib/session';
 /** The places every user has. */
 const PLACES = [
   { to: '/agents', label: 'Agents', icon: Bot },
+  { to: '/agent-runs', label: 'Runs', icon: Activity },
   { to: '/workspaces', label: 'Workspaces', icon: KeyRound },
   { to: '/providers', label: 'Providers', icon: Server },
   { to: '/pools', label: 'Pools', icon: Layers },

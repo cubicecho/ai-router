@@ -17,6 +17,7 @@ import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
+import { RecentRunsSection } from '@/runs/recent-runs-section';
 
 /**
  * Says which workspaces offer an agent.
@@ -162,6 +163,7 @@ export function AgentRoute() {
               }
             />
           )}
+          <RecentRunsSection where={{ agentName: { eq: record.name } }} search={{ agent: record.name }} hide="agent" />
           <HistorySection liveRevisionId={record.liveRevisionId ?? null} revisions={record.revisions} />
           {isEditing ? (
             <AgentEditorDialog
