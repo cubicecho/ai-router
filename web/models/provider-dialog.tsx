@@ -129,11 +129,7 @@ export function ProviderDialog({ open, onOpenChange, provider, onSaved }: Provid
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
-          <form.SubmitButton
-            variant={isEdit ? 'positive' : 'info'}
-            requireChanges={isEdit}
-            content={isEdit ? 'Save changes' : 'Add provider'}
-          />
+          <form.SubmitButton requireChanges={isEdit} content={isEdit ? 'Save changes' : 'Add provider'} />
         </>
       )}
     />

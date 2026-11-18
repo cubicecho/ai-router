@@ -158,11 +158,7 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
-          <form.SubmitButton
-            variant={isEdit ? 'positive' : 'info'}
-            requireChanges={isEdit}
-            content={isEdit ? 'Save changes' : 'Create pool'}
-          />
+          <form.SubmitButton requireChanges={isEdit} content={isEdit ? 'Save changes' : 'Create pool'} />
         </>
       )}
     />
