@@ -59,8 +59,8 @@ export function PoolRoute() {
     );
   }
 
-  const inFlight = (providerId: string, model: string) =>
-    load.data?.poolLoad.find((entry) => entry.providerId === providerId && entry.model === model)?.inFlight ?? 0;
+  const loadOf = (providerId: string, model: string) =>
+    load.data?.poolLoad.find((entry) => entry.providerId === providerId && entry.model === model);
   const editTargets = (
     <Button
       variant="outline"
@@ -117,7 +117,7 @@ export function PoolRoute() {
           />
           <Section
             title="Targets"
-            description="Where its calls go, with how many each has in flight now."
+            description="Where its calls go, with how many each has in flight now. One that can't be reached is passed over for a while, and its calls go to the next."
             actionSlot={record.targets.length > 0 ? editTargets : undefined}
             contentSlot={
               record.targets.length === 0 ? (
@@ -125,20 +125,26 @@ export function PoolRoute() {
               ) : (
                 <List
                   label="Targets"
-                  contentSlot={record.targets.map((target) => (
-                    <ListItem
-                      key={target.id}
-                      title={`${target.provider?.name ?? '?'}/${target.model}`}
-                      meta={
-                        <span className="flex items-center gap-2">
-                          {target.provider?.enabled === false ? <Badge variant="outline">Provider off</Badge> : null}
-                          <span className="text-foreground/60 text-xs tabular-nums">
-                            {inFlight(target.provider?.id ?? '', target.model)} in flight
+                  contentSlot={record.targets.map((target) => {
+                    const targetLoad = loadOf(target.provider?.id ?? '', target.model);
+                    return (
+                      <ListItem
+                        key={target.id}
+                        title={`${target.provider?.name ?? '?'}/${target.model}`}
+                        meta={
+                          <span className="flex items-center gap-2">
+                            {target.provider?.enabled === false ? <Badge variant="outline">Provider off</Badge> : null}
+                            {targetLoad?.reachable === false ? (
+                              <Badge variant="warning-soft">Unreachable, passed over</Badge>
+                            ) : null}
+                            <span className="text-foreground/60 text-xs tabular-nums">
+                              {targetLoad?.inFlight ?? 0} in flight
+                            </span>
                           </span>
-                        </span>
-                      }
-                    />
-                  ))}
+                        }
+                      />
+                    );
+                  })}
                 />
               )
             }

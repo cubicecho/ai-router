@@ -194,12 +194,12 @@ describe('pools', () => {
     const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'q' } });
     await asUser.expectOk(SET_TARGETS, { poolId: createPool.id, targets: [{ providerId: id, model: 'm' }] });
     const { poolLoad } = await asUser.expectOk(
-      'query ($id: UUID!) { poolLoad(id: $id) { providerName model inFlight } }',
+      'query ($id: UUID!) { poolLoad(id: $id) { providerName model inFlight reachable } }',
       {
         id: createPool.id,
       },
     );
-    expect(poolLoad).toEqual([{ providerName: 'ollama', model: 'm', inFlight: 0 }]);
+    expect(poolLoad).toEqual([{ providerName: 'ollama', model: 'm', inFlight: 0, reachable: true }]);
   });
 });
 

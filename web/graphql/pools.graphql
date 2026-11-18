@@ -51,6 +51,7 @@ query PoolLoad($id: UUID!) {
     providerId
     model
     inFlight
+    reachable
   }
 }
 

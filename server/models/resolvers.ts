@@ -27,6 +27,8 @@ const MODELS_SDL = parse(`
     model: String!
     "Calls sent to it that haven't finished."
     inFlight: Int!
+    "False while it is passed over, since a call could not reach it. Every pool that has it passes it over."
+    reachable: Boolean!
   }
 
   "One of a pool's targets, as setPoolTargets takes them."
@@ -39,7 +41,7 @@ const MODELS_SDL = parse(`
   extend type Query {
     "What a provider serves now, from its own model list. Cached for a minute unless refresh is true."
     providerModels(id: UUID!, refresh: Boolean): [ProviderModel!]!
-    "How many calls each of a pool's targets has in flight."
+    "How many calls each of a pool's targets has in flight, and whether it is being passed over."
     poolLoad(id: UUID!): [TargetLoad!]!
   }
 
@@ -103,7 +105,12 @@ export function applyModelsExtension(schema: GraphQLSchema): GraphQLSchema {
     if (pool === undefined) {
       throw notFound('Pool not found.');
     }
-    return pool.targets.map((target) => ({ ...target, inFlight: ctx.models.balancer.inFlightTo(target) }));
+    const { balancer } = ctx.models;
+    return pool.targets.map((target) => ({
+      ...target,
+      inFlight: balancer.inFlightTo(target),
+      reachable: balancer.isReachable(target),
+    }));
   };
 
   mutations.setProviderApiKey.resolve = async (

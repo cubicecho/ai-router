@@ -1,7 +1,7 @@
 import { MODEL_DEFAULTS, type ModelSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { Snapshot, SnapshotHost, SnapshotProvider } from '../db/snapshot.ts';
+import type { Snapshot, SnapshotHost, SnapshotProvider, SnapshotTarget } from '../db/snapshot.ts';
 import { AFFINITY_STICKY } from '../db/tables/pools.ts';
 import { affinityKey, SESSION_HEADER } from './affinity.ts';
 import type { PoolBalancer } from './balancer.ts';
@@ -106,6 +106,8 @@ interface Route {
   provider: SnapshotProvider;
   /** The model's id at the provider. */
   model: string;
+  /** The pool's target it went to. null for a call that named a provider's model. */
+  target: SnapshotTarget | null;
   /** Frees a pool target's slot. Does nothing for a call that named a provider's model. */
   release: () => void;
 }
@@ -113,7 +115,7 @@ interface Route {
 /** The release of a call that holds no pool slot. */
 const NOTHING_TO_RELEASE = (): void => {};
 
-/** A refusal decided before any provider was asked. */
+/** A refusal decided before any provider answered. */
 class Refusal extends Error {
   readonly failure: ModelFailure;
 
@@ -157,19 +159,25 @@ export function withStreamUsage(path: string, body: Record<string, unknown>): Re
  * @param balancer - Places a call that names a pool.
  * @param body - The call's body, with its `model`.
  * @param sessionId - The caller's session header.
+ * @param tried - The pool's targets this call could not reach already, as `<provider>/<model>`.
  * @returns The provider, the model's id there, and what frees a pool slot.
- * @throws {@link Refusal} For an unknown or disabled name (404), or a pool with no enabled target (503).
+ * @throws {@link Refusal} For an unknown or disabled name (404), or a pool with no enabled target left (503).
  */
 function route(
   snapshot: Snapshot,
   balancer: PoolBalancer,
   body: Record<string, unknown> & { model: string },
   sessionId: string | null,
+  tried: ReadonlySet<string>,
 ): Route {
   const name = body.model;
   const pool = snapshot.pools.get(name);
   if (pool?.enabled) {
-    const candidates = pool.targets.filter((target) => snapshot.providers.get(target.providerName)?.enabled === true);
+    const candidates = pool.targets.filter(
+      (target) =>
+        snapshot.providers.get(target.providerName)?.enabled === true &&
+        tried.has(modelId(target.providerName, target.model)) === false,
+    );
     if (candidates.length === 0) {
       throw new Refusal(ModelFailure.Unavailable, `Pool "${name}" has no target whose provider is enabled.`);
     }
@@ -180,7 +188,7 @@ function route(
       lease.release();
       throw new Refusal(ModelFailure.Unavailable, `Pool "${name}" picked a provider that is gone.`);
     }
-    return { provider, model: lease.model, release: lease.release };
+    return { provider, model: lease.model, target: lease, release: lease.release };
   }
   const split = splitModelId(name);
   const provider = split === null ? undefined : snapshot.providers.get(split.providerName);
@@ -190,7 +198,7 @@ function route(
       `The model "${name}" does not exist on this router. Name a provider's model as <provider>/<model>, or a pool.`,
     );
   }
-  return { provider, model: split.model, release: NOTHING_TO_RELEASE };
+  return { provider, model: split.model, target: null, release: NOTHING_TO_RELEASE };
 }
 
 /**
@@ -369,8 +377,53 @@ export function createForwarder({
     return new Response(body, { status: upstream.status, headers });
   };
 
+  /**
+   * Routes a call and asks the provider. A pool's target that can't be reached is passed over, and the call goes to
+   * the pool's next one: nothing reached it, so nothing was done twice. A timeout or an error answer is not retried.
+   *
+   * @param call - The call.
+   * @param body - Its body, naming a model.
+   * @param path - The path under `/v1`, checked.
+   * @param search - The query string, with its `?`, or empty.
+   * @returns The route the answer came by, holding its pool slot, and the answer.
+   * @throws {@link Refusal} When nothing could be asked, or the last target tried could not be reached.
+   */
+  const askRouted = async (
+    call: ModelCall,
+    body: Record<string, unknown> & { model: string },
+    path: string,
+    search: string,
+  ): Promise<{ routed: Route; upstream: UpstreamResponse }> => {
+    const tried = new Set<string>();
+    let unreachable: Refusal | null = null;
+    for (;;) {
+      let routed: Route;
+      try {
+        routed = route(snapshot.current(), balancer, body, call.sessionId ?? null, tried);
+      } catch (error) {
+        // Every target left was tried: what the caller needs to hear is why the last one failed.
+        throw unreachable ?? error;
+      }
+      const { provider, model, target } = routed;
+      try {
+        const sent = withStreamUsage(path, { ...body, model });
+        const upstream = await ask(`${upstreamUrl(provider.baseUrl, path)}${search}`, sent, call, provider);
+        return { routed, upstream };
+      } catch (error) {
+        routed.release();
+        const isUnreachable = error instanceof Refusal && error.failure === ModelFailure.UpstreamFailed;
+        if (target === null || isUnreachable === false) {
+          throw error;
+        }
+        balancer.markUnreachable(target);
+        tried.add(modelId(target.providerName, target.model));
+        unreachable = error;
+        console.warn(`[models] ${error.message} Pool "${body.model}" passes that target over for a while.`);
+      }
+    }
+  };
+
   const forward = async (call: ModelCall): Promise<Response> => {
-    let release = NOTHING_TO_RELEASE;
     try {
       const { body } = call;
       if (namesModel(body) === false) {
@@ -380,18 +433,12 @@ export function createForwarder({
         );
       }
       const { path, search } = safePath(call.path);
-      const routed = route(snapshot.current(), balancer, body, call.sessionId ?? null);
-      // From here the slot is held: every way out below frees it, or hands it to the answer's body.
-      release = routed.release;
+      const { routed, upstream } = await askRouted(call, body, path, search);
+      // The slot is held from here, and the answer's body frees it.
       const { provider, model } = routed;
-      const sent = withStreamUsage(path, { ...body, model });
-      const upstream = await ask(`${upstreamUrl(provider.baseUrl, path)}${search}`, sent, call, provider);
       const served: ServedBy = { ...call.attribution, providerId: provider.id, providerName: provider.name, model };
-      const answer = passThrough(upstream, served, routed.release, call.signal);
-      release = NOTHING_TO_RELEASE;
-      return answer;
+      return passThrough(upstream, served, routed.release, call.signal);
     } catch (error) {
-      release();
       if (error instanceof Refusal) {
         return openAiError(error.failure, error.message);
       }

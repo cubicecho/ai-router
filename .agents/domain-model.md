@@ -203,6 +203,7 @@ created (shown once) --> in use --revoke--> deleted
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app. An agent a workspace may not run gets the same 404 as one that doesn't exist, and every other `/v1` path a 404, all in OpenAI's error envelope | `agents/routes`, `http/app` |
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
+| A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
 | No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
@@ -298,7 +299,8 @@ Everything about the code comes after `Owner:`.
 - **Model id:** how an agent names its model: one provider's model, named after the provider, or a
   pool. Owner: `models/naming`; `<provider>/<model>`, split at the first `/`, or a pool's name.
 - **Pool:** one model name served by several targets, with the router choosing one for each
-  call: the least busy, in turn, or at random. Owner: `models/balancer`; the `pools` table.
+  call: the least busy, in turn, or at random. A target the router could not reach is passed
+  over for a while, and the call goes to the next. Owner: `models/balancer`; the `pools` table.
 - **Target:** one place a pool can send a call: a provider and the model's name there. Owner:
   `models/balancer`; the `pool_targets` table, written whole by `setPoolTargets`.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt

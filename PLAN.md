@@ -484,9 +484,9 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
-- **Failover and health for pools.** llm-router has none, and phase 2 ports it as it is. Open:
-  retrying the next target when one is unreachable, health checks that take a target out of a
-  pool, and per-target weights.
+- **Failover and health for pools.** A call whose target can't be reached goes to the pool's next
+  target, and that target is passed over for 30 seconds (2026-11-18). Still open: health checks
+  that probe a target before a call finds it down, and per-target weights.
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
