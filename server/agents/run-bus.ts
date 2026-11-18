@@ -186,7 +186,7 @@ export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: 
         at: now(),
         text: '',
         name: '',
-        step: '',
+        exchange: '',
         ok: null,
         usage: null,
         ...input,

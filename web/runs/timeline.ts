@@ -10,7 +10,7 @@ export interface TimelineEvent {
   text: string;
   name: string;
   id?: string | null | undefined;
-  step: string;
+  exchange: string;
   ok: boolean | null;
   usage?: unknown;
   level?: string | null | undefined;
@@ -19,7 +19,7 @@ export interface TimelineEvent {
 
 /** agent-core's `RunEventKind`, the kinds the timeline draws. Any other kind is drawn as a note. */
 export const EventKind = {
-  Step: 'step',
+  Exchange: 'exchange',
   Decision: 'decision',
   Turn: 'turn',
   Thinking: 'thinking',
@@ -54,13 +54,13 @@ interface EntryBase {
   key: number;
   /** When it started, in epoch milliseconds. */
   at: number;
-  /** The caller's flow step it is inside; empty for the run itself. */
-  step: string;
+  /** The caller's exchange it is inside; empty for the run itself. */
+  exchange: string;
 }
 
 /** One entry of the timeline: a run of streamed text gathered into one, a call joined to its result. */
 export type TimelineEntry =
-  | (EntryBase & { type: 'step'; name: string; text: string })
+  | (EntryBase & { type: 'exchange'; name: string; text: string })
   | (EntryBase & { type: 'decision'; text: string })
   | (EntryBase & { type: 'turn'; text: string })
   | (EntryBase & { type: 'thinking'; text: string })
@@ -179,13 +179,13 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   const calls: ToolEntry[] = [];
   for (const event of orderedEvents(events)) {
-    const base = { key: event.seq, at: event.at, step: event.step };
+    const base = { key: event.seq, at: event.at, exchange: event.exchange };
     const last = entries.at(-1);
     switch (event.kind) {
       case EventKind.Thinking:
       case EventKind.Output: {
         const type = event.kind === EventKind.Thinking ? 'thinking' : 'output';
-        if (last !== undefined && last.type === type && last.step === event.step) {
+        if (last !== undefined && last.type === type && last.exchange === event.exchange) {
           last.text += event.text;
         } else if (event.text !== '') {
           entries.push({ ...base, type, text: event.text });
@@ -234,8 +234,8 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
         }
         break;
       }
-      case EventKind.Step:
-        entries.push({ ...base, type: 'step', name: event.name, text: event.text });
+      case EventKind.Exchange:
+        entries.push({ ...base, type: 'exchange', name: event.name, text: event.text });
         break;
       case EventKind.Decision:
         entries.push({ ...base, type: 'decision', text: event.text });

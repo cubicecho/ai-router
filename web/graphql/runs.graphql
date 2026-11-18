@@ -79,7 +79,7 @@ subscription RunEvents($runId: UUID!) {
     text
     name
     id
-    step
+    exchange
     ok
     usage
     level

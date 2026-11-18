@@ -1,4 +1,4 @@
-import type { RunEvent } from '@cubicecho/agent-core';
+import { progressChunk, type RunEvent, withProgress } from '@cubicecho/agent-core';
 import type { Response } from 'express';
 import { HttpStatus, MS_PER_SECOND } from '../core/wire.ts';
 import type { OpenAiErrorBody } from '../models/openai-error.ts';
@@ -82,8 +82,7 @@ function messageOf(finished: FinishedRun) {
  */
 export function completionBody(finished: FinishedRun, events: RunEvent[] | null = null) {
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
-  return {
-    ...(events === null ? {} : { ai_router: { runId: finished.runId, events } }),
+  const completion = {
     ...header(meta),
     object: 'chat.completion',
     choices: [
@@ -95,6 +94,8 @@ export function completionBody(finished: FinishedRun, events: RunEvent[] | null 
     ],
     usage: usageOf(finished),
   };
+  // agent-core's own encoder, so what min-agent and task_server decode can't drift from what is sent.
+  return events === null ? completion : withProgress(completion, finished.runId, events);
 }
 
 /** Writes a run's answer to the app as OpenAI's `chat.completion.chunk` stream. */
@@ -204,7 +205,7 @@ export function openChunkStream(
   send(chunk({ role: 'assistant', content: '' }, null));
   return {
     text: (content) => send(chunk({ content }, null)),
-    event: (event) => send({ ...header(meta), object: 'chat.completion.chunk', choices: [], ai_router: { event } }),
+    event: (event) => send(progressChunk(event, header(meta))),
     end: (finished) => {
       const toolCalls = (finished.answer?.toolCalls ?? []).map((call, index) => ({ index, ...call }));
       if (toolCalls.length > 0) {
