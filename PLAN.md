@@ -33,7 +33,8 @@ the order of work and the reasons for it. Nothing is built yet.
 | App tools | The run **waits** for the app's answer and resumes as the same run. A follow-up that answers every handed-back call resumes it, and a partial answer is refused | An app's timeline shows one run with a pause, not a chain of runs |
 | Agent edits | Every save is a **revision**. A user's saves go live. Saves by an app or a run are drafts until a user **promotes** them, by hand or with per-agent **auto-promote** | Agents may edit agents later (the admin server), with every change visible and reversible. Hermes agents rewrite their own `SOUL.md` with no record |
 | Agent loop | `agent-core` `runAgentLoop`, with its `dispatch` calling the tools area's own instances | `agent-mcp-pool` would start a second copy of every server |
-| Run events | `agent-core`'s `RunEvent`, carried unchanged | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
+| Slim apps | **Apps keep calling `runAgentLoop`, and only the config changes.** It points at `/v1` with the agent's id, and carries an agent flag taken from the `/v1/models` entry (`ai_router.kind: "agent"`). With the flag, the loop forwards the router's run events, keeps its own compaction, preselection and on-demand loading off, and sends an idempotency key on retries ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Apps drop `agent-mcp-pool` and their own loop code, not `agent-core` | `agent-core` is already an OpenAI tool loop, and it keeps a server's tool-call ids as sent, so the app-tool hand-back works as it is. One call site, the same `dispatch` and `onEvent`, and the apps' Runs tabs stay as they are |
+| Run events | `agent-core`'s `RunEvent`, carried unchanged, in chunks written and read by `agent-core`'s own encoder and decoder | `min-agent`, `task_server` and telos already render it. AG-UI and Open Responses cover similar ground, and can be added as translators later |
 | Conversations | Stateless, plus an optional `X-Conversation-Id`, stored as a row with a TTL | Every OpenAI-compatible surface surveyed does this, and a row survives a restart |
 | Admin tools | Later, as a built-in **admin server**, `ai-router`, built with `@cubicecho/graphql-mcp`. It's the only way in: a workspace gets it through a server entry with permission levels, and an agent must name it. There's no separate `/admin/mcp` | It answers "why did Friday's run fail?" and lets agents draft agents. With only workspace keys, a second door would need a second set of permission checks |
 | Discovery | **Later.** The AI Catalog, Server and Agent Cards, and LAN announce and discovery are not in the first pass. When they come, the public catalog names only the router's endpoints, and the agents and servers behind them are listed only to a key | Simpler first pass. mcp-router serves its catalog and cards to anyone, which here would show every agent and server on the network |
@@ -63,7 +64,7 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 
 | Path | Who | Serves |
 | --- | --- | --- |
-| `GET /v1/models`, `/v1/models/<id>` | key | the workspace's agents, and nothing else |
+| `GET /v1/models`, `/v1/models/<id>` | key | the workspace's agents, and nothing else. Each entry carries its description and `ai_router: { kind: "agent" }` |
 | `POST /v1/chat/completions` | key | a run of the agent named in `model` |
 | `POST /v1/<other>` | key | refused until `/v1/responses` arrives for agents |
 | `GET /bare/v1/models` | key | the workspace's models (`<provider>/<model>`) and pools |
@@ -157,6 +158,9 @@ You help me run my household money. I budget monthly in Actual …
   - `parallel_tool_calls` passes through to the agent's model.
   - `user` is recorded on the run, for the app's own reference.
   - `n` above 1 is refused, because a run gives one answer.
+- **`Idempotency-Key`** on a request makes a retry safe: a repeat of a key answers with the run
+  it already started, never a second run. `runAgentLoop` sends one when its config has the agent
+  flag.
 - **`X-Run-Id`** comes back on every agent response, so an app's own log can link to the
   router's run record.
 - **App tools.** An app keeps its own tools (`task_server`'s "create a task", `min-agent`'s
@@ -164,7 +168,9 @@ You help me run my household money. I budget monthly in Actual …
   - When the agent calls one, the run hands it back and waits.
   - The app runs it and sends the result, and the same run resumes. That is the ordinary OpenAI
     client tool loop, not `agent-core`'s.
-  - A run that waits past its timeout expires.
+  - A run that waits past its timeout expires. The timeout is a `RUN_DEFAULTS` value, and it
+    has to be generous enough for tools that wait on a person, such as `min-agent`'s "ask the
+    user".
 
 ### Apps keep their detail
 
@@ -255,16 +261,19 @@ The check for phases 5–8.
 6. **Agents: runs.** The agents endpoint `/v1`:
    - layers, the `ai_router` request options, override policy and reach;
    - dispatch to tools instances, and model calls through the router so usage counts them;
+   - `Idempotency-Key`, so a retried request never starts a second run;
    - the runs table, `X-Run-Id`, the `runEvents` subscription, and usage per agent.
 7. **Agents: app tools, progress events and the directory.**
    - **App tools:** waiting runs, kept on the `runs` row and resumed by the call ids they handed
      back.
    - **Progress events:** `RunEvent`s in the stream, plus `/runs/<id>` and `/runs/<id>/events`,
-     stored in `run_events`.
+     stored in `run_events`, written with `agent-core`'s encoder.
    - **Conversations.**
    - **The agent directory `/agents`**, which comes after gateway runs because it only works when
      a workspace also grants an agent's reach.
-8. **Consumers.** Each one shows the router's events in the timeline it already has:
+8. **Consumers.** Each one keeps calling `runAgentLoop`, with a config pointed at `/v1` and the
+   agent flag set ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223) lands
+   first). Each shows the router's events in the timeline it already has:
    - `min-agent`: "chat with an agent", rendering progress events in its chat.
    - `task_server`: a profile that names a router agent, with its Runs tab filled from the events
      or from `/runs/<id>`.

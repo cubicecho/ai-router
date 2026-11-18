@@ -149,7 +149,13 @@ non-negotiables apply on top of these.
   or a run's saves are drafts. Auto-promote is a column on `agents`, never a field in the
   document, so no draft can switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
-- **Run events are `agent-core`'s `RunEvent`, unchanged.** That's what `min-agent`,
+- **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
+  `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
+  ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an
+  ai-router-specific client.
+- **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
+  second run.
+- **Run events are `agent-core`'s `RunEvent`, unchanged,** written with `agent-core`'s encoder. That's what `min-agent`,
   `task_server` and telos already render, so progress chunks, `run_events` rows and
   `/runs/<id>/events` all carry it as it is. A progress chunk has empty `choices`, like OpenAI's
   usage chunk, so standard clients skip it. A key reads only its own workspace's runs.
