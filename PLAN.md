@@ -509,10 +509,13 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   list of risky tools and a way to ask someone. Proposed: leave it out of v1.
 - **Per-tool scoping** (include and exclude lists per server). Proposed: leave it out, so a
   server is the unit.
-- **better-auth's organization plugin for workspace keys.** Keys are the router's own table for now
-  (the decisions above). The organization plugin could own them instead, with a workspace as an
-  organization, if it can verify a key without a database read and a usage write per request.
-  Look at it before phase 9, when the admin server's permission levels need per-workspace roles.
+- **better-auth's organization plugin for workspace keys: no** (reviewed 2026-11-18, better-auth
+  1.7). The api-key plugin (`@better-auth/api-key`) can make keys an organization owns, but every
+  verify writes the key's `lastRequest`, even with its rate limit off, and the only way to skip
+  the database is its secondary storage, which wants Redis or a store of our own. The
+  organization plugin's roles are people's roles in an organization, and here every user sees
+  every workspace. Phase 9's permission levels belong to an app's server entry for the admin
+  server, not to a person, so they can be a column on `workspace_servers` rather than a role.
 - **drizzle-graphql, upstream:**
   - It warns about `workspace_keys.hash` and `server_secrets.value` at every schema build: they
     are excluded and NOT NULL, and the warning ignores that those tables' generated inserts are
