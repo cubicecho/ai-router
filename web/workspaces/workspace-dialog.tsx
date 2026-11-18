@@ -9,9 +9,7 @@ import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
-
-/** What a slug may look like: the router's name rule, checked again on the server. */
-const SLUG = /^[a-z0-9][a-z0-9._-]*$/;
+import { NAME_HINT, NAME_PATTERN } from '@/models/names';
 
 /** What the workspace dialog is given. */
 export interface WorkspaceDialogProps {
@@ -74,13 +72,10 @@ export function WorkspaceDialog({ open, onOpenChange, workspace, onSaved }: Work
             form={form}
             name="slug"
             label="Slug"
-            description="Lowercase letters, digits, dots, dashes and underscores, such as min-agent."
+            description={`${NAME_HINT} Such as min-agent.`}
             required
             validators={{
-              onChange: ({ value }) =>
-                SLUG.test(value.trim())
-                  ? undefined
-                  : 'Use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit.',
+              onChange: ({ value }) => (NAME_PATTERN.test(value.trim()) ? undefined : NAME_HINT),
             }}
           />
           <InputField

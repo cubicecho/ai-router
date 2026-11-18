@@ -1,0 +1,68 @@
+fragment PoolFields on Pool {
+  id
+  name
+  displayName
+  description
+  enabled
+  strategy
+  affinity
+  maxLoadFactor
+  targets(orderBy: { position: { direction: asc, priority: 1 } }) {
+    id
+    model
+    position
+    provider {
+      id
+      name
+      enabled
+    }
+  }
+}
+
+query Pools {
+  pools(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...PoolFields
+  }
+}
+
+query Pool($id: UUID!) {
+  pool(where: { id: { eq: $id } }) {
+    ...PoolFields
+  }
+  providers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+  }
+}
+
+query PoolLoad($id: UUID!) {
+  poolLoad(id: $id) {
+    providerId
+    model
+    inFlight
+  }
+}
+
+mutation CreatePool($values: CreatePoolInput!) {
+  createPool(values: $values) {
+    ...PoolFields
+  }
+}
+
+mutation UpdatePool($id: UUID!, $set: UpdatePoolInput!) {
+  updatePool(where: { id: { eq: $id } }, set: $set) {
+    ...PoolFields
+  }
+}
+
+mutation DeletePool($id: UUID!) {
+  deletePool(where: { id: { eq: $id } }) {
+    id
+  }
+}
+
+mutation SetPoolTargets($poolId: UUID!, $targets: [PoolTargetInput!]!) {
+  setPoolTargets(poolId: $poolId, targets: $targets) {
+    ...PoolFields
+  }
+}

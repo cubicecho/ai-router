@@ -65,6 +65,30 @@ const workspaceRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/workspace'), 'WorkspaceRoute'),
 });
 
+const providersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/providers',
+  component: lazyRouteComponent(() => import('@/routes/providers'), 'ProvidersRoute'),
+});
+
+const providerRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/providers/$providerId',
+  component: lazyRouteComponent(() => import('@/routes/provider'), 'ProviderRoute'),
+});
+
+const poolsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/pools',
+  component: lazyRouteComponent(() => import('@/routes/pools'), 'PoolsRoute'),
+});
+
+const poolRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/pools/$poolId',
+  component: lazyRouteComponent(() => import('@/routes/pool'), 'PoolRoute'),
+});
+
 const usersRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/users',
@@ -75,7 +99,16 @@ export const router = createRouter({
   routeTree: rootRoute.addChildren([
     loginRoute,
     ssoRoute,
-    appRoute.addChildren([indexRoute, workspacesRoute, workspaceRoute, usersRoute]),
+    appRoute.addChildren([
+      indexRoute,
+      workspacesRoute,
+      workspaceRoute,
+      providersRoute,
+      providerRoute,
+      poolsRoute,
+      poolRoute,
+      usersRoute,
+    ]),
   ]),
   defaultPreload: 'intent',
 });

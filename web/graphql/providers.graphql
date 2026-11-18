@@ -1,0 +1,54 @@
+fragment ProviderFields on Provider {
+  id
+  name
+  displayName
+  description
+  enabled
+  baseUrl
+  headers
+  apiKeySet
+  updatedAt
+}
+
+query Providers {
+  providers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...ProviderFields
+  }
+}
+
+query Provider($id: UUID!) {
+  provider(where: { id: { eq: $id } }) {
+    ...ProviderFields
+  }
+}
+
+query ProviderModels($id: UUID!, $refresh: Boolean) {
+  providerModels(id: $id, refresh: $refresh) {
+    id
+    ownedBy
+  }
+}
+
+mutation CreateProvider($values: CreateProviderInput!) {
+  createProvider(values: $values) {
+    ...ProviderFields
+  }
+}
+
+mutation UpdateProvider($id: UUID!, $set: UpdateProviderInput!) {
+  updateProvider(where: { id: { eq: $id } }, set: $set) {
+    ...ProviderFields
+  }
+}
+
+mutation DeleteProvider($id: UUID!) {
+  deleteProvider(where: { id: { eq: $id } }) {
+    id
+  }
+}
+
+mutation SetProviderApiKey($id: UUID!, $apiKey: String) {
+  setProviderApiKey(id: $id, apiKey: $apiKey) {
+    ...ProviderFields
+  }
+}

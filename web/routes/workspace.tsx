@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
-import { DeleteWorkspaceDocument, RevokeWorkspaceKeyDocument, WorkspaceDocument } from '@/__generated__/graphql';
+import {
+  DeleteWorkspaceDocument,
+  RevokeWorkspaceKeyDocument,
+  UsageByWorkspaceDocument,
+  WorkspaceDocument,
+} from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
@@ -12,6 +17,7 @@ import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Pencil, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
+import { UsageSection } from '@/models/usage-section';
 import { KeyDialog } from '@/workspaces/key-dialog';
 import { WorkspaceDialog } from '@/workspaces/workspace-dialog';
 
@@ -35,6 +41,10 @@ export function WorkspaceRoute() {
   const workspace = useQuery({
     queryKey: ['workspaces', workspaceId],
     queryFn: () => request(WorkspaceDocument, { id: workspaceId }),
+  });
+  const usage = useQuery({
+    queryKey: ['usage', 'workspace', workspaceId],
+    queryFn: () => request(UsageByWorkspaceDocument, { workspaceId }),
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['workspaces'] });
   const revoke = useMutation({
@@ -134,6 +144,11 @@ export function WorkspaceRoute() {
                 />
               )
             }
+          />
+          <UsageSection
+            rows={usage.data?.usageCounts ?? []}
+            groupBy={(row) => `${row.providerName}/${row.model}`}
+            groupLabel="Model"
           />
           <WorkspaceDialog open={isEditing} onOpenChange={setIsEditing} workspace={record} />
           <KeyDialog open={isMakingKey} onOpenChange={setIsMakingKey} workspaceId={record.id} />

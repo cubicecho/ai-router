@@ -3,13 +3,17 @@ import { createLink, Outlet, useNavigate, useRouterState } from '@tanstack/react
 import { MeDocument, SignOutDocument } from '@/__generated__/graphql';
 import { AppBarItem, Sidebar, SidebarItem, SidebarSection } from '@/components/sidebar';
 import { SidebarLayout } from '@/components/split-layout';
-import { Layers, LogOut, Route, UserRound } from '@/components/ui/icons';
+import { KeyRound, Layers, LogOut, Route, Server, UserRound } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { forgetSession } from '@/lib/session';
 
 /** The places every user has. */
-const PLACES = [{ to: '/workspaces', label: 'Workspaces', icon: Layers }] as const;
+const PLACES = [
+  { to: '/workspaces', label: 'Workspaces', icon: KeyRound },
+  { to: '/providers', label: 'Providers', icon: Server },
+  { to: '/pools', label: 'Pools', icon: Layers },
+] as const;
 /** The places only an admin has. */
 const ADMIN_PLACES = [{ to: '/users', label: 'Users', icon: UserRound }] as const;
 

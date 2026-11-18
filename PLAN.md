@@ -250,7 +250,7 @@ The acceptance check for the first release.
        as the router's own user, with a warning at boot. That's refused when
        `NODE_ENV=production`.
      - **CI:** the boot job runs the spike's checks against the real image.
-2. **Models**, internal: what agent runs call. The server side is built; the UI pages are next. Port llm-router's providers, pools, balancer and
+2. **Models. Done**, internal: what agent runs call. Port llm-router's providers, pools, balancer and
    affinity, its forwarding (as a function, not an HTTP door), model listing for the UI, usage,
    and the GraphQL admin with its UI pages. Reviewed with the user:
    - **Kept from llm-router:** OpenAI-compatible providers only, with no translation. Model lists

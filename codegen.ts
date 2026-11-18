@@ -10,7 +10,7 @@ const config: CodegenConfig = {
       plugins: ['typescript-operations', 'typed-document-node'],
       config: {
         // ISO strings on the wire. Parsing into Date invites timezone bugs.
-        scalars: { DateTime: 'string', UUID: 'string', JSON: 'unknown' },
+        scalars: { DateTime: 'string', Date: 'string', UUID: 'string', JSON: 'unknown' },
         useTypeImports: true,
         skipTypename: true,
         avoidOptionals: { field: true },

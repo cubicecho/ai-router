@@ -1,0 +1,31 @@
+fragment UsageFields on UsageCount {
+  id
+  day
+  workspaceName
+  agentName
+  providerName
+  model
+  requests
+  inputTokens
+  outputTokens
+}
+
+query UsageByProvider($providerId: UUID!) {
+  usageCounts(
+    where: { providerId: { eq: $providerId } }
+    orderBy: { day: { direction: desc, priority: 1 } }
+    limit: 500
+  ) {
+    ...UsageFields
+  }
+}
+
+query UsageByWorkspace($workspaceId: UUID!) {
+  usageCounts(
+    where: { workspaceId: { eq: $workspaceId } }
+    orderBy: { day: { direction: desc, priority: 1 } }
+    limit: 500
+  ) {
+    ...UsageFields
+  }
+}
