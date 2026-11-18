@@ -7,6 +7,7 @@ import type { SnapshotHost } from '../db/snapshot.ts';
 import type { Role } from '../db/tables/users.ts';
 import type { ModelServices } from '../models/services.ts';
 import type { ToolServices } from '../tools/api.ts';
+import type { AdminRole } from './admin-roles.ts';
 
 /** What `Context.ip` holds when the socket reports no address. One shared budget, not none. */
 export const UNKNOWN_IP = 'unknown';
@@ -15,6 +16,8 @@ export const UNKNOWN_IP = 'unknown';
 export const CALLER_USER = 'user' as const;
 /** An app, on a workspace key. */
 export const CALLER_WORKSPACE = 'workspace' as const;
+/** An agent run, calling the admin server `ai-router` on its workspace's behalf. */
+export const CALLER_RUN = 'run' as const;
 
 /** A person signed in to the UI. Sees everything enabled; only an admin sees secrets, settings and roles. */
 export interface UserCaller {
@@ -30,8 +33,22 @@ export interface WorkspaceCaller {
   keyId: string;
 }
 
-/** Who a request is from, read once from its credential. */
-export type Caller = UserCaller | WorkspaceCaller;
+/**
+ * An agent run calling the admin server. It does what its workspace's entry for `ai-router` grants, and nothing
+ * else. Handed over in process by the run itself, never read from a credential, so it can't be forged.
+ */
+export interface RunCaller {
+  kind: typeof CALLER_RUN;
+  runId: string;
+  workspaceId: string;
+  /** The agent the run is of, so it can discard the drafts it saved and no others. */
+  agentId: string;
+  /** The roles the workspace's entry for `ai-router` grants. Empty grants nothing. */
+  roles: readonly AdminRole[];
+}
+
+/** Who a request is from, read once from its credential, or handed over by a run. */
+export type Caller = UserCaller | WorkspaceCaller | RunCaller;
 
 /** What every request's context carries, whoever the caller is. */
 export interface ContextDeps {

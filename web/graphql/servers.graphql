@@ -195,6 +195,7 @@ fragment WorkspaceServerFields on WorkspaceServer {
   env
   args
   url
+  roles
   server {
     id
     name

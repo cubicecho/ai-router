@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { AgentDocument, DeleteAgentDocument } from '@/__generated__/graphql';
 import { AgentEditorDialog } from '@/agents/agent-editor-dialog';
+import { DraftsSection } from '@/agents/drafts-section';
 import { Findings } from '@/agents/findings';
 import { HistorySection } from '@/agents/history-section';
-import { describeServers, describeTaskModel, documentText, factsOf, stringsOf, whenOf, whoOf } from '@/agents/shapes';
+import { RevisionStanding, standingOf, whoOf } from '@/agents/revisions';
+import { describeServers, describeTaskModel, documentText, factsOf, stringsOf, whenOf } from '@/agents/shapes';
 import { ConfirmButton } from '@/components/confirm-button';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
@@ -71,6 +73,8 @@ export function AgentRoute() {
   const facts = factsOf(live?.document);
   const workspaces = record.workspaces.flatMap((entry) => (entry.workspace === null ? [] : [entry.workspace.name]));
   const text = live === null ? null : documentText(live.document);
+  const liveRevisionId = record.liveRevisionId ?? null;
+  const drafts = record.revisions.filter((revision) => standingOf(revision, liveRevisionId) === RevisionStanding.Draft);
 
   return (
     <PageLayout
@@ -151,7 +155,7 @@ export function AgentRoute() {
           {live === null || text === null ? null : (
             <Section
               title="Live document"
-              description={`Revision ${live.number}, saved by ${whoOf(live.creator)}, ${whenOf(live.createdAt)}.`}
+              description={`Revision ${live.number}, saved by ${whoOf(live)}, ${whenOf(live.createdAt)}.`}
               contentSlot={
                 <CodeBlock
                   title={`${record.name}.json`}
@@ -164,7 +168,8 @@ export function AgentRoute() {
             />
           )}
           <RecentRunsSection where={{ agentName: { eq: record.name } }} search={{ agent: record.name }} hide="agent" />
-          <HistorySection liveRevisionId={record.liveRevisionId ?? null} revisions={record.revisions} />
+          <DraftsSection agentId={record.id} autoPromote={record.autoPromote} drafts={drafts} />
+          <HistorySection liveRevisionId={liveRevisionId} revisions={record.revisions} />
           {isEditing ? (
             <AgentEditorDialog
               open

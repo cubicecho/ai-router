@@ -1,6 +1,6 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
-import type { Context } from '../core/context.ts';
+import { CALLER_RUN, type Context } from '../core/context.ts';
 import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -12,6 +12,7 @@ import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
 import type { InstallServerRequest } from './api.ts';
+import { BUILTIN_PEOPLE_ONLY, refuseIfBuiltin } from './builtin.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
 import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
@@ -211,6 +212,28 @@ function serverById(ctx: Context, id: string): SnapshotServer {
 }
 
 /**
+ * Reads which instance of a server a call asks for. An agent run reaches its own workspace's and the base instance,
+ * never another workspace's, whose settings are that workspace's account.
+ *
+ * @param ctx - The request.
+ * @param requested - The workspace named, or null or absent for the base instance.
+ * @returns The workspace, or null for the base instance.
+ * @throws NOT_FOUND for a run naming another workspace, as for one that doesn't exist.
+ */
+function instanceWorkspace(ctx: Context, requested: string | null | undefined): string | null {
+  const workspaceId = requested ?? null;
+  const { caller } = ctx;
+  const isOthers = caller?.kind === CALLER_RUN && workspaceId !== null && workspaceId !== caller.workspaceId;
+  if (isOthers) {
+    throw notFound('Workspace not found.');
+  }
+  return workspaceId;
+}
+
+/** Why the admin server has no login. */
+const NO_LOGIN = 'it has no login';
+
+/**
  * Reads a server's login as the API serves it.
  *
  * @param server - The server, from the snapshot.
@@ -263,7 +286,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
   });
 
   queries.serverTools.resolve = (_parent: unknown, args: { id: string; workspaceId?: string | null }, ctx: Context) =>
-    ctx.tools.listTools(args.id, args.workspaceId ?? null);
+    ctx.tools.listTools(args.id, instanceWorkspace(ctx, args.workspaceId));
 
   queries.registryServers.resolve = (
     _parent: unknown,
@@ -286,8 +309,12 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     args: { id: string; workspaceId?: string | null },
     ctx: Context,
   ) => {
-    serverById(ctx, args.id);
-    await ctx.tools.restart(args.id, args.workspaceId ?? null);
+    const server = serverById(ctx, args.id);
+    // A run restarting the admin server would close the connection its own call is on.
+    if (ctx.caller?.kind === CALLER_RUN) {
+      refuseIfBuiltin(server, BUILTIN_PEOPLE_ONLY);
+    }
+    await ctx.tools.restart(args.id, instanceWorkspace(ctx, args.workspaceId));
     return true;
   };
 
@@ -300,14 +327,16 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     if (isRecord(toolArgs) === false) {
       throw badInput('A tool takes its arguments as a JSON object.');
     }
-    return ctx.tools.callTool(args.id, args.workspaceId ?? null, args.tool, toolArgs);
+    return ctx.tools.callTool(args.id, instanceWorkspace(ctx, args.workspaceId), args.tool, toolArgs);
   };
 
-  mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) =>
-    ctx.tools.logins.start(args.serverId);
+  mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) => {
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
+    return ctx.tools.logins.start(args.serverId);
+  };
 
   mutations.signOutServer.resolve = async (_parent: unknown, args: { serverId: string }, ctx: Context) => {
-    serverById(ctx, args.serverId);
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
     await ctx.tools.logins.signOut(args.serverId);
     return servedServer(ctx, args.serverId);
   };
@@ -320,7 +349,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     },
     ctx: Context,
   ) => {
-    serverById(ctx, args.serverId);
+    refuseIfBuiltin(serverById(ctx, args.serverId), NO_LOGIN);
     await ctx.tools.logins.setClient(args.serverId, args.client ?? null);
     return loginOf(serverById(ctx, args.serverId));
   };
@@ -337,6 +366,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
       if (found === undefined) {
         throw notFound('Server not found.');
       }
+      refuseIfBuiltin(found, 'it takes no secrets');
       if (workspaceId !== null) {
         const [workspace] = await tx
           .select({ id: workspaces.id })

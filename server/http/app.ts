@@ -1,4 +1,5 @@
 import express, { type Express } from 'express';
+import { createAdminServer } from '../admin/server.ts';
 import { createAgentRoutes } from '../agents/routes.ts';
 import { createRunService, type RunService } from '../agents/run.ts';
 import { createRunRecordRoutes } from '../agents/run-records.ts';
@@ -10,7 +11,7 @@ import { HttpStatus } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { createSnapshotHost, type SnapshotHost } from '../db/snapshot.ts';
 import { createSchema } from '../graphql/build-schema.ts';
-import { createContextFactory, createGraphQLHandler } from '../graphql/handler.ts';
+import { createContextFactory, createGraphQLHandler, createRunContextFactory } from '../graphql/handler.ts';
 import { createModelServices, type ModelServices } from '../models/services.ts';
 import { type ChildIsolation, ChildMode } from '../tools/child-users.ts';
 import { createServerLoginRoutes } from '../tools/oauth/routes.ts';
@@ -81,7 +82,8 @@ export interface BuiltApp {
 }
 
 /**
- * Builds the Express app: /graphql, the agents endpoint /v1, the run records /runs, /healthz, the OIDC redirects and the UI.
+ * Builds the Express app: /graphql, the agents endpoint /v1, the run records /runs, /healthz, the OIDC redirects and the UI,
+ * and hands the tools area the admin server, which has no endpoint.
  *
  * @param deps - What the router talks to.
  * @returns The app and its snapshot host. It does not listen, migrate or start timers.
@@ -107,7 +109,7 @@ export async function createApp({
   const services = models ?? createModelServices({ db, snapshot: routes });
   const toolServices = tools ?? createToolServices({ db, snapshot: routes, isolation: children });
   const runService = runs ?? createRunService({ db, snapshot: routes, tools: toolServices });
-  const contextFor = createContextFactory({
+  const contextDeps = {
     db,
     authHost: host,
     snapshot: routes,
@@ -115,8 +117,11 @@ export async function createApp({
     models: services,
     tools: toolServices,
     runs: runService,
-  });
-  const graphql = createGraphQLHandler(createSchema(db), contextFor);
+  };
+  // One permissioned schema behind both doors: /graphql for people, and the admin server for agent runs.
+  const schema = createSchema(db);
+  const graphql = createGraphQLHandler(schema, createContextFactory(contextDeps));
+  toolServices.instances.serveBuiltin(createAdminServer(schema, createRunContextFactory(contextDeps)));
 
   // Yoga reads a body Express already parsed, so the size cap goes here. Over it: 413.
   app.use(graphql.graphqlEndpoint, express.json({ limit: HTTP_DEFAULTS.bodyLimit }));

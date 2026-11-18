@@ -232,7 +232,12 @@ describe('the agents endpoint', () => {
   });
 
   it('runs a workspace instance with its own settings when the workspace has an entry for the server', async () => {
-    const [server] = await h.asUser.expectOk('{ servers { id name } }').then((data) => data.servers);
+    const { server } = await h.asUser.expectOk(
+      'query ($name: String!) { server(where: { name: { eq: $name } }) { id } }',
+      {
+        name: SERVER,
+      },
+    );
     await h.asUser.expectOk(CREATE_ENTRY, {
       values: { workspaceId: h.workspaceId, serverId: server.id, env: { FIXTURE_GREETING: 'household a' } },
     });

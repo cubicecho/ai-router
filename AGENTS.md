@@ -59,7 +59,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
-| `admin/` (phase 9) | the built-in admin server, the only way to the router's management tools | everything |
+| `admin/` | the built-in admin server, the only way to the router's management tools | everything |
 
 `index.ts` at the root of `server/` is boot only. The last column is kept by reading for now; a
 lint rule is planned.
@@ -107,9 +107,18 @@ non-negotiables apply on top of these.
   unanswered until agents are offered as MCP tools.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
-- **Reserved name:** no server may be called `ai-router`, which is kept for the admin server.
+- **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the
+  built-in transport and source (`builtin`). No other server takes the name or the transport, and
+  nothing deletes or renames the row or gives it env, args, secrets or a login (`tools/builtin`).
   That server is the only way to the management tools, and there is no `/admin/mcp`. Agent ids
   follow the same name rule as providers and servers.
+- **Roles live on the admin server's entries only.** A workspace's entry for `ai-router` holds
+  roles and nothing else; every other entry's roles stay empty.
+- **The admin server lists only what the roles reach, and the schema's permissions are the lock.**
+  Its tools come from the same permissioned schema `/graphql` serves, executed with the run's
+  `RunCaller`, whose roles are read from the snapshot. A call names its run in `_meta`, set by the
+  dispatch and never sent to another server. A run never changes or restarts `ai-router`. The
+  listing must fit `MCP_DEFAULTS`; prune it in `admin/server`, never in the schema.
 - **No discovery yet.** mcp-router's AI Catalog, cards and LAN announce/discovery are not
   ported in the first pass. When they come, the public catalog names only the endpoint, and
   every agent behind it needs a key.
@@ -161,9 +170,11 @@ non-negotiables apply on top of these.
   means exactly those. An emptied list means none, never all.
 - **A waiting run resumes only when every handed-back call is answered.** It is matched by the
   call ids the router minted. Refuse a partial answer.
-- **Revisions are append-only, and only a user promotes.** A user's saves go live, and an app's
-  or a run's saves are drafts. Auto-promote is a column on `agents`, never a field in the
-  document, so no draft can switch it on. A run keeps the revision it started with.
+- **Revisions are append-only, but for drafts, and only a user promotes.** A user's saves go live,
+  and a run's saves are drafts unless the agent auto-promotes. Only a draft is ever deleted
+  (`discardRevision`), and a run deletes only its own agent's drafts for its workspace. Auto-promote
+  is a column on `agents`, set only by a user, never a field in the document, so no draft can
+  switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag

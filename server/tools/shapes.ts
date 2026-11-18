@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AdminRole } from '../core/admin-roles.ts';
 import { nameSchema } from '../core/names.ts';
 import type { ChildUser } from './child-users.ts';
 import { isJoinableServerName } from './naming.ts';
@@ -9,7 +10,7 @@ import { isJoinableServerName } from './naming.ts';
  * values are not here, because they live in `server_secrets` and are never served.
  */
 
-/** The name kept for the admin server. No server may take it. */
+/** The admin server's name, kept for it: no other server may take it. */
 export const RESERVED_SERVER_NAME = 'ai-router';
 
 /** A server's name: the router name rule, minus the reserved name. Tools are named `<server>__<tool>`. */
@@ -31,6 +32,8 @@ export const SourceType = {
   Pypi: 'pypi',
   /** Added by hand by its command or address: nothing was installed. */
   Manual: 'manual',
+  /** The router's own: only the admin server, which the migrations add. */
+  Builtin: 'builtin',
 } as const;
 export type SourceType = (typeof SourceType)[keyof typeof SourceType];
 
@@ -38,11 +41,11 @@ export type SourceType = (typeof SourceType)[keyof typeof SourceType];
 export const TRANSPORT_STDIO = 'stdio' as const;
 /** A server reached over streamable HTTP. */
 export const TRANSPORT_STREAMABLE_HTTP = 'streamable-http' as const;
-/** One of the transports. */
-export type TransportType = typeof TRANSPORT_STDIO | typeof TRANSPORT_STREAMABLE_HTTP;
+/** The admin server, served inside the router and connected to in process. Only `ai-router` has it. */
+export const TRANSPORT_BUILTIN = 'builtin' as const;
 
-/** Where a server came from, by `type`. */
-export const serverSourceSchema = z.discriminatedUnion('type', [
+/** Where a server can be installed or added from: anywhere but the router itself. */
+export const installSourceSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal(SourceType.Registry),
     /** The registry's name. */
@@ -55,15 +58,22 @@ export const serverSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal(SourceType.Pypi), package: z.string(), version: z.string().optional() }),
   z.object({ type: z.literal(SourceType.Manual) }),
 ]);
+export type InstallSource = z.infer<typeof installSourceSchema>;
+
+/** Where a server came from, by `type`: one of the install sources, or the router itself. */
+export const serverSourceSchema = z.discriminatedUnion('type', [
+  ...installSourceSchema.options,
+  z.object({ type: z.literal(SourceType.Builtin) }),
+]);
 export type ServerSource = z.infer<typeof serverSourceSchema>;
 
 /**
- * How the router reaches a server, as stored: no header values, which are secrets.
+ * How the router reaches a server outside it, as a person gives it: no header values, which are secrets.
  *
  * @remarks
  * A stdio command runs as the server's own user, in its install folder unless `cwd` says otherwise.
  */
-export const serverTransportSchema = z.discriminatedUnion('type', [
+export const externalTransportSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal(TRANSPORT_STDIO),
     /** The program, such as `node`, `uvx` or an absolute path. Never run through a shell. */
@@ -76,7 +86,23 @@ export const serverTransportSchema = z.discriminatedUnion('type', [
     url: z.url(),
   }),
 ]);
+
+/** How the router reaches a server, as stored: a server outside it, or the built-in admin server. */
+export const serverTransportSchema = z.discriminatedUnion('type', [
+  ...externalTransportSchema.options,
+  z.object({ type: z.literal(TRANSPORT_BUILTIN) }),
+]);
 export type ServerTransport = z.infer<typeof serverTransportSchema>;
+
+/** The admin server's row, as the migrations add it. Only `enabled`, `displayName` and `description` may change. */
+export const ADMIN_SERVER_ROW = Object.freeze({
+  name: RESERVED_SERVER_NAME,
+  displayName: 'Admin server',
+  description:
+    "The router's own management, as tools. A workspace's entry for it grants roles, and an agent reaches it only by naming it.",
+  source: Object.freeze({ type: SourceType.Builtin }),
+  transport: Object.freeze({ type: TRANSPORT_BUILTIN }),
+});
 
 /** What the UI shows for one env var, from the registry's description of it. */
 export const envVarMetaSchema = z
@@ -130,13 +156,18 @@ export interface ResolvedServer {
   workspaceId: string | null;
   transport:
     | { type: typeof TRANSPORT_STDIO; command: string; args: string[]; cwd?: string }
-    | { type: typeof TRANSPORT_STREAMABLE_HTTP; url: string; headers: Record<string, string> };
+    | { type: typeof TRANSPORT_STREAMABLE_HTTP; url: string; headers: Record<string, string> }
+    | {
+        type: typeof TRANSPORT_BUILTIN;
+        /** What the instance's workspace grants its runs: its entry's roles, or every role to list for a person. */
+        roles: AdminRole[];
+      };
   /** The env the program gets on top of the router's allowlist, secret values included. Empty for HTTP. */
   env: Record<string, string>;
   /**
    * Who a stdio program runs as: the server's uid and group for the base instance, the entry's own uid with the
    * server's group for a workspace instance, and the server's extra groups either way. null for a server reached over
-   * HTTP.
+   * HTTP or built in.
    */
   runAs: ChildUser | null;
   /** The server's install folder: its packages, and where its program starts. null for a server reached over HTTP. */

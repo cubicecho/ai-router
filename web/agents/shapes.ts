@@ -177,13 +177,3 @@ export function refusalOf(error: unknown): DocumentFindings | null {
 export function whenOf(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
-
-/**
- * Names who saved a revision.
- *
- * @param creator - The saver, or null once their account is gone.
- * @returns Their name, their email, or "A removed user".
- */
-export function whoOf(creator: { name: string | null; email: string } | null): string {
-  return creator === null ? 'A removed user' : (creator.name ?? creator.email);
-}

@@ -6,11 +6,26 @@ fragment AgentRevisionFields on AgentRevision {
   warnings
   message
   createdBy
+  savedByWorkspaceId
+  savedByAgentId
+  basedOnId
   createdAt
   promotedAt
   creator {
     name
     email
+  }
+  savedByWorkspace {
+    id
+    name
+  }
+  savedByAgent {
+    id
+    name
+  }
+  basedOn {
+    id
+    number
   }
 }
 
@@ -31,6 +46,7 @@ query Agent($id: UUID!) {
     id
     name
     liveRevisionId
+    autoPromote
     liveRevision {
       ...AgentRevisionFields
     }
@@ -78,6 +94,20 @@ mutation PromoteRevision($id: UUID!) {
   promoteRevision(id: $id) {
     id
     liveRevisionId
+  }
+}
+
+mutation DiscardRevision($id: UUID!) {
+  discardRevision(id: $id) {
+    id
+    liveRevisionId
+  }
+}
+
+mutation SetAgentAutoPromote($id: UUID!, $autoPromote: Boolean!) {
+  setAgentAutoPromote(id: $id, autoPromote: $autoPromote) {
+    id
+    autoPromote
   }
 }
 

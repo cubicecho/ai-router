@@ -15,6 +15,7 @@ import {
   MS_PER_SECOND,
   type ServerTransport,
   STDIO,
+  STREAMABLE_HTTP,
   serverNameError,
   sourceOf,
   textToEnv,
@@ -120,7 +121,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
       extraGroups: groupsToText(server.extraGroups),
       command: transport.type === STDIO ? transport.command : '',
       args: transport.type === STDIO ? linesToText(transport.args) : '',
-      url: transport.type === STDIO ? '' : transport.url,
+      url: transport.type === STREAMABLE_HTTP ? transport.url : '',
     },
     onSubmit: ({ value }) => {
       const set: ServerUpdate = {

@@ -10,7 +10,9 @@ describe the code as it is. **Phase 5 is built too:** agents, revisions, history
 warnings, the seeded override policy, and which workspaces may run which agents. **So is phase 6:** runs on the
 agents endpoint `/v1` (layers, the override policy, reach, tool names, dispatch, model calls in process, the `runs`
 table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). **So is phase 7:** app tools and waiting
-runs, progress events, stored run events and the run records at `/runs`, and conversations. Every other entry
+runs, progress events, stored run events and the run records at `/runs`, and conversations. **Of phase 9:** the
+roles a run calls the admin server with, drafts, discarding a draft, auto-promote and who saved a revision, though
+the admin server itself is not built yet. Every other entry
 is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
@@ -31,6 +33,7 @@ app ─key→ workspace ─┬─ /v1    agent id → run → resolved agent ─
                      └─ /runs  a run's record and its events → the app's own timeline
 
 user ─session→ /graphql ─→ every table, through the permission map
+run ─in process→ admin server ai-router ─→ the same schema, as far as its workspace's roles reach
 ```
 
 - **Run an agent:** an app sets its base URL to the **agents endpoint** (`/v1`), whose model list
@@ -39,8 +42,9 @@ user ─session→ /graphql ─→ every table, through the permission map
   app asks, the stream also carries each step as a run event, so the app's own chat or Runs tab
   shows the detail it shows today.
 - **Manage the router:** users manage it in the UI over `/graphql`. An admin can do everything.
-  Other users can do everything except secrets, settings and roles. A later phase adds the admin
-  server, which gives agents and MCP clients the same management as tools.
+  Other users can do everything except secrets, settings and roles. The admin server `ai-router`
+  gives an agent run the same management as tools, as far as its workspace's roles reach, when the
+  agent names it.
 
 The address is the same for every app. The **key** decides what is behind it. `/mcp` at the root
 is kept for agents offered as MCP tools, in a later phase.
@@ -62,7 +66,7 @@ Dependencies point one way:
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
-| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. Given the admin server, it may write what that server's permission levels allow |
+| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
 | MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
 
@@ -72,8 +76,9 @@ Dependencies point one way:
 
 ```
 saved --> live --next promote--> retired --promote again (rollback)--> live
-saved --> draft --promote (a user, or auto-promote)--> live           (phase 9)
-          draft --discard (a user)--> gone                            (phase 9)
+saved --> draft --promote (a user)--> live
+saved --auto-promote on--> live
+          draft --discard (a user, or the run's own agent)--> gone
 ```
 
 - **Saved:** every save makes a new revision. `parseSpec` checks it on the way in.
@@ -83,11 +88,22 @@ saved --> draft --promote (a user, or auto-promote)--> live           (phase 9)
 - **Rollback:** promoting a retired revision makes it live again.
 - **Who promotes:**
   - A user's own saves are promoted at once.
-  - A save by a workspace key or a run stays a draft until a user promotes it, unless that agent
-    has auto-promote turned on.
+  - A save by anything but a user (in practice an agent run, through the admin server) stays a draft
+    until a user promotes it, unless that agent has auto-promote turned on. Then it goes live as a
+    user's save does.
+  - A new agent's first revision goes live whoever saves it: there is nothing live yet to protect.
   - An agent has at most one live revision. An agent with none cannot run.
-- **Drafts come with the admin server** (phase 9), the first way anything other than a user can save
-  an agent. Revisions, history and rollback come first (phase 5).
+- **Who saved it:** a user's save records the user (`created_by`). A run's records its workspace
+  and agent (`saved_by_workspace_id`, `saved_by_agent_id`) and no user.
+- **Based on:** a save may name the revision it started from, one of the same agent's; left out,
+  it is the live one. Kept as `based_on_id`, and set null if that revision is discarded.
+- **Discard:** deletes a draft, which leaves no trace. A user may discard any draft. A run may
+  discard only a draft its own agent saved for its own workspace; any other is refused as
+  FORBIDDEN, since the run can read that it exists. A revision that is live or was ever live can't
+  be discarded, so the history of what ran is never rewritten. Discarding the newest draft frees its
+  number for the next save.
+- **Auto-promote** is turned on and off by a user (`setAgentAutoPromote`). Turning it on leaves the
+  drafts already saved as drafts.
 
 ### Run
 
@@ -172,6 +188,10 @@ starting --timeout or exit--> failed --backoff--> starting
   on each workspace's own account. A stdio one runs as its entry's own user id, with a folder of
   its own made on its first call. Deleting the entry, the workspace or the server stops it and
   removes that folder.
+- **The admin server's instances:** one per workspace whose runs call it, entry or not, granting
+  that workspace's roles, and a base instance granting every role, which only lists the tools for
+  a person. Each is served inside the router, connected in process, and never stops when idle. A
+  change to a workspace's roles replaces its instance.
 
 ### Workspace key
 
@@ -205,8 +225,14 @@ created (shown once) --> in use --revoke--> deleted
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
 | A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
-| The admin server is the only way to the router's management tools. There is no separate admin endpoint | `admin/server` |
-| No server may be named `ai-router`. The name is kept for the admin server | `tools/shapes` `serverNameSchema`, and the check `ck_servers_name_reserved` |
+| The admin server is the only way to the router's management tools. There is no separate admin endpoint: it is connected in process, through the tools area's instances, like any other server a run reaches | `admin/server` `createAdminServer`, handed to `tools/instances` `serveBuiltin` by `http/app`; no route |
+| A run is listed only the admin server's tools whose root field its workspace's roles reach, and none with no entry or no roles. The listing is not the lock: the same permissions `/graphql` has guard every call, so a call past the roles is refused with FORBIDDEN. A tool's result carries no stored secret | `admin/server` (`canReachField`), `graphql/permissions`, `graphql/abilities` |
+| A call to the admin server acts as the run that made it, named in the call's `_meta` by the router's own dispatch, never by the model, with the roles of the instance's workspace from the snapshot. A call that names no run, such as a person trying a tool, is refused | `tools/builtin` `runMeta`, `tools/services` `callTool`, `admin/server` `callerOf` |
+| An agent run never changes or restarts the admin server, whatever its roles | `tools/hooks` `checkBuiltinUpdate`, `tools/resolvers` `restartServer` |
+| Through the admin server, a run lists, tries and restarts only a server's base instance or its own workspace's, never another workspace's, which answers the same 404 as one that doesn't exist | `tools/resolvers` `instanceWorkspace` |
+| The admin server's listing fits `MCP_DEFAULTS`: each tool's schema and the whole `tools/list`. Relation filters and orders, a column filter's rarer operators, and the aggregate and group-by tools are left out of it, never out of the schema | `admin/server` (`isOwnColumnFilter`, `UNLISTED_FIELDS`), a test |
+| `ai-router` is the admin server, the one server with the built-in transport and source. A migration adds it, and nobody adds another, renames or deletes it, or gives it a transport, env, arguments, secrets or a login. Only whether it is on, its display name and its description change | `tools/shapes` `serverNameSchema` and `installSourceSchema`, the checks `ck_servers_name_reserved` and `ck_servers_builtin_source`; `tools/builtin` `refuseIfBuiltin`, from `tools/hooks`, `tools/services` and `tools/resolvers` |
+| Roles are held only by a workspace's entry for the admin server: each one from the role vocabulary, none twice. That entry takes no env, arguments, address or secrets, and every other entry's roles stay empty | `tools/input` `rolesInput`, `ck_workspace_servers_roles`; `tools/hooks` `afterEntryWrite` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
@@ -240,9 +266,10 @@ created (shown once) --> in use --revoke--> deleted
 | A conversation has at most one run running or waiting. A request that overlaps one gets 409 `conversation_busy`, unless it answers that waiting run's calls | `agents/run` `begin`, `uq_runs_conversation_id_going` |
 | A conversation belongs to one workspace and one agent. Its history is changed only by a completed run of it, and a request with history of its own (assistant or tool messages) is refused once it has some | `agents/conversation` |
 | An idle conversation is deleted after `CONVERSATION_DEFAULTS.idleHours`, never while a run of it is running or waiting. Its runs stay | `agents/conversation` `pruneConversations`, `runs.conversation_id` set null |
-| Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
+| Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document, and only a user sets it | `agents/revisions` (`savesAsDraft`), `graphql/permissions` (`promoteRevision`, `setAgentAutoPromote`: people only) |
+| A draft is a revision never promoted. Every live revision has been promoted, so a draft is never live, and only a draft is ever deleted on its own. A run deletes only the drafts its own agent saved for its own workspace | `agents/revisions` (`isDraft`, `mayDiscard`), `agents/resolvers` `discardRevision` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
-| An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
+| An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent and run | `models/usage`, `tools/activity` |
@@ -284,8 +311,9 @@ Everything about the code comes after `Owner:`.
 - **Workspace:** what one app may run: chosen agents, and how their servers are configured for
   its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
 - **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
-  account's credentials. Owner: `workspace_servers`, with its overrides; its secret overrides are
-  `server_secrets` rows that name the workspace. `tools/resolve` merges them over the server's.
+  account's credentials. A workspace's entry for the admin server holds roles instead. Owner:
+  `workspace_servers`, with its overrides and `roles`; its secret overrides are `server_secrets` rows that
+  name the workspace. `tools/resolve` merges them over the server's.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -317,10 +345,11 @@ Everything about the code comes after `Owner:`.
   reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
   values and every header value are in `server_secrets`, written by `setServerSecret` and served
   only by name.
-- **Source:** where a server came from: a registry, npm, PyPI, or added by hand by its address.
-  Owner: `servers.source`.
-- **Transport:** how the router reaches a server: a program it starts, or an address it connects
-  to. Owner: `servers.transport`; stdio or streamable HTTP.
+- **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
+  router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
+- **Transport:** how the router reaches a server: a program it starts, an address it connects to,
+  or, for the admin server, inside the router itself. Owner: `servers.transport`; stdio, streamable
+  HTTP, or built in (`builtin`, only `ai-router`'s), connected in process.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
@@ -366,21 +395,25 @@ Everything about the code comes after `Owner:`.
 - **Agent:** a model, a prompt and tools defined once, for any app to use. Its name in the router
   is its document's `id`, and can't change. Owner: `agents/`; the `agents` table; its content is
   a `cubicecho.agent/1` document, `@cubicecho/agent-core` `AgentSpec`, kept as JSON.
-- **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed.
-  Each is a draft, live or retired, and every earlier revision is kept. Owner: `agents/resolvers`
-  (`createAgent`, `saveAgent`) and `agents/document` (the check); the `agent_revisions` table.
-  Retired is `promoted_at` set and not live.
+- **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed,
+  who saved it and the revision it started from. Each is a draft, live or retired. Every revision
+  that has been live is kept; a draft can be discarded. Owner: `agents/resolvers` (`createAgent`,
+  `saveAgent`) and `agents/document` (the check); the `agent_revisions` table (`created_by`,
+  `saved_by_workspace_id`, `saved_by_agent_id`, `based_on_id`). Retired is `promoted_at` set and
+  not live.
 - **Warnings:** what a save found worth a person's attention, kept on its revision: agent-core's,
   and the router's own (a provider, pool or server the router lacks; reach over every server; an
   agent calling its own address). Never a reason to refuse. Owner: `agents/document`;
   `agent_revisions.warnings`, and `checkAgent` to see them before saving.
-- **Draft:** a revision waiting for a user to promote it, made by an app or a run rather than a
-  person. Owner: `agents/revisions`.
+- **Draft:** a revision waiting for a user to promote it, made by an agent run rather than a
+  person. Owner: `agents/revisions` (`savesAsDraft`, `isDraft`); `promoted_at` null.
+- **Discard:** delete a draft. Any user may, and a run may for the drafts its own agent saved.
+  Owner: `agents/resolvers` `discardRevision`, `agents/revisions` `mayDiscard`.
 - **Live revision:** the one revision an agent runs and serves. Owner: `agents.live_revision_id`.
 - **Promote:** make a revision live. Any user does it, or auto-promote does it for them. Promoting
   an older one is a rollback. Owner: `agents/resolvers` `promoteRevision`.
-- **Auto-promote:** a user's choice to let one agent's drafts go live without review. Owner:
-  `agents.auto_promote`.
+- **Auto-promote:** a user's choice to let a run's saves of one agent go live without review. It
+  promotes nothing already saved. Owner: `agents.auto_promote`, set by `setAgentAutoPromote`.
 - **Prompt part:** one named piece of an agent's instructions. Layers add parts with new names and
   replace parts with the same name. The router adds the app's instructions as a host part and a
   scheduled job's as a task part, after the agent's own. Owner: `agent-core` `PromptPart`; the
@@ -449,20 +482,25 @@ Everything about the code comes after `Owner:`.
   `CONVERSATION_DEFAULTS`. GraphQL serves it read-only, with `Conversation.runs` and
   `Run.conversation`; `/runs/<id>` names it as `conversation`.
 
-### Administration (a later phase)
+### Administration
 
-- **Admin server:** the router's own management, offered as tools on a built-in server. A
-  workspace or an agent is given it like any other server, and that is the only way in. Owner:
-  `admin/server`; the reserved name `ai-router`, `@cubicecho/graphql-mcp` over the GraphQL
-  schema.
-- **Permission level:** what an admin client may do: read, author drafts, operate, install.
-  Owner: `graphql/permissions`; set on the admin server and per server entry.
+- **Admin server:** the router's own management, offered as tools on a built-in server, `ai-router`.
+  An agent reaches it only by naming it, and its run may use what its workspace's entry for it
+  grants. That is the only way in. Owner: `admin/server` `createAdminServer`; `@cubicecho/graphql-mcp`
+  over the permissioned GraphQL schema, connected in process with the MCP SDK's in-memory
+  transport, its limits in `MCP_DEFAULTS`.
+- **Role:** what a workspace lets its agent runs do through the admin server, such as reading agents
+  or restarting servers. Roles add up, and none reaches what only people do: promoting, deleting an
+  agent, secrets, settings, users, workspaces and keys. Owner: `core/admin-roles` (`AdminRole`), held
+  by the workspace's entry for `ai-router` (`workspace_servers.roles`); what each grants is
+  `graphql/abilities` `ROLE_GRANTS`.
 
 ### Internals
 
-- **Caller:** who a request is from: an admin or another user (by session), or an app (by
-  workspace key). It is read from the credential once per request. Owner: `auth/caller`;
-  `Context.caller`.
+- **Caller:** who a request is from: an admin or another user (by session), an app (by
+  workspace key), or an agent run calling the admin server. It is read from the credential once per
+  request, and a run's is handed over in process. Owner: `auth/caller`; `Context.caller`, and
+  `RunCaller` from `graphql/handler` `createRunContextFactory`.
 - **Forwarding:** handing one of a run's model calls to a provider: picking a pool's target,
   adding the provider's key and headers, passing the stream through and counting its usage.
   Owner: `models/forward`; a function the run's `fetch` calls, not an HTTP endpoint.

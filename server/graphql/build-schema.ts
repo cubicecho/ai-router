@@ -1,11 +1,13 @@
 import { buildSchema } from '@vantreeseba/drizzle-graphql';
 import { applyPermissions } from '@vantreeseba/graphql-casl';
+import { type AnyColumn, eq } from 'drizzle-orm';
 import { GraphQLObjectType, GraphQLSchema } from 'graphql';
 import { agentWriteHooks } from '../agents/hooks.ts';
 import { applyAgentsExtension } from '../agents/resolvers.ts';
 import { applyRunsExtension } from '../agents/run-resolvers.ts';
 import { applyBetterAuthExtension } from '../auth/endpoints.ts';
 import { applyAuthExtension } from '../auth/resolvers.ts';
+import { CALLER_RUN, type Context } from '../core/context.ts';
 import { OPERATION_LIMIT_DEFAULTS } from '../core/defaults.ts';
 import { forbidden } from '../core/errors.ts';
 import type { DB } from '../db/client.ts';
@@ -121,6 +123,11 @@ export function createSchema(db: DB): GraphQLSchema {
     complexity: true,
     // A stored value such as `least-busy` is no GraphQL name: it is served as `least_busy`, and stored as it was.
     enumValueNameMapper: ({ value }) => value.replaceAll('-', '_'),
+    // An agent run reads only the runs its own workspace started, a relation's included. People read every run.
+    scope: {
+      runs: (ctx: Context, table: { workspaceId: AnyColumn }) =>
+        ctx.caller?.kind === CALLER_RUN ? eq(table.workspaceId, ctx.caller.workspaceId) : undefined,
+    },
     onWrite: { ...workspaceWriteHooks, ...modelWriteHooks, ...toolWriteHooks, ...agentWriteHooks },
     onError: mapDatabaseError,
   });

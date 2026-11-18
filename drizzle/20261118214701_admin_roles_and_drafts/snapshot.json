@@ -1,0 +1,439 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "1d042c12-148f-43c2-9cf1-3a2f0bd67839",
+  "prevIds": [
+    "05bdc1af-5447-459d-87bc-d6d8b260e1d7"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "agent_revisions",
+        "saved_by_workspace_id"
+      ],
+      "writes": [
+        "s|col|public.agent_revisions.saved_by_workspace_id",
+        "n|col|public.agent_revisions.saved_by_workspace_id",
+        "e|col|public.agent_revisions.saved_by_workspace_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "agent_revisions",
+        "saved_by_agent_id"
+      ],
+      "writes": [
+        "s|col|public.agent_revisions.saved_by_agent_id",
+        "n|col|public.agent_revisions.saved_by_agent_id",
+        "e|col|public.agent_revisions.saved_by_agent_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "agent_revisions",
+        "based_on_id"
+      ],
+      "writes": [
+        "s|col|public.agent_revisions.based_on_id",
+        "n|col|public.agent_revisions.based_on_id",
+        "e|col|public.agent_revisions.based_on_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "workspace_servers",
+        "roles"
+      ],
+      "writes": [
+        "s|col|public.workspace_servers.roles",
+        "n|col|public.workspace_servers.roles",
+        "e|col|public.workspace_servers.roles"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agent_revisions",
+        "idx_agent_revisions_saved_by_workspace_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_agent_revisions_saved_by_workspace_id",
+        "n|idx|public.idx_agent_revisions_saved_by_workspace_id",
+        "e|idx|public.idx_agent_revisions_saved_by_workspace_id",
+        "n|rel|public.idx_agent_revisions_saved_by_workspace_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.saved_by_workspace_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agent_revisions",
+        "idx_agent_revisions_saved_by_agent_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_agent_revisions_saved_by_agent_id",
+        "n|idx|public.idx_agent_revisions_saved_by_agent_id",
+        "e|idx|public.idx_agent_revisions_saved_by_agent_id",
+        "n|rel|public.idx_agent_revisions_saved_by_agent_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.saved_by_agent_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agent_revisions",
+        "idx_agent_revisions_based_on_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_agent_revisions_based_on_id",
+        "n|idx|public.idx_agent_revisions_based_on_id",
+        "e|idx|public.idx_agent_revisions_based_on_id",
+        "n|rel|public.idx_agent_revisions_based_on_id"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.based_on_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|fk|public.agent_revisions.agent_revisions_saved_by_workspace_id_workspaces_id_fkey",
+        "n|fk|public.agent_revisions.agent_revisions_saved_by_workspace_id_workspaces_id_fkey",
+        "e|fk|public.agent_revisions.agent_revisions_saved_by_workspace_id_workspaces_id_fkey",
+        "n|con|public.agent_revisions.agent_revisions_saved_by_workspace_id_workspaces_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|tbl|public.workspaces",
+        "n|sch|public",
+        "n|col|public.agent_revisions.saved_by_workspace_id",
+        "n|col|public.workspaces.id",
+        "e|uniqueness|public.workspaces.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|fk|public.agent_revisions.agent_revisions_saved_by_agent_id_agents_id_fkey",
+        "n|fk|public.agent_revisions.agent_revisions_saved_by_agent_id_agents_id_fkey",
+        "e|fk|public.agent_revisions.agent_revisions_saved_by_agent_id_agents_id_fkey",
+        "n|con|public.agent_revisions.agent_revisions_saved_by_agent_id_agents_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "n|col|public.agent_revisions.saved_by_agent_id",
+        "n|col|public.agents.id",
+        "e|uniqueness|public.agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agent_revisions"
+      ],
+      "writes": [
+        "s|fk|public.agent_revisions.agent_revisions_based_on_id_agent_revisions_id_fkey",
+        "n|fk|public.agent_revisions.agent_revisions_based_on_id_agent_revisions_id_fkey",
+        "e|fk|public.agent_revisions.agent_revisions_based_on_id_agent_revisions_id_fkey",
+        "n|con|public.agent_revisions.agent_revisions_based_on_id_agent_revisions_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|tbl|public.agent_revisions",
+        "n|sch|public",
+        "n|col|public.agent_revisions.based_on_id",
+        "n|col|public.agent_revisions.id",
+        "e|uniqueness|public.agent_revisions.id"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_servers"
+      ],
+      "writes": [
+        "s|ck|public.workspace_servers.ck_workspace_servers_roles",
+        "n|ck|public.workspace_servers.ck_workspace_servers_roles",
+        "e|ck|public.workspace_servers.ck_workspace_servers_roles",
+        "n|con|public.workspace_servers.ck_workspace_servers_roles"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_servers",
+        "n|sch|public",
+        "n|col|public.workspace_servers.roles"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "saved_by_workspace_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "saved_by_agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "based_on_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "roles",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 1,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "idx_agent_revisions_saved_by_workspace_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "saved_by_workspace_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "idx_agent_revisions_saved_by_agent_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "saved_by_agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "idx_agent_revisions_based_on_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "based_on_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_saved_by_workspace_id_workspaces_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "saved_by_workspace_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspaces",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_saved_by_agent_id_agents_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "saved_by_agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "agent_revisions",
+        "name": "agent_revisions_based_on_id_agent_revisions_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "based_on_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "agent_revisions",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_servers",
+        "name": "ck_workspace_servers_roles",
+        "value": "\"roles\" <@ array['agents:read', 'agents:manage', 'models:read', 'models:manage', 'servers:read', 'servers:manage', 'servers:operate', 'runs:read']::text[]",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

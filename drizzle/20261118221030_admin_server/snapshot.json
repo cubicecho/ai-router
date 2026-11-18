@@ -1,0 +1,69 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2e476a78-002e-4b75-8b44-4149a84089d9",
+  "prevIds": [
+    "1d042c12-148f-43c2-9cf1-3a2f0bd67839"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "servers"
+      ],
+      "writes": [
+        "s|ck|public.servers.ck_servers_builtin_source",
+        "n|ck|public.servers.ck_servers_builtin_source",
+        "e|ck|public.servers.ck_servers_builtin_source",
+        "n|con|public.servers.ck_servers_builtin_source"
+      ],
+      "reads": [
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.servers.transport",
+        "n|col|public.servers.source"
+      ]
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "servers"
+      ],
+      "writes": [
+        "s|ck|public.servers.ck_servers_name_reserved"
+      ],
+      "reads": [
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.servers.name",
+        "n|col|public.servers.transport",
+        "e|col|public.servers.name"
+      ],
+      "sqlHash": "9426dd8d54a485b5"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "servers",
+        "name": "ck_servers_builtin_source",
+        "value": "(\"transport\"->>'type' = 'builtin') = (\"source\"->>'type' = 'builtin')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"servers\",\"ck_servers_name_reserved\"]",
+      "set": {
+        "value": "(\"name\" = 'ai-router') = (\"transport\"->>'type' = 'builtin')"
+      }
+    }
+  ]
+}
