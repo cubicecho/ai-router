@@ -127,6 +127,9 @@ You help me run my household money. I budget monthly in Actual …
 
 - **No `endpoint`:** the agent runs through this router, and its model ids are ordinary model ids
   on the bare models endpoint.
+- **The router layer** sits underneath the agent and sets its endpoint to the router's own
+  `/bare/v1`. Without it, an agent with no `endpoint`, and its side tasks, resolve to an empty
+  address and can't run (found in phase 0).
 - **Layers:** the router turns the request's leading system messages into a `host` prompt part,
   and `ai_router.task` into a `task` part. Both come after the agent's own parts, joined with
   blank lines. `host` and `task` are reserved, so an app can never replace one of the agent's
@@ -144,7 +147,10 @@ You help me run my household money. I budget monthly in Actual …
 - **Sampling settings** go where any OpenAI client puts them: `temperature`, `top_p`,
   `max_tokens`, `seed`, `stop` and the penalties at the top level, and `top_k`, `min_p` and
   `repeat_penalty` at the top level too, as llama.cpp and vLLM take them. They form the request
-  layer and apply to the agent's main model, never to its side tasks. A field the policy doesn't
+  layer and apply to the agent's main model, never to its side tasks. `temperature` becomes the
+  model's temperature and `max_tokens` its ceiling. Only the rest go into `extraBody`, because
+  `agent-core` lets an `extraBody` temperature quietly beat the real one
+  ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)). A field the policy doesn't
   allow is refused with an error that names it.
 - **`X-Run-Id`** comes back on every agent response, so an app's own log can link to the
   router's run record.

@@ -128,6 +128,12 @@ non-negotiables apply on top of these.
   the agent passes the override policy before `resolveAgentSpec`. `endpoint` and the model never
   change for a request, and a caller's `servers` is intersected with the agent's. Sampling
   settings pass only if the policy allows them, and never reach side tasks.
+- **The router layer goes underneath every run.** It sets the endpoint to the router's own
+  `/bare/v1`, so an agent without one, and its side tasks, can run.
+- **Map sampling fields by name.** `temperature` goes to `model.temperature`, and `max_tokens` or
+  `max_completion_tokens` to `model.maxTokens`. Only fields the format can't spell go into
+  `extraBody`. Never copy a request's fields into `extraBody` wholesale
+  ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)).
 - **The router builds the host and task parts, never the app.** The host part is the request's
   leading `system`/`developer` messages, and the task part is `ai_router.task`. They use the
   reserved ids `host` and `task`, which no agent may use, so an app can't replace or delete an

@@ -181,6 +181,8 @@ created (shown once) --> in use --revoke--> deleted
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, the part id check in `agents/revisions` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
 | A resumed run keeps the layers it started with. A resume request that sends different host or task text is refused | `agents/run` |
+| Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call models through the router's bare models endpoint | `agents/layers` |
+| An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | Every agent has exactly one override policy. Until policies can be chosen, every agent uses the one seeded default | `db/schema`: `agents.override_policy_id`, defaulting to the seeded row |
 | An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
@@ -298,9 +300,11 @@ Everything about the code comes after `Owner:`.
   reserved ids `host` and `task`.
 - **Side task:** a small job such as titling or summarising a conversation, which an agent may
   run on a different model. Owner: `agent-core` `TaskSpec`.
-- **Layer:** one piece stacked on an agent for a request. The order is always: the agent, then
-  the host (the app's own instructions), then the task (a scheduled job), then the request (the
-  sampling settings the app sent). Owner: `agents/layers`.
+- **Layer:** one piece stacked for a request. The order is always: the router (underneath
+  everything, so an agent without an address of its own runs through the router), then the
+  agent, then the host (the app's own instructions), then the task (a scheduled job), then the
+  request (the sampling settings the app sent). Owner: `agents/layers`; the router layer sets
+  `endpoint` to the router's own `/bare/v1`.
 - **Override policy:** what the layers above an agent may change. Anything it does not allow is
   refused. For now there is one policy, which every agent uses: an app may add its own
   instructions, narrow the servers and set sampling settings, but never change the model. Owner:
