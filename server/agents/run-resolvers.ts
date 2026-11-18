@@ -31,8 +31,8 @@ const EVENT_TYPE_SDL = `
     name: String!
     "The call's id on the tool kinds."
     id: String
-    "The caller's flow step it happened in. Empty for a run with none."
-    step: String!
+    "The caller's exchange it happened in: the name runAgentLoop's exchange option gives it. Empty for a run with none."
+    exchange: String!
     "The outcome on tool-result and done."
     ok: Boolean
     "The running totals on usage."

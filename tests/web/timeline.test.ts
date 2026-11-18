@@ -12,7 +12,7 @@ import { type TimelineEvent, timelineOf } from '../../web/runs/timeline.ts';
  * @returns The event.
  */
 function event(seq: number, fields: Partial<TimelineEvent> & Pick<TimelineEvent, 'kind'>): TimelineEvent {
-  return { seq, at: 1000 + seq, text: '', name: '', id: null, step: '', ok: null, usage: null, ...fields };
+  return { seq, at: 1000 + seq, text: '', name: '', id: null, exchange: '', ok: null, usage: null, ...fields };
 }
 
 describe('timelineOf', () => {
@@ -62,14 +62,14 @@ describe('timelineOf', () => {
     expect(entries.map((entry) => (entry.type === 'note' ? entry.text : ''))).toEqual(['first', 'second']);
   });
 
-  it('keeps each entry in the step it happened in', () => {
+  it('keeps each entry in the exchange it happened in', () => {
     const entries = timelineOf([
-      event(1, { kind: 'step', name: 'plan', text: 'agent' }),
-      event(2, { kind: 'output', step: 'plan', text: 'a' }),
-      event(3, { kind: 'output', step: 'write', text: 'b' }),
+      event(1, { kind: 'exchange', name: 'plan', text: 'agent' }),
+      event(2, { kind: 'output', exchange: 'plan', text: 'a' }),
+      event(3, { kind: 'output', exchange: 'write', text: 'b' }),
     ]);
-    expect(entries.map((entry) => [entry.type, entry.step])).toEqual([
-      ['step', ''],
+    expect(entries.map((entry) => [entry.type, entry.exchange])).toEqual([
+      ['exchange', ''],
       ['output', 'plan'],
       ['output', 'write'],
     ]);

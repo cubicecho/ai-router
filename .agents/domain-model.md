@@ -453,8 +453,10 @@ Everything about the code comes after `Owner:`.
   text, a narrowing of the agent's servers, and whether to send progress events. Owner:
   `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`).
   Any other key is refused.
-- **Run events:** a run's steps, reasoning, tool calls and results, side tasks and usage, in
-  order, numbered from 1 with no gaps. The router's own pages and the app that started the run can
+- **Run events:** a run's exchanges, turns, reasoning, tool calls and results, side tasks and
+  usage, in order, numbered from 1 with no gaps. They are agent-core 6's `RunEvent`, which names an
+  exchange where 4.x said step; stored ones were renamed by a migration. An answer carries them
+  through agent-core's own `progressChunk` and `withProgress`, the encoders its decoder reads. The router's own pages and the app that started the run can
   follow them live or read them afterwards, and a follower gets the stored ones first, then the
   live ones, with no gap and no repeat. Owner: `agents/run-bus`, which numbers each event itself,
   carrying on after the last stored one, holds it in memory until it is written to the

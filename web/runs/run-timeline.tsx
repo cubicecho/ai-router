@@ -122,8 +122,12 @@ function rowOf(
   badge?: ReactElement;
 } {
   switch (entry.type) {
-    case 'step':
-      return { icon: <ListChecks />, title: `Step ${entry.name}`, description: entry.text };
+    case 'exchange':
+      return {
+        icon: <ListChecks />,
+        title: entry.name === '' ? 'Exchange' : `Exchange ${entry.name}`,
+        description: entry.text,
+      };
     case 'decision':
       return { icon: <GitBranch />, title: `Chose ${entry.text}` };
     case 'turn':
@@ -176,7 +180,7 @@ function rowOf(
 }
 
 /**
- * A run's events as a readable timeline: its steps, each turn, what it thought and wrote, every tool call with its
+ * A run's events as a readable timeline: its exchanges, each turn, what it thought and wrote, every tool call with its
  * result, the notes of its side tasks, and its usage after each turn.
  */
 export function RunTimeline({ events, startedAt, isLive }: RunTimelineProps) {
@@ -188,7 +192,7 @@ export function RunTimeline({ events, startedAt, isLive }: RunTimelineProps) {
         const row = rowOf(entry, isLive);
         const since = formatDuration(Math.max(0, entry.at - startedAt));
         return (
-          <ListRow key={entry.key} depth={entry.step === '' || entry.type === 'step' ? 0 : 1}>
+          <ListRow key={entry.key} depth={entry.exchange === '' || entry.type === 'exchange' ? 0 : 1}>
             <ListItem
               leadingSlot={<span className="flex size-4 text-foreground/60 [&>svg]:size-4">{row.icon}</span>}
               title={row.title}
