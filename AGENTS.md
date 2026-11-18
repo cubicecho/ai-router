@@ -80,6 +80,11 @@ non-negotiables apply on top of these.
   or `x-api-key`, and if both are sent and differ, the request is refused. A Bearer value is
   tried as a key first, then as a user's session token. Keys are managed only from a session, by
   any user.
+- **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
+  decide.
+- **A run token is not a key.** It's minted per run, held in memory, accepted only on the
+  router's own loopback call to `/bare/v1`, and dead when the run ends. Refuse it everywhere
+  else.
 - **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without

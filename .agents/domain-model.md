@@ -163,6 +163,8 @@ created (shown once) --> in use --revoke--> deleted
 | What a request can reach is decided by its credential, never by its URL or by a header the app chooses | `auth/caller`, `workspaces/scope` |
 | A key is read from `Authorization: Bearer` or `x-api-key`. If both are sent and differ, the request is refused | `auth/caller` |
 | Keys are created, listed and revoked only from a session, never with a key. Any user may do it | `graphql/permissions` |
+| Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
+| A run's model calls carry a run token: minted for that run, naming its workspace and agent, held only in memory, accepted only on the router's own loopback call to `/bare/v1`, and dead once the run ends. It is not a key, and it is never shown or stored | `agents/run`, `auth/caller` |
 | A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1`, `/bare/v1`, `/bare/mcp`, `/agents` or `/runs` | `auth/caller` |
 | Only an admin sets secrets and settings, and grants or removes the admin role | `graphql/permissions` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
@@ -209,8 +211,9 @@ Everything about the code comes after `Owner:`.
 
 - **ai-router:** this service. It gives apps models, tools and agents through one address. Owner:
   the repo; `server/index.ts`.
-- **User:** a person who signs in to the router. Every user shares the same router. Owner:
-  `auth/`; a better-auth user, signed in through OIDC (such as heautou).
+- **User:** a person who signs in to the router. Anyone the sign-in provider allows may do so,
+  and every user shares the same router. Owner: `auth/`; a better-auth user, signed in through
+  OIDC (such as heautou), which decides who may sign in by group.
 - **Admin:** a user who may do everything, including what other users may not: secrets,
   settings, and who else is admin. The first user to sign in becomes one. Owner: `auth/admin`;
   the user's role.
@@ -354,6 +357,9 @@ Everything about the code comes after `Owner:`.
   allow and list, and who the usage counts under; for the tools gateway, which servers and which
   overrides. Owner: `models/scope` and `tools/scope` declare it, and `workspaces/scope` builds it,
   with `agents/reach` for a run.
+- **Run token:** the credential a run's own model calls carry to the router's bare models
+  endpoint, so usage counts under the run's workspace and agent. Owner: `agents/run` mints it, and
+  `auth/caller` accepts it on loopback only.
 - **Snapshot:** the in-memory copy of everything the gateways route by, rebuilt after each
   committed write that changes it. Owner: `db/snapshot`.
 - **Lease:** an in-flight slot a pool holds for one request, released on every exit path. Owner:
