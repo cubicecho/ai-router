@@ -60,7 +60,7 @@ Dependencies point one way:
 |---|---|---|---|
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
-| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
+| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. Given the admin server, it may write what that server's permission levels allow |
 | MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
@@ -139,9 +139,24 @@ received --resolve--> running --model answers--> completed
 ### Conversation
 
 ```
-first request with X-Conversation-Id --> open --idle past TTL--> expired (deleted)
-open: one run at a time; a second overlapping request gets 409
+first request with X-Conversation-Id --> open --idle past CONVERSATION_DEFAULTS.idleHours--> expired --prune--> deleted
+open: one run at a time; a request that overlaps a running or waiting run gets 409
+expired, not yet pruned --next request--> open again, with no history
 ```
+
+- **Whose:** a conversation belongs to the key's workspace, under the app's own id, and to the
+  agent it started with. Another agent can't join it.
+- **History:** the router keeps the transcript of the conversation's last completed run, its
+  tool calls and results included, and the host text it ran with. A request then sends only what
+  is new: user messages, and system messages to change the instructions. A request that sends
+  none keeps the stored host text. A failed, cancelled or expired run adds nothing, so a retry of
+  the same message isn't in the history twice.
+- **Mixing:** once a conversation has history, a request that sends assistant or tool messages
+  with it is refused, since resent history and new turns can't be told apart. The one exception is
+  the `tool` messages that answer a waiting run of the conversation, which resume it. The first
+  request of a conversation may send any history, which starts it.
+- **Runs:** each run names the conversation it belongs to, and a conversation lists its runs.
+  When a conversation is deleted, its runs stay, naming none.
 
 ### Server instance
 
@@ -220,6 +235,9 @@ created (shown once) --> in use --revoke--> deleted
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own, each with `runId` set to the router's run id. agent-core has no encoder for them, so they are written as JSON, as they are | `agents/completion`, `agents/run-records`, `agents/run-bus` |
 | A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
+| A conversation has at most one run running or waiting. A request that overlaps one gets 409 `conversation_busy`, unless it answers that waiting run's calls | `agents/run` `begin`, `uq_runs_conversation_id_going` |
+| A conversation belongs to one workspace and one agent. Its history is changed only by a completed run of it, and a request with history of its own (assistant or tool messages) is refused once it has some | `agents/conversation` |
+| An idle conversation is deleted after `CONVERSATION_DEFAULTS.idleHours`, never while a run of it is running or waiting. Its runs stay | `agents/conversation` `pruneConversations`, `runs.conversation_id` set null |
 | Only a user promotes a revision, by hand or by turning on auto-promote for that agent. Workspace keys and runs only make drafts. Auto-promote is a column on the agent, never a field in its document | `agents/revisions`, `graphql/permissions` |
 | A stored document keeps every key it was saved with, unknown ones included. The one thing taken out is a bundled server's env and headers, where its credentials live, with a warning | `agents/document`, which stores the `jsonb` as received after agent-core's `exportSpec` |
 | An agent and its revisions are written only through `createAgent`, `saveAgent` and `promoteRevision`, which check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
@@ -422,8 +440,11 @@ Everything about the code comes after `Owner:`.
   dispatch answers with a stand-in and agent-core's `end`, so the loop stops after the step. The
   run then stores its transcript in `runs.resume` and the minted ids in `runs.pending_call_ids`.
 - **Conversation:** optional memory of one chat between requests, named by the app and deleted
-  once idle. Owner: `agents/conversation`; the `conversations` table, the `X-Conversation-Id`
-  header.
+  once idle, so the app sends only its new messages. One run at a time. Owner:
+  `agents/conversation`; the `conversations` table (per workspace and key, with its agent, host
+  text, transcript and expiry), `runs.conversation_id`, the `X-Conversation-Id` header, and
+  `CONVERSATION_DEFAULTS`. GraphQL serves it read-only, with `Conversation.runs` and
+  `Run.conversation`; `/runs/<id>` names it as `conversation`.
 
 ### Administration (a later phase)
 

@@ -19,6 +19,7 @@ import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
+import { violatedUniqueIndex } from '../db/errors.ts';
 import type { SnapshotAgent, SnapshotHost, SnapshotWorkspace } from '../db/snapshot.ts';
 import { agentRevisions } from '../db/tables/agent-revisions.ts';
 import {
@@ -32,6 +33,14 @@ import {
 import { ModelFailure } from '../models/openai-error.ts';
 import type { ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
+import {
+  busyRun,
+  type Conversation,
+  openConversation,
+  pruneConversations,
+  saveConversation,
+  touchConversation,
+} from './conversation.ts';
 import type { RunConfig } from './layers.ts';
 import { reachOf } from './reach.ts';
 import { type AppTool, type ChatMessage, RequestRefusal, type RunRequest, type ToolAnswer } from './request.ts';
@@ -58,6 +67,8 @@ const RESTARTED = 'The router restarted while the run was going.';
 const HANDED_BACK = '(handed back to the app)';
 /** Why the loop stopped at an app tool, as its `end` says it. */
 const HANDED_BACK_REASON = 'handed back to the app';
+/** The unique index that keeps a conversation to one run at a time. */
+const ONE_RUN_PER_CONVERSATION = 'uq_runs_conversation_id_going';
 /** The statuses of a run that is not over. */
 const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
 
@@ -75,11 +86,15 @@ export interface RunInput {
   request: RunRequest;
   config: RunConfig;
   idempotency: Idempotency | null;
+  /** The conversation the request names, whose history is already in `request`. Null for a stateless request. */
+  conversation: Conversation | null;
 }
 
 /** A waiting run that a request's tool messages answer. */
 export interface WaitingRun {
   runId: string;
+  /** The conversation it belongs to. */
+  conversationId: string | null;
   /** What it needs to carry on. */
   resume: RunResume;
   /** The document of the revision it started with, which it keeps. */
@@ -181,6 +196,7 @@ export interface RunService {
    * @param input - The run.
    * @returns The new run, to execute at once, or the one the key started.
    * @throws {@link RequestRefusal} When an app tool has the name of one of the agent's own tools.
+   * @throws {@link RunConflict} When the conversation has a run going or waiting.
    */
   begin(input: RunInput): Promise<StartedRun | RepeatedRun>;
   /**
@@ -205,6 +221,16 @@ export interface RunService {
    */
   resume(input: RunInput, waiting: WaitingRun): Promise<StartedRun>;
   /**
+   * Opens the conversation a request names, starting it if it is new or has expired.
+   *
+   * @param workspaceId - The key's workspace.
+   * @param agent - The agent the request names.
+   * @param key - The app's `X-Conversation-Id`.
+   * @returns The conversation.
+   * @throws {@link RequestRefusal} When it is with another agent.
+   */
+  openConversation(workspaceId: string, agent: SnapshotAgent, key: string): Promise<Conversation>;
+  /**
    * Marks the runs a stopped router left `running` as failed. Waiting runs stay waiting. Call it at boot, before
    * the agents endpoint opens.
    *
@@ -213,7 +239,7 @@ export interface RunService {
   recover(): Promise<number>;
   /** Expires runs that waited past the wait timeout. */
   expire(): Promise<void>;
-  /** Deletes ended runs past their retention, and frees keys past the idempotency window. */
+  /** Deletes ended runs past their retention and idle conversations, and frees keys past the idempotency window. */
   prune(): Promise<void>;
   /** Starts the timers that expire and prune. */
   start(): void;
@@ -258,6 +284,8 @@ interface Segment {
   input: RunInput;
   runId: string;
   startedAt: Date;
+  /** The conversation the run's transcript is kept in. */
+  conversationId: string | null;
   tools: RunTools;
   appTools: AppTool[];
   /** The transcript the loop carries on from. */
@@ -496,6 +524,30 @@ export function createRunService({
   };
 
   /**
+   * Keeps a run's transcript in its conversation, or only moves the conversation's expiry on.
+   *
+   * @param conversationId - The conversation, or null for a stateless run.
+   * @param kept - The transcript and host text of a run that answered, or null for one that didn't.
+   */
+  const keepConversation = async (
+    conversationId: string | null,
+    kept: { messages: ChatMessage[]; hostText: string | null } | null,
+  ): Promise<void> => {
+    if (conversationId === null) {
+      return;
+    }
+    try {
+      if (kept === null) {
+        await touchConversation(db, conversationId, now());
+      } else {
+        await saveConversation(db, conversationId, kept.messages, kept.hostText, now());
+      }
+    } catch (error) {
+      console.error(`[runs] could not keep conversation ${conversationId}: ${errorMessage(error)}`);
+    }
+  };
+
+  /**
    * Runs one stretch of a run: to its answer, or until the model calls an app tool and the run waits.
    *
    * @param segment - The stretch.
@@ -645,6 +697,7 @@ export function createRunService({
         const count = handedBack.length === 1 ? 'the call' : `${handedBack.length} calls`;
         say({ kind: RunEventKind.Notice, text: `the run waits for the app to answer ${count} it handed back.` });
         await counted;
+        await keepConversation(segment.conversationId, null);
         await recordWait(finished, {
           messages: transcript,
           handedBack,
@@ -661,6 +714,7 @@ export function createRunService({
         answer: { content: answer, finishReason },
         error: null,
       };
+      await keepConversation(segment.conversationId, { messages: transcript, hostText: segment.layers.hostText });
     } catch (error) {
       const usage = failedRun(error)?.usage;
       if (signal.aborted) {
@@ -675,6 +729,10 @@ export function createRunService({
       }
     }
     const isCompleted = finished.status === RunStatus.Completed;
+    if (isCompleted === false) {
+      // A failed run adds nothing, so a retry of the same new message isn't in the history twice.
+      await keepConversation(segment.conversationId, null);
+    }
     say({ kind: RunEventKind.Done, ok: isCompleted, text: finished.error ?? '' });
     await counted;
     await record(finished);
@@ -709,24 +767,55 @@ export function createRunService({
     };
   };
 
+  /**
+   * Refuses a request to a conversation that already has a run going or waiting.
+   *
+   * @param conversation - The conversation.
+   * @returns Nothing: it always throws.
+   * @throws {@link RunConflict} Always.
+   */
+  const conversationBusy = async (conversation: Conversation): Promise<never> => {
+    const busy = await busyRun(db, conversation.id);
+    const which = busy === null ? 'a run' : `run ${busy.id} ${busy.status}`;
+    throw new RunConflict(
+      ModelFailure.ConversationBusy,
+      `Conversation "${conversation.key}" has ${which}. One run at a time: wait for its answer, or answer the calls it handed back.`,
+    );
+  };
+
   const begin = async (input: RunInput): Promise<StartedRun | RepeatedRun> => {
-    const { workspace, agent, request, config, idempotency } = input;
+    const { workspace, agent, request, config, idempotency, conversation } = input;
+    const isBusy = conversation !== null && (await busyRun(db, conversation.id)) !== null;
+    if (isBusy) {
+      await conversationBusy(conversation);
+    }
     const reached = await reachedTools(config, workspace.id, request.appTools);
-    const [row] = await db
-      .insert(runs)
-      .values({
-        workspaceId: workspace.id,
-        workspaceName: workspace.slug,
-        agentId: agent.id,
-        agentName: agent.name,
-        revisionId: agent.liveRevisionId,
-        user: request.user,
-        stream: request.stream,
-        idempotencyKey: idempotency?.key ?? null,
-        requestHash: idempotency?.hash ?? null,
-      })
-      .onConflictDoNothing({ target: [runs.workspaceId, runs.idempotencyKey] })
-      .returning();
+    let inserted: RunRow[];
+    try {
+      inserted = await db
+        .insert(runs)
+        .values({
+          workspaceId: workspace.id,
+          workspaceName: workspace.slug,
+          agentId: agent.id,
+          agentName: agent.name,
+          revisionId: agent.liveRevisionId,
+          conversationId: conversation?.id ?? null,
+          user: request.user,
+          stream: request.stream,
+          idempotencyKey: idempotency?.key ?? null,
+          requestHash: idempotency?.hash ?? null,
+        })
+        .onConflictDoNothing({ target: [runs.workspaceId, runs.idempotencyKey] })
+        .returning();
+    } catch (error) {
+      // Two requests to one conversation at once: the index lets one in.
+      if (conversation !== null && violatedUniqueIndex(error) === ONE_RUN_PER_CONVERSATION) {
+        return conversationBusy(conversation);
+      }
+      throw error;
+    }
+    const [row] = inserted;
     if (row === undefined) {
       // Another request with the same key got there first.
       const repeat = idempotency === null ? null : await repeatOf(workspace.id, idempotency);
@@ -741,6 +830,7 @@ export function createRunService({
       input,
       runId: row.id,
       startedAt: row.startedAt,
+      conversationId: row.conversationId,
       tools: reached,
       appTools: request.appTools,
       messages: request.messages,
@@ -827,7 +917,7 @@ export function createRunService({
       );
     }
     const [row] = await db
-      .select({ resume: runs.resume, document: agentRevisions.document })
+      .select({ resume: runs.resume, conversationId: runs.conversationId, document: agentRevisions.document })
       .from(runs)
       .leftJoin(agentRevisions, eq(agentRevisions.id, runs.revisionId))
       .where(eq(runs.id, match.id));
@@ -837,7 +927,7 @@ export function createRunService({
     if (row.document === null) {
       throw new RunConflict(ModelFailure.RunFailed, `Run ${match.id} can't carry on: the revision it ran is gone.`);
     }
-    return { runId: match.id, resume: row.resume, document: row.document };
+    return { runId: match.id, conversationId: row.conversationId, resume: row.resume, document: row.document };
   };
 
   const resume = async (input: RunInput, waiting: WaitingRun): Promise<StartedRun> => {
@@ -871,6 +961,7 @@ export function createRunService({
       input,
       runId: row.id,
       startedAt: row.startedAt,
+      conversationId: row.conversationId,
       tools: reached,
       appTools,
       messages,
@@ -904,6 +995,7 @@ export function createRunService({
       .update(runs)
       .set({ idempotencyKey: null, requestHash: null })
       .where(and(isNotNull(runs.idempotencyKey), notInArray(runs.status, GOING), lt(runs.finishedAt, keysUntil)));
+    await pruneConversations(db, now());
   };
 
   /**
@@ -927,6 +1019,7 @@ export function createRunService({
     begin,
     waitingFor,
     resume,
+    openConversation: (workspaceId, agent, key) => openConversation(db, workspaceId, agent, key, now()),
     recover,
     expire: async () => {
       await expireOverdue();

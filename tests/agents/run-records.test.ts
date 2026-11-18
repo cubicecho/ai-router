@@ -40,6 +40,7 @@ describe('GET /runs/<id>', () => {
     const body = await record.json();
     expect(body).toEqual({
       id: runId,
+      conversation: null,
       agent: 'helper',
       agentId: h.agentId,
       revisionId: h.revisionId,

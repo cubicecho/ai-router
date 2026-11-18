@@ -486,3 +486,16 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   expireEveryMinutes: 5,
   maxAppTools: 128,
 });
+
+/** Conversations an app names with `X-Conversation-Id`, whose history the router keeps. */
+export interface ConversationSettings {
+  /** How long a conversation is kept after its last request or run, before it is deleted. */
+  idleHours: number;
+  /** Characters in an `X-Conversation-Id`. */
+  maxIdLength: number;
+}
+
+export const CONVERSATION_DEFAULTS: Readonly<ConversationSettings> = Object.freeze({
+  idleHours: 72,
+  maxIdLength: 255,
+});

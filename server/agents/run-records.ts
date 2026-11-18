@@ -8,6 +8,7 @@ import { ErrorCode, errorMessage } from '../core/errors.ts';
 import { HttpStatus } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
+import { conversations } from '../db/tables/conversations.ts';
 import { type RunRow, runs } from '../db/tables/runs.ts';
 import { appCaller } from './app-caller.ts';
 import { openEventStream } from './completion.ts';
@@ -55,11 +56,14 @@ function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: 
  * Writes a run's record as `/runs/<id>` serves it.
  *
  * @param row - The run.
- * @returns Its agent, revision, status, timings (when it started, last began waiting, and ended), usage and error.
+ * @param conversation - The app's name for the conversation it belongs to, or null.
+ * @returns Its agent, revision, conversation, status, timings (when it started, last began waiting, and ended), usage
+ * and error.
  */
-export function runRecord(row: RunRow) {
+export function runRecord(row: RunRow, conversation: string | null) {
   return {
     id: row.id,
+    conversation,
     agent: row.agentName,
     agentId: row.agentId,
     revisionId: row.revisionId,
@@ -99,14 +103,18 @@ export function createRunRecordRoutes({
    *
    * @param response - The answer, refused with 404 when there is no such run.
    * @param id - The id in the path.
-   * @returns The run, or null once refused.
+   * @returns The run and its conversation's name, or null once refused.
    */
-  const ownRun = async (response: Response<unknown, AppLocals>, id: string): Promise<RunRow | null> => {
+  const ownRun = async (
+    response: Response<unknown, AppLocals>,
+    id: string,
+  ): Promise<{ run: RunRow; conversation: string | null } | null> => {
     const isId = runIdSchema.safeParse(id).success;
     const [row] = isId
       ? await db
-          .select()
+          .select({ run: runs, conversation: conversations.key })
           .from(runs)
+          .leftJoin(conversations, eq(conversations.id, runs.conversationId))
           .where(and(eq(runs.id, id), eq(runs.workspaceId, response.locals.caller.workspaceId)))
       : [];
     if (row === undefined) {
@@ -138,9 +146,9 @@ export function createRunRecordRoutes({
   });
 
   router.get('/:id', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
-    const row = await ownRun(response, request.params.id);
-    if (row !== null) {
-      response.json(runRecord(row));
+    const found = await ownRun(response, request.params.id);
+    if (found !== null) {
+      response.json(runRecord(found.run, found.conversation));
     }
   });
 
@@ -152,8 +160,8 @@ export function createRunRecordRoutes({
       refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, said);
       return;
     }
-    const row = await ownRun(response, request.params.id);
-    if (row === null) {
+    const row = (await ownRun(response, request.params.id))?.run;
+    if (row === undefined) {
       return;
     }
     const afterSeq = parsed.data;

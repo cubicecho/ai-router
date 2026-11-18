@@ -27,7 +27,7 @@ const HAND_SERVED_TABLES = ['runEvents'];
 
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
- * usage, secrets, activity and runs.
+ * usage, secrets, activity, runs and conversations.
  */
 const WRITES_RESERVED = new Set<string>([
   'users',
@@ -39,6 +39,7 @@ const WRITES_RESERVED = new Set<string>([
   'agentRevisions',
   'overridePolicies',
   'runs',
+  'conversations',
 ]);
 
 /** Tables whose rows are created by hand-written mutations: `installServer`, `createAgent`. */

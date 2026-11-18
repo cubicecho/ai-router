@@ -13,6 +13,7 @@ import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
+import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
@@ -311,17 +312,30 @@ export function createAgentRoutes({
         agentId: agent.id,
         agentName: agent.name,
       });
+      const conversationKey = readConversationKey(request.get(CONVERSATION_HEADER));
+      const conversation =
+        conversationKey === null ? null : await runs.openConversation(workspaceId, agent, conversationKey);
       if (runRequest.answers.length > 0) {
         // Tool messages at the end answer a run that handed calls back: that same run carries on.
         const waiting = await runs.waitingFor(workspaceId, agent.id, runRequest.answers);
+        const isOtherConversation = conversation !== null && waiting.conversationId !== conversation.id;
+        if (isOtherConversation) {
+          throw new RequestRefusal(
+            CONVERSATION_HEADER,
+            `${CONVERSATION_HEADER}: the tool messages answer a run of another conversation, or of none.`,
+          );
+        }
         const layers = resumedLayers(runRequest, waiting.resume);
         const resolved = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
         const config = withRouterFetch(resolved, fetch);
-        started = await runs.resume({ workspace, agent, request: runRequest, config, idempotency }, waiting);
+        const input = { workspace, agent, request: runRequest, config, idempotency, conversation };
+        started = await runs.resume(input, waiting);
       } else {
-        const resolved = resolveRun(agentLayer(agent.name, agent.document), runRequest, current);
+        const withConversation = conversation === null ? runRequest : withHistory(runRequest, conversation);
+        const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, current);
         const config = withRouterFetch(resolved, fetch);
-        started = await runs.begin({ workspace, agent, request: runRequest, config, idempotency });
+        const input = { workspace, agent, request: withConversation, config, idempotency, conversation };
+        started = await runs.begin(input);
       }
     } catch (error) {
       if (error instanceof RequestRefusal) {

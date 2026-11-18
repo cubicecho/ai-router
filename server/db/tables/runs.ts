@@ -14,6 +14,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { agentRevisions } from './agent-revisions.ts';
 import { agents } from './agents.ts';
+import { conversations } from './conversations.ts';
 import { workspaces } from './workspaces.ts';
 
 /** Where a run is in its life. */
@@ -93,6 +94,8 @@ export const runs = pgTable(
     })
       .notNull()
       .default(RunStatus.Running),
+    /** The conversation it belongs to, from `X-Conversation-Id`. Set to null when the conversation is deleted. */
+    conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
     /** The request's `user`, for the app's own reference. */
     user: text('user'),
     /** Whether the request that started it asked for a stream. */
@@ -129,6 +132,10 @@ export const runs = pgTable(
     index('idx_runs_revision_id').on(table.revisionId),
     index('idx_runs_status').on(table.status),
     index('idx_runs_pending_call_ids').using('gin', table.pendingCallIds),
+    // One run at a time per conversation: a second that overlaps it can't be recorded.
+    uniqueIndex('uq_runs_conversation_id_going')
+      .on(table.conversationId)
+      .where(sql`${table.status} in ('running', 'waiting')`),
     check(
       'ck_runs_status',
       sql`${table.status} in ('running', 'waiting', 'completed', 'failed', 'cancelled', 'expired')`,

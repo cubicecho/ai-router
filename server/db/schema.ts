@@ -3,6 +3,7 @@ export * from './tables/accounts.ts';
 export * from './tables/activity.ts';
 export * from './tables/agent-revisions.ts';
 export * from './tables/agents.ts';
+export * from './tables/conversations.ts';
 export * from './tables/oidc-settings.ts';
 export * from './tables/override-policies.ts';
 export * from './tables/pool-targets.ts';
