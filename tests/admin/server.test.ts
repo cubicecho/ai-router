@@ -22,7 +22,7 @@ import type { RunToolCall } from '../../server/tools/api.ts';
 import { ChildMode } from '../../server/tools/child-users.ts';
 import { resolveServer } from '../../server/tools/resolve.ts';
 import { createToolServices, type ToolServiceParts } from '../../server/tools/services.ts';
-import { RESERVED_SERVER_NAME } from '../../server/tools/shapes.ts';
+import { RESERVED_SERVER_NAME, SourceType, TRANSPORT_STDIO } from '../../server/tools/shapes.ts';
 import {
   closeTestDb,
   createClient,
@@ -196,6 +196,31 @@ describe('a call to the admin server', () => {
       expect(body.errors[0].extensions.code, tool).toBe(ErrorCode.BadUserInput);
     }
     expect(snapshotServer().enabled).toBe(true);
+  });
+
+  it("never reaches another workspace's instance of a server", async () => {
+    await grant([AdminRole.ServersOperate]);
+    const { workspaceId: other } = await createWorkspaceWithKey(db, 'neighbours');
+    const [budget] = await db
+      .insert(servers)
+      .values({
+        name: 'budget',
+        source: { type: SourceType.Manual },
+        transport: { type: TRANSPORT_STDIO, command: 'node', args: ['budget.js'] },
+      })
+      .returning({ id: servers.id });
+    await snapshot.rebuild();
+    const calls = [
+      ['server_tools', { id: budget?.id, workspaceId: other }],
+      ['restart_server', { id: budget?.id, workspaceId: other }],
+      ['try_server_tool', { id: budget?.id, workspaceId: other, tool: 'balance' }],
+    ] as const;
+    for (const [tool, args] of calls) {
+      const result = await tools.callTool(adminServerId, workspaceId, tool, args, RUN);
+      const [content] = result.content;
+      const body = JSON.parse(content?.type === 'text' ? content.text : '{}');
+      expect(body.errors[0].extensions.code, tool).toBe(ErrorCode.NotFound);
+    }
   });
 
   it('is refused when it names no run, as a person trying it does', async () => {

@@ -211,6 +211,25 @@ function serverById(ctx: Context, id: string): SnapshotServer {
   return found;
 }
 
+/**
+ * Reads which instance of a server a call asks for. An agent run reaches its own workspace's and the base instance,
+ * never another workspace's, whose settings are that workspace's account.
+ *
+ * @param ctx - The request.
+ * @param requested - The workspace named, or null or absent for the base instance.
+ * @returns The workspace, or null for the base instance.
+ * @throws NOT_FOUND for a run naming another workspace, as for one that doesn't exist.
+ */
+function instanceWorkspace(ctx: Context, requested: string | null | undefined): string | null {
+  const workspaceId = requested ?? null;
+  const { caller } = ctx;
+  const isOthers = caller?.kind === CALLER_RUN && workspaceId !== null && workspaceId !== caller.workspaceId;
+  if (isOthers) {
+    throw notFound('Workspace not found.');
+  }
+  return workspaceId;
+}
+
 /** Why the admin server has no login. */
 const NO_LOGIN = 'it has no login';
 
@@ -267,7 +286,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
   });
 
   queries.serverTools.resolve = (_parent: unknown, args: { id: string; workspaceId?: string | null }, ctx: Context) =>
-    ctx.tools.listTools(args.id, args.workspaceId ?? null);
+    ctx.tools.listTools(args.id, instanceWorkspace(ctx, args.workspaceId));
 
   queries.registryServers.resolve = (
     _parent: unknown,
@@ -295,7 +314,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     if (ctx.caller?.kind === CALLER_RUN) {
       refuseIfBuiltin(server, BUILTIN_PEOPLE_ONLY);
     }
-    await ctx.tools.restart(args.id, args.workspaceId ?? null);
+    await ctx.tools.restart(args.id, instanceWorkspace(ctx, args.workspaceId));
     return true;
   };
 
@@ -308,7 +327,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     if (isRecord(toolArgs) === false) {
       throw badInput('A tool takes its arguments as a JSON object.');
     }
-    return ctx.tools.callTool(args.id, args.workspaceId ?? null, args.tool, toolArgs);
+    return ctx.tools.callTool(args.id, instanceWorkspace(ctx, args.workspaceId), args.tool, toolArgs);
   };
 
   mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) => {

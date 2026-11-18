@@ -46,8 +46,9 @@ const HINTS: Readonly<Record<string, string>> = {
   servers: 'Every MCP server on the router: how it is reached, and whether it is on. Never its secrets.',
   server_tools: 'The tools a server offers, by their own names. A run calls one as `<server>__<tool>`.',
   try_server_tool:
-    "Calls one of a server's tools on its base instance, to see that it works. Recorded in the activity.",
-  restart_server: "Stops one of a server's instances, so the next call starts it fresh.",
+    "Calls one of a server's tools, to see that it works: on its base instance, or with `workspaceId`, your own workspace's. Recorded in the activity.",
+  restart_server:
+    "Stops one of a server's instances, the base one or your own workspace's, so the next call starts it fresh.",
   install_server:
     'Installs a server from a registry, npm or PyPI, or adds one by its command or address. A person sets its secrets.',
   providers: 'Every model provider: its address and whether it is on. Never its key.',
