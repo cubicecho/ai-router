@@ -1,12 +1,16 @@
 import { Badge } from '@/components/ui/badge';
 import { RUN_STATUS_CHOICES, RunStatus } from './shapes';
 
-/** The badge each status wears. A status this list doesn't know yet, such as phase 7's `waiting`, is drawn plain. */
-const VARIANTS: Readonly<Record<string, 'info-soft' | 'positive-soft' | 'destructive-soft' | 'secondary'>> = {
+/** The badge each status wears. A status this list doesn't know yet is drawn plain. */
+const VARIANTS: Readonly<
+  Record<string, 'info-soft' | 'warning-soft' | 'positive-soft' | 'destructive-soft' | 'secondary'>
+> = {
   [RunStatus.Running]: 'info-soft',
+  [RunStatus.Waiting]: 'warning-soft',
   [RunStatus.Completed]: 'positive-soft',
   [RunStatus.Failed]: 'destructive-soft',
   [RunStatus.Cancelled]: 'secondary',
+  [RunStatus.Expired]: 'secondary',
 };
 
 /**

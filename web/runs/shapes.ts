@@ -1,19 +1,33 @@
-/** Where a run is in its life, as the runs table spells it. Phase 7 adds `waiting`. */
+/** Where a run is in its life, as the runs table spells it. */
 export const RunStatus = {
   Running: 'running',
+  Waiting: 'waiting',
   Completed: 'completed',
   Failed: 'failed',
   Cancelled: 'cancelled',
+  Expired: 'expired',
 } as const;
 export type RunStatus = (typeof RunStatus)[keyof typeof RunStatus];
 
 /** The statuses the filter offers, in the order a person thinks of them. */
 export const RUN_STATUS_CHOICES: readonly { value: RunStatus; label: string }[] = [
   { value: RunStatus.Running, label: 'Running' },
+  { value: RunStatus.Waiting, label: 'Waiting for the app' },
   { value: RunStatus.Completed, label: 'Completed' },
   { value: RunStatus.Failed, label: 'Failed' },
   { value: RunStatus.Cancelled, label: 'Cancelled' },
+  { value: RunStatus.Expired, label: 'Expired' },
 ];
+
+/**
+ * Whether a run has yet to end: running, or waiting for the app to answer its tool calls.
+ *
+ * @param status - The run's status.
+ * @returns true until it completes, fails, is cancelled or expires.
+ */
+export function isOpen(status: string): boolean {
+  return status === RunStatus.Running || status === RunStatus.Waiting;
+}
 
 /**
  * Reads a status from the address bar.

@@ -1,0 +1,206 @@
+import { and, eq } from 'drizzle-orm';
+import express, { type NextFunction, type Request, type Response, type Router } from 'express';
+import { z } from 'zod';
+import { ConflictingKeysError } from '../auth/caller.ts';
+import type { WorkspaceCaller } from '../core/context.ts';
+import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
+import { ErrorCode, errorMessage } from '../core/errors.ts';
+import { HttpStatus } from '../core/wire.ts';
+import type { DB } from '../db/client.ts';
+import type { SnapshotHost } from '../db/snapshot.ts';
+import { conversations } from '../db/tables/conversations.ts';
+import { type RunRow, runs } from '../db/tables/runs.ts';
+import { appCaller } from './app-caller.ts';
+import { openEventStream } from './completion.ts';
+import type { RunBus } from './run-bus.ts';
+
+/** The header an event stream client sends back on reconnecting: the `seq` of the last event it has. */
+const LAST_EVENT_ID = 'last-event-id';
+/** What asks for a live event stream rather than JSON. */
+const EVENT_STREAM = 'text/event-stream';
+
+/** A run id, before it is looked up. */
+const runIdSchema = z.uuid();
+/** The `seq` a reader already has. */
+const afterSchema = z.coerce.number().int().min(0);
+
+/** What the run records talk to. */
+export interface RunRecordRoutesDeps {
+  db: DB;
+  snapshot: SnapshotHost;
+  bus: RunBus;
+  /** Settings that differ from `RUN_DEFAULTS`. */
+  overrides?: Partial<RunSettings>;
+  /** The clock keys' expiry is judged by. */
+  now?: () => Date;
+}
+
+/** A request that got past the key check: who it is from. */
+interface AppLocals {
+  caller: WorkspaceCaller;
+}
+
+/**
+ * Answers in the `/runs` error format, with the codes GraphQL uses.
+ *
+ * @param response - The answer.
+ * @param status - The HTTP status.
+ * @param code - The code.
+ * @param error - What the app is told.
+ */
+function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: string): void {
+  response.status(status).json({ error, code });
+}
+
+/**
+ * Writes a run's record as `/runs/<id>` serves it.
+ *
+ * @param row - The run.
+ * @param conversation - The app's name for the conversation it belongs to, or null.
+ * @returns Its agent, revision, conversation, status, timings (when it started, last began waiting, and ended), usage
+ * and error.
+ */
+export function runRecord(row: RunRow, conversation: string | null) {
+  return {
+    id: row.id,
+    conversation,
+    agent: row.agentName,
+    agentId: row.agentId,
+    revisionId: row.revisionId,
+    workspace: row.workspaceName,
+    status: row.status,
+    user: row.user,
+    startedAt: row.startedAt.toISOString(),
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+    waitingSince: row.waitingSince?.toISOString() ?? null,
+    usage: {
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      totalTokens: row.inputTokens + row.outputTokens,
+    },
+    error: row.error,
+  };
+}
+
+/**
+ * Builds the run records: `/runs/<id>` and `/runs/<id>/events`, for workspace keys only, each its own workspace's.
+ *
+ * @param deps - The database, the snapshot and the run bus.
+ * @returns The router, to mount at `/runs`.
+ */
+export function createRunRecordRoutes({
+  db,
+  snapshot,
+  bus,
+  overrides = {},
+  now = () => new Date(),
+}: RunRecordRoutesDeps): Router {
+  const { heartbeatSeconds } = { ...RUN_DEFAULTS, ...overrides };
+  const router = express.Router();
+
+  /**
+   * Finds a run of the caller's workspace.
+   *
+   * @param response - The answer, refused with 404 when there is no such run.
+   * @param id - The id in the path.
+   * @returns The run and its conversation's name, or null once refused.
+   */
+  const ownRun = async (
+    response: Response<unknown, AppLocals>,
+    id: string,
+  ): Promise<{ run: RunRow; conversation: string | null } | null> => {
+    const isId = runIdSchema.safeParse(id).success;
+    const [row] = isId
+      ? await db
+          .select({ run: runs, conversation: conversations.key })
+          .from(runs)
+          .leftJoin(conversations, eq(conversations.id, runs.conversationId))
+          .where(and(eq(runs.id, id), eq(runs.workspaceId, response.locals.caller.workspaceId)))
+      : [];
+    if (row === undefined) {
+      // Another workspace's run is as missing as one that never was.
+      refuse(response, HttpStatus.NotFound, ErrorCode.NotFound, 'There is no run with that id for this key.');
+      return null;
+    }
+    return row;
+  };
+
+  router.use((request: Request, response: Response<unknown, AppLocals>, next: NextFunction) => {
+    let caller: WorkspaceCaller | null;
+    try {
+      caller = appCaller(snapshot.current(), request, now());
+    } catch (error) {
+      if (error instanceof ConflictingKeysError) {
+        refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, error.message);
+        return;
+      }
+      throw error;
+    }
+    if (caller === null) {
+      const said = 'Send a workspace key as Authorization: Bearer, or x-api-key.';
+      refuse(response, HttpStatus.Unauthorized, ErrorCode.Unauthenticated, said);
+      return;
+    }
+    response.locals.caller = caller;
+    next();
+  });
+
+  router.get('/:id', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
+    const found = await ownRun(response, request.params.id);
+    if (found !== null) {
+      response.json(runRecord(found.run, found.conversation));
+    }
+  });
+
+  router.get('/:id/events', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
+    const after = request.get(LAST_EVENT_ID) ?? request.query.after ?? 0;
+    const parsed = afterSchema.safeParse(after);
+    if (parsed.success === false) {
+      const said = 'after (or Last-Event-ID) is the seq of the last event you have: a whole number, 0 or more.';
+      refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, said);
+      return;
+    }
+    const row = (await ownRun(response, request.params.id))?.run;
+    if (row === undefined) {
+      return;
+    }
+    const afterSeq = parsed.data;
+    const isLive = request.get('accept')?.includes(EVENT_STREAM) === true;
+    if (isLive === false) {
+      response.json({ runId: row.id, events: await bus.events(row.id, afterSeq) });
+      return;
+    }
+    const left = new AbortController();
+    response.on('close', () => left.abort());
+    const stream = openEventStream(response, heartbeatSeconds);
+    for await (const event of bus.watch(row.id, { afterSeq, signal: left.signal })) {
+      stream.send(event, event.seq);
+    }
+    stream.close();
+  });
+
+  router.use((_request: Request, response: Response) => {
+    refuse(
+      response,
+      HttpStatus.NotFound,
+      ErrorCode.NotFound,
+      'The run records serve /runs/<id> and /runs/<id>/events.',
+    );
+  });
+
+  router.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    console.error(`[runs] the run records failed: ${errorMessage(error)}`);
+    if (response.headersSent) {
+      response.end();
+      return;
+    }
+    refuse(
+      response,
+      HttpStatus.InternalServerError,
+      ErrorCode.Internal,
+      'The router failed to answer. Its log says why.',
+    );
+  });
+
+  return router;
+}

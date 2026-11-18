@@ -258,23 +258,3 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
   }
   return entries;
 }
-
-/**
- * What a run has spent so far, by its latest usage event.
- *
- * @param events - The run's events.
- * @returns The latest figures, or null before its first turn ends.
- */
-export function latestUsage(events: readonly TimelineEvent[]): UsageFigures | null {
-  const ordered = orderedEvents(events);
-  for (let index = ordered.length - 1; index >= 0; index -= 1) {
-    const event = ordered[index];
-    if (event?.kind === EventKind.Usage) {
-      const usage = usageOf(event.usage);
-      if (usage !== null) {
-        return usage;
-      }
-    }
-  }
-  return null;
-}

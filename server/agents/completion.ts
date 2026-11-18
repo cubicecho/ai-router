@@ -1,3 +1,4 @@
+import type { RunEvent } from '@cubicecho/agent-core';
 import type { Response } from 'express';
 import { HttpStatus, MS_PER_SECOND } from '../core/wire.ts';
 import type { OpenAiErrorBody } from '../models/openai-error.ts';
@@ -57,20 +58,38 @@ function usageOf(finished: FinishedRun): CompletionUsage {
 }
 
 /**
- * Builds the non-streamed answer of a completed run.
+ * Builds the assistant message of a run's answer.
  *
- * @param finished - The run. It completed, so it has an answer.
+ * @param finished - The run.
+ * @returns Its text, and the app tool calls a waiting run hands back. A message with calls and no text has null
+ * content, as OpenAI writes one.
+ */
+function messageOf(finished: FinishedRun) {
+  const content = finished.answer?.content ?? '';
+  const toolCalls = finished.answer?.toolCalls ?? [];
+  if (toolCalls.length === 0) {
+    return { role: 'assistant', content };
+  }
+  return { role: 'assistant', content: content === '' ? null : content, tool_calls: toolCalls };
+}
+
+/**
+ * Builds the non-streamed answer of a completed or waiting run.
+ *
+ * @param finished - The run. It completed or waits, so it has an answer.
+ * @param [events] - Its events, when the app asked for progress: they go beside `choices`, as `ai_router.events`.
  * @returns A `chat.completion`.
  */
-export function completionBody(finished: FinishedRun) {
+export function completionBody(finished: FinishedRun, events: RunEvent[] | null = null) {
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
   return {
+    ...(events === null ? {} : { ai_router: { runId: finished.runId, events } }),
     ...header(meta),
     object: 'chat.completion',
     choices: [
       {
         index: 0,
-        message: { role: 'assistant', content: finished.answer?.content ?? '' },
+        message: messageOf(finished),
         finish_reason: finished.answer?.finishReason ?? 'stop',
       },
     ],
@@ -87,7 +106,15 @@ export interface ChunkStream {
    */
   text(content: string): void;
   /**
-   * Ends a run that completed: the finish chunk, the usage chunk when asked for, and `[DONE]`.
+   * Sends one of the run's events as a progress chunk: empty `choices`, so a standard client skips it, and the event
+   * as `ai_router.event`.
+   *
+   * @param event - The event.
+   */
+  event(event: RunEvent): void;
+  /**
+   * Ends a run that completed or waits: the calls it hands back, the finish chunk, the usage chunk when asked for,
+   * and `[DONE]`.
    *
    * @param finished - The run.
    */
@@ -98,6 +125,59 @@ export interface ChunkStream {
    * @param error - The error.
    */
   fail(error: OpenAiErrorBody): void;
+}
+
+/** A server-sent event stream on an answer. */
+export interface EventStream {
+  /**
+   * Sends one `data:` line.
+   *
+   * @param data - Text as it is, or a value written as JSON.
+   * @param [id] - The event's `id:`, which a client that reconnects sends back as `Last-Event-ID`.
+   */
+  send(data: unknown, id?: number): void;
+  /** Ends the stream, unless the client already left. */
+  close(): void;
+  /** Whether the client is gone or the stream has ended. */
+  isGone(): boolean;
+}
+
+/**
+ * Opens a server-sent event stream on an answer, with its headers sent at once, and a comment while it is quiet.
+ *
+ * @param response - The Express answer, with any headers of its own already set.
+ * @param heartbeatSeconds - How often a quiet stream is sent a comment, so a proxy doesn't close it.
+ * @returns The stream.
+ */
+export function openEventStream(response: Response, heartbeatSeconds: number): EventStream {
+  response.status(HttpStatus.Ok);
+  response.setHeader('content-type', EVENT_STREAM_TYPE);
+  response.setHeader('cache-control', 'no-cache');
+  response.setHeader('x-accel-buffering', 'no');
+  response.flushHeaders();
+  // A run with an Idempotency-Key outlives its connection, so what it says after the app has gone goes nowhere.
+  const isGone = (): boolean => response.destroyed || response.writableEnded;
+  const write = (text: string): void => {
+    if (isGone() === false) {
+      response.write(text);
+    }
+  };
+  const heartbeat = setInterval(() => write(HEARTBEAT), heartbeatSeconds * MS_PER_SECOND);
+  heartbeat.unref();
+  response.on('close', () => clearInterval(heartbeat));
+  return {
+    send: (data, id) => {
+      const line = `data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`;
+      write(id === undefined ? line : `id: ${id}\n${line}`);
+    },
+    close: () => {
+      clearInterval(heartbeat);
+      if (isGone() === false) {
+        response.end();
+      }
+    },
+    isGone,
+  };
 }
 
 /**
@@ -115,39 +195,21 @@ export function openChunkStream(
   includeUsage: boolean,
   heartbeatSeconds: number,
 ): ChunkStream {
-  response.status(HttpStatus.Ok);
-  response.setHeader('content-type', EVENT_STREAM_TYPE);
-  response.setHeader('cache-control', 'no-cache');
-  response.setHeader('x-accel-buffering', 'no');
-  response.flushHeaders();
-  // A run with an Idempotency-Key outlives its connection, so what it says after the app has gone goes nowhere.
-  const isGone = (): boolean => response.destroyed || response.writableEnded;
-  const write = (text: string): void => {
-    if (isGone() === false) {
-      response.write(text);
-    }
-  };
-  const heartbeat = setInterval(() => write(HEARTBEAT), heartbeatSeconds * MS_PER_SECOND);
-  heartbeat.unref();
-  response.on('close', () => clearInterval(heartbeat));
-  const send = (data: unknown): void => {
-    write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`);
-  };
+  const { send, close } = openEventStream(response, heartbeatSeconds);
   const chunk = (delta: Record<string, unknown>, finishReason: string | null) => ({
     ...header(meta),
     object: 'chat.completion.chunk',
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   });
-  const close = (): void => {
-    clearInterval(heartbeat);
-    if (isGone() === false) {
-      response.end();
-    }
-  };
   send(chunk({ role: 'assistant', content: '' }, null));
   return {
     text: (content) => send(chunk({ content }, null)),
+    event: (event) => send({ ...header(meta), object: 'chat.completion.chunk', choices: [], ai_router: { event } }),
     end: (finished) => {
+      const toolCalls = (finished.answer?.toolCalls ?? []).map((call, index) => ({ index, ...call }));
+      if (toolCalls.length > 0) {
+        send(chunk({ tool_calls: toolCalls }, null));
+      }
       send(chunk({}, finished.answer?.finishReason ?? 'stop'));
       if (includeUsage) {
         send({ ...header(meta), object: 'chat.completion.chunk', choices: [], usage: usageOf(finished) });

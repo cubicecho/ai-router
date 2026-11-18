@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { type RunFilters, RunsDocument } from '@/__generated__/graphql';
 import { request } from '@/lib/gql';
-import { RunStatus } from './shapes';
+import { isOpen } from './shapes';
 
 /** How often a list with a running run in it is read again, so its row ends without a reload. */
 const LIVE_REFETCH_MS = 2000;
@@ -26,8 +26,7 @@ export function useRuns({ where, limit, offset }: RunsPage) {
   return useQuery({
     queryKey: ['runs', where, limit, offset],
     queryFn: () => request(RunsDocument, { where, limit, offset }),
-    refetchInterval: (query) =>
-      query.state.data?.runs.some((run) => run.status === RunStatus.Running) ? LIVE_REFETCH_MS : false,
+    refetchInterval: (query) => (query.state.data?.runs.some((run) => isOpen(run.status)) ? LIVE_REFETCH_MS : false),
     placeholderData: (previous) => previous,
   });
 }

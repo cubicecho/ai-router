@@ -1,0 +1,162 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "69dc924e-8109-4229-8338-a57936178806",
+  "prevIds": [
+    "b43c77a6-0dff-4c6f-a1d2-116011fb7c1c"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "run_events"
+      ],
+      "writes": [
+        "s|tbl|public.run_events",
+        "n|tbl|public.run_events",
+        "e|tbl|public.run_events",
+        "n|rel|public.run_events",
+        "n|type|public.run_events",
+        "n|rel|public.pk_run_events"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "run_events"
+      ],
+      "writes": [
+        "s|fk|public.run_events.run_events_run_id_runs_id_fkey",
+        "n|fk|public.run_events.run_events_run_id_runs_id_fkey",
+        "e|fk|public.run_events.run_events_run_id_runs_id_fkey",
+        "n|con|public.run_events.run_events_run_id_runs_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.run_events",
+        "n|sch|public",
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.run_events.run_id",
+        "n|col|public.runs.id",
+        "e|uniqueness|public.runs.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "run_events",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "run_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "seq",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "kind",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "event",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "run_events_run_id_runs_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "run_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "runs",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "pk_run_events",
+        "columns": [
+          "run_id",
+          "seq"
+        ],
+        "nameExplicit": true,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

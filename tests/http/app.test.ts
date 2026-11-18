@@ -98,9 +98,12 @@ describe('app', () => {
     expect(await response.text()).toBe(INDEX);
   });
 
-  it.each(['/mcp', '/runs/x'])('never answers %s with the UI', async (path) => {
+  it.each([
+    ['/mcp', HttpStatus.NotFound],
+    ['/runs/x', HttpStatus.Unauthorized],
+  ])('never answers %s with the UI', async (path, status) => {
     const response = await fetch(`${base}${path}`);
-    expect(response.status).toBe(HttpStatus.NotFound);
+    expect(response.status).toBe(status);
     expect(await response.text()).not.toContain(INDEX);
   });
 

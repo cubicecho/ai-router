@@ -16,8 +16,7 @@ import { request } from '@/lib/gql';
 import { RunStatusBadge } from '@/runs/run-status-badge';
 import { RunTimeline } from '@/runs/run-timeline';
 import { CELL_LINK_CLASS } from '@/runs/runs-table';
-import { durationOf, formatCount, formatDuration, formatTokens, RunStatus, startedOf } from '@/runs/shapes';
-import { latestUsage } from '@/runs/timeline';
+import { durationOf, formatDuration, formatTokens, isOpen, RunStatus, startedOf } from '@/runs/shapes';
 import { FollowState, useRunEvents } from '@/runs/use-run-events';
 import { useNow } from '@/runs/use-runs';
 
@@ -60,12 +59,30 @@ function EndedAlert({ run }: { run: RunRecord }) {
   if (run.status === RunStatus.Cancelled) {
     return <Alert variant="warning" title="It was cancelled" description={run.error ?? 'It gave no reason.'} />;
   }
+  if (run.status === RunStatus.Waiting) {
+    return (
+      <Alert
+        variant="info"
+        title="Waiting for the app"
+        description="The agent called the app's own tools. The run goes on when the app sends their results, and expires if it never does."
+      />
+    );
+  }
+  if (run.status === RunStatus.Expired) {
+    return (
+      <Alert
+        variant="warning"
+        title="It expired"
+        description={run.error ?? 'The app never answered the tool calls it was handed.'}
+      />
+    );
+  }
   return null;
 }
 
 /** The run's facts: what ran, for whom, how it was asked, when, and what it spent. */
-function RunFacts({ run, now, liveTokens }: { run: RunRecord; now: number; liveTokens: string | null }) {
-  const isRunning = run.status === RunStatus.Running;
+function RunFacts({ run, now }: { run: RunRecord; now: number }) {
+  const isRunning = isOpen(run.status);
   const agentName = run.agent === null ? run.agentName : displayNameOf(run.agent);
   return (
     <PropertyList
@@ -137,7 +154,7 @@ function RunFacts({ run, now, liveTokens }: { run: RunRecord; now: number; liveT
           <PropertyRow label="Took" value={`${formatDuration(durationOf(run, now))}${isRunning ? ' so far' : ''}`} />
           <PropertyRow
             label="Tokens"
-            value={isRunning ? (liveTokens ?? 'Counted after its first turn') : formatTokens(run)}
+            value={`${formatTokens(run)}${isRunning ? ' so far' : ''}`}
             hint="Over the main loop's model calls, as the provider reported them."
           />
           <PropertyRow
@@ -160,11 +177,11 @@ export function RunRoute() {
   const run = useQuery({
     queryKey: ['runs', runId],
     queryFn: () => request(RunDocument, { id: runId }),
-    refetchInterval: (query) => (query.state.data?.run?.status === RunStatus.Running ? RUNNING_REFETCH_MS : false),
+    refetchInterval: (query) => (isOpen(query.state.data?.run?.status ?? '') ? RUNNING_REFETCH_MS : false),
   });
   const live = useRunEvents(runId, () => void queryClient.invalidateQueries({ queryKey: ['runs'] }));
   const record = run.data?.run ?? undefined;
-  const isRunning = record?.status === RunStatus.Running;
+  const isRunning = isOpen(record?.status ?? '');
   const now = useNow(isRunning);
   const back = (
     <Button variant="outline" size="sm" iconSlot={<ArrowLeft />} linkSlot={<Link to="/agent-runs" />} content="Runs" />
@@ -182,9 +199,6 @@ export function RunRoute() {
   }
 
   const answer = answerOf(record.answer);
-  const usage = latestUsage(live.events);
-  const liveTokens =
-    usage === null ? null : `${formatCount(usage.promptTokens)} in · ${formatCount(usage.completionTokens)} out so far`;
   const isFollowing = live.state === FollowState.Following;
   const title = record.agent === null ? record.agentName : displayNameOf(record.agent);
 
@@ -196,24 +210,10 @@ export function RunRoute() {
       return isFollowing ? (
         <EmptyState compact title="Waiting for its first event." />
       ) : (
-        <EmptyState
-          compact
-          title={
-            isRunning
-              ? 'No events yet.'
-              : "Events are kept only while a run is live, and for a minute after, so this one's are gone."
-          }
-        />
+        <EmptyState compact title={isRunning ? 'No events yet.' : 'It recorded no events.'} />
       );
     }
-    const isTail = live.events.every((event) => event.seq > 1);
-    return (
-      <>
-        {/* The router holds a run's latest thousand events, so a page opened late sees only those. */}
-        {isTail ? <EmptyState compact title="Its earlier events are no longer held." /> : null}
-        <RunTimeline events={live.events} startedAt={Date.parse(record.startedAt)} isLive={isFollowing} />
-      </>
-    );
+    return <RunTimeline events={live.events} startedAt={Date.parse(record.startedAt)} isLive={isFollowing} />;
   };
 
   return (
@@ -226,7 +226,7 @@ export function RunRoute() {
       contentSlot={
         <>
           <EndedAlert run={record} />
-          <RunFacts run={record} now={now} liveTokens={liveTokens} />
+          <RunFacts run={record} now={now} />
           {answer === null ? null : (
             <Section
               title="Answer"

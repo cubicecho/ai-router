@@ -431,7 +431,7 @@ export const AGENT_CONFIG_DEFAULTS: Readonly<AgentConfigSettings> = Object.freez
 
 /** Agent runs on the agents endpoint, and their records. */
 export interface RunSettings {
-  /** How long one run may take, from its start to its answer, before it fails. */
+  /** How long one run may take, from its start or resume to its answer, before it fails. Waiting doesn't count. */
   timeoutMinutes: number;
   /** How long a finished run's `Idempotency-Key` keeps answering with that run. After it, the key starts a new one. */
   idempotencyHours: number;
@@ -449,6 +449,23 @@ export interface RunSettings {
   maxUserLength: number;
   /** Characters of a failure's message kept on the run. */
   maxErrorLength: number;
+  /** How long a run's events wait in memory before they are written to `run_events` together. */
+  eventFlushMs: number;
+  /** Events written in one insert. */
+  eventBatchSize: number;
+  /** Events `Run.events` answers with when the query gives no limit. */
+  eventPageSize: number;
+  /** The most events `Run.events` answers with at once. */
+  maxEventPageSize: number;
+  /**
+   * How long a run waits for the app to answer the tool calls it handed back before it expires. Generous, since an
+   * app's tool may be a person answering a question.
+   */
+  waitTimeoutHours: number;
+  /** How often waiting runs are checked for that timeout. */
+  expireEveryMinutes: number;
+  /** App tools one request may send. */
+  maxAppTools: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -461,4 +478,24 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxIdempotencyKeyLength: 255,
   maxUserLength: 256,
   maxErrorLength: 2_000,
+  eventFlushMs: 250,
+  eventBatchSize: 500,
+  eventPageSize: 500,
+  maxEventPageSize: 5_000,
+  waitTimeoutHours: 24,
+  expireEveryMinutes: 5,
+  maxAppTools: 128,
+});
+
+/** Conversations an app names with `X-Conversation-Id`, whose history the router keeps. */
+export interface ConversationSettings {
+  /** How long a conversation is kept after its last request or run, before it is deleted. */
+  idleHours: number;
+  /** Characters in an `X-Conversation-Id`. */
+  maxIdLength: number;
+}
+
+export const CONVERSATION_DEFAULTS: Readonly<ConversationSettings> = Object.freeze({
+  idleHours: 72,
+  maxIdLength: 255,
 });

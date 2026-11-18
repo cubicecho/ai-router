@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons';
 import { RunsTable } from './runs-table';
 import type { RunsSearch } from './search';
-import { RunStatus } from './shapes';
+import { isOpen } from './shapes';
 import { useNow, useRuns } from './use-runs';
 
 /** How many runs the section shows. */
@@ -27,7 +27,7 @@ export interface RecentRunsSectionProps {
 export function RecentRunsSection({ where, search, hide }: RecentRunsSectionProps) {
   const runs = useRuns({ where, limit: RECENT_RUNS, offset: 0 });
   const rows = runs.data?.runs ?? [];
-  const now = useNow(rows.some((run) => run.status === RunStatus.Running));
+  const now = useNow(rows.some((run) => isOpen(run.status)));
 
   const body = () => {
     if (runs.isError) {

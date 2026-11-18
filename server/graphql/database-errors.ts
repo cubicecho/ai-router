@@ -1,8 +1,6 @@
 import { defaultErrorMapper } from '@vantreeseba/drizzle-graphql';
 import { badInput } from '../core/errors.ts';
-
-/** Postgres's code for a unique violation. */
-const PG_UNIQUE_VIOLATION = '23505';
+import { violatedUniqueIndex } from '../db/errors.ts';
 
 /** What a caller is told when a write breaks a unique index, by the index's name. */
 const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
@@ -16,28 +14,6 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
   uq_workspace_agents_workspace_id_agent_id: 'This workspace can already run that agent.',
 };
 
-/** The parts of a driver error this reads. */
-interface PgErrorFields {
-  code?: unknown;
-  constraint?: unknown;
-}
-
-/**
- * Finds the Postgres error under whatever wrapped it.
- *
- * @param error - What a generated resolver threw. Drizzle puts the driver's error on `cause`.
- * @returns The driver error's fields, or null when there is none.
- */
-function pgErrorOf(error: unknown): PgErrorFields | null {
-  for (let current: unknown = error; typeof current === 'object' && current !== null; ) {
-    if ('constraint' in current) {
-      return current;
-    }
-    current = 'cause' in current ? current.cause : 'originalError' in current ? current.originalError : null;
-  }
-  return null;
-}
-
 /**
  * Turns a database error a person can fix into BAD_USER_INPUT, and leaves the rest to drizzle-graphql's masking.
  *
@@ -45,13 +21,10 @@ function pgErrorOf(error: unknown): PgErrorFields | null {
  * @returns The error the caller sees.
  */
 export function mapDatabaseError(error: unknown): unknown {
-  const pgError = pgErrorOf(error);
-  const isUniqueViolation = pgError?.code === PG_UNIQUE_VIOLATION && typeof pgError.constraint === 'string';
-  if (isUniqueViolation) {
-    const message = UNIQUE_MESSAGES[String(pgError?.constraint)];
-    if (message !== undefined) {
-      return badInput(message);
-    }
+  const constraint = violatedUniqueIndex(error);
+  const message = constraint === null ? undefined : UNIQUE_MESSAGES[constraint];
+  if (message !== undefined) {
+    return badInput(message);
   }
   return defaultErrorMapper(error);
 }

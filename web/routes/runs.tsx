@@ -12,7 +12,7 @@ import { request } from '@/lib/gql';
 import { menuValueOf, storedValueOf, withEmptyOption, withOrphanOptions } from '@/lib/select-options';
 import { RunsTable } from '@/runs/runs-table';
 import { RUNS_PER_PAGE, type RunsSearch } from '@/runs/search';
-import { formatCount, RUN_STATUS_CHOICES, RunStatus, statusOf } from '@/runs/shapes';
+import { formatCount, isOpen, RUN_STATUS_CHOICES, statusOf } from '@/runs/shapes';
 import { useNow, useRuns } from '@/runs/use-runs';
 
 /**
@@ -38,7 +38,7 @@ export function RunsRoute() {
   const choices = useQuery({ queryKey: ['runs', 'filter-choices'], queryFn: () => request(RunFilterChoicesDocument) });
   const rows = runs.data?.runs ?? [];
   const total = runs.data?.runsAggregate.count ?? 0;
-  const now = useNow(rows.some((run) => run.status === RunStatus.Running));
+  const now = useNow(rows.some((run) => isOpen(run.status)));
   const isFiltered = search.agent !== undefined || search.workspace !== undefined || search.status !== undefined;
   const pages = Math.max(1, Math.ceil(total / RUNS_PER_PAGE));
 

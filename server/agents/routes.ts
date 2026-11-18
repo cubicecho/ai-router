@@ -1,18 +1,22 @@
 import { createHash } from 'node:crypto';
+import type { RunEvent } from '@cubicecho/agent-core';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
-import { ConflictingKeysError, readWorkspaceCaller } from '../auth/caller.ts';
+import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import type { SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
+import type { RunResume } from '../db/tables/runs.ts';
 import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
+import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
+import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
-import { RequestRefusal, readRunRequest, requestedAgent, requestedStream } from './request.ts';
-import type { FinishedRun, Idempotency, RepeatedRun, RunService } from './run.ts';
+import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
+import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
 
 /** The header a retry-safe request carries. */
 const IDEMPOTENCY_HEADER = 'idempotency-key';
@@ -35,6 +39,22 @@ export interface AgentRoutesDeps {
   now?: () => Date;
 }
 
+/** How a run that has no answer for the app is told, by its status. A completed or waiting run has one. */
+const UNANSWERED: Partial<Record<RunStatus, { failure: ModelFailure; said: string }>> = {
+  [RunStatus.Running]: { failure: ModelFailure.RunInProgress, said: 'That run is still going' },
+  [RunStatus.Cancelled]: { failure: ModelFailure.RunCancelled, said: 'The run was cancelled' },
+  [RunStatus.Failed]: { failure: ModelFailure.RunFailed, said: 'The run failed' },
+  [RunStatus.Expired]: { failure: ModelFailure.RunExpired, said: 'The run expired' },
+};
+
+/** How an answer is delivered. */
+interface Delivery {
+  stream: boolean;
+  includeUsage: boolean;
+  /** The events a non-streamed answer carries as `ai_router.events`, when the app asked for progress. */
+  events?: RunEvent[] | null;
+}
+
 /** A request that got past the key check: who it is from. */
 interface AppLocals {
   caller: WorkspaceCaller;
@@ -50,24 +70,6 @@ interface AppLocals {
  */
 function refuse(response: Response, failure: ModelFailure, message: string, param: string | null = null): void {
   response.status(failure.status).json(openAiErrorBody(failure, message, param));
-}
-
-/**
- * Copies Express's headers into a fetch `Headers`, as the caller reader takes them.
- *
- * @param request - The request.
- * @returns Its headers.
- */
-function headersOf(request: Request): Headers {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (typeof value === 'string') {
-      headers.set(name, value);
-    } else if (Array.isArray(value)) {
-      headers.set(name, value.join(', '));
-    }
-  }
-  return headers;
 }
 
 /**
@@ -141,33 +143,48 @@ function modelEntry(agent: SnapshotAgent & { document: Readonly<Record<string, u
 }
 
 /**
+ * The layers a resumed run carries on with: its own, which a resume may repeat but never change.
+ *
+ * @param request - The request that answers the run.
+ * @param resume - What the run kept.
+ * @returns The request, with the run's own host, task, servers and sampling.
+ * @throws {@link RequestRefusal} When the request sends host or task text other than the run's.
+ */
+function resumedLayers(request: RunRequest, resume: RunResume): RunRequest {
+  const isOtherHost = request.hostText !== null && request.hostText !== resume.hostText;
+  if (isOtherHost) {
+    throw new RequestRefusal(
+      'messages',
+      'messages: the run being answered keeps the system messages it started with, and these differ. Send the same ones, or none.',
+    );
+  }
+  const isOtherTask = request.taskText !== null && request.taskText !== resume.taskText;
+  if (isOtherTask) {
+    throw new RequestRefusal(
+      'ai_router.task',
+      'ai_router.task: the run being answered keeps the task it started with, and this differs. Send the same one, or none.',
+    );
+  }
+  const { hostText, taskText, servers, sampling } = resume;
+  return { ...request, hostText, taskText, servers, sampling };
+}
+
+/**
  * Answers with how a run ended: its answer, or the error it ended with.
  *
  * @param response - The answer, with `X-Run-Id` set.
  * @param finished - The run.
- * @param delivery - Whether to stream, and with a usage chunk.
+ * @param delivery - Whether to stream, and with a usage chunk, and the events a non-streamed answer carries.
  * @param heartbeatSeconds - How often a quiet stream is sent a comment.
  */
-function answerFinished(
-  response: Response,
-  finished: FinishedRun,
-  delivery: { stream: boolean; includeUsage: boolean },
-  heartbeatSeconds: number,
-): void {
-  if (finished.status === RunStatus.Running) {
-    refuse(response, ModelFailure.RunInProgress, 'That run is still going.');
-    return;
-  }
-  if (finished.status === RunStatus.Cancelled) {
-    refuse(response, ModelFailure.RunCancelled, `That run was cancelled: ${finished.error ?? ''}`);
-    return;
-  }
-  if (finished.status === RunStatus.Failed) {
-    refuse(response, ModelFailure.RunFailed, `The run failed: ${finished.error ?? ''}`);
+function answerFinished(response: Response, finished: FinishedRun, delivery: Delivery, heartbeatSeconds: number): void {
+  const refusal = UNANSWERED[finished.status];
+  if (refusal !== undefined) {
+    refuse(response, refusal.failure, `${refusal.said}${finished.error === null ? '' : `: ${finished.error}`}`);
     return;
   }
   if (delivery.stream === false) {
-    response.json(completionBody(finished));
+    response.json(completionBody(finished, delivery.events ?? null));
     return;
   }
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
@@ -193,6 +210,7 @@ export function createAgentRoutes({
   now = () => new Date(),
 }: AgentRoutesDeps): Router {
   const settings = { ...RUN_DEFAULTS, ...overrides };
+  const { heartbeatSeconds } = settings;
   const router = express.Router();
 
   /**
@@ -212,13 +230,13 @@ export function createAgentRoutes({
       );
       return;
     }
-    answerFinished(response, await repeat.finished(), requestedStream(body), settings.heartbeatSeconds);
+    answerFinished(response, await repeat.finished(), requestedStream(body), heartbeatSeconds);
   };
 
   router.use((request: Request, response: Response<unknown, AppLocals>, next: NextFunction) => {
     let caller: WorkspaceCaller | null;
     try {
-      caller = readWorkspaceCaller(snapshot.current(), headersOf(request), now());
+      caller = appCaller(snapshot.current(), request, now());
     } catch (error) {
       if (error instanceof ConflictingKeysError) {
         refuse(response, ModelFailure.BadRequest, error.message);
@@ -284,22 +302,48 @@ export function createAgentRoutes({
       return;
     }
     let started: Awaited<ReturnType<RunService['begin']>>;
-    let delivery: { stream: boolean; includeUsage: boolean };
+    let delivery: RunRequest;
     try {
       const runRequest = readRunRequest(body, agent.policy);
       delivery = runRequest;
-      const resolved = resolveRun(agentLayer(agent.name, agent.document), runRequest, current);
       const fetch = forwarder.fetchFor({
         workspaceId,
         workspaceName: workspace.slug,
         agentId: agent.id,
         agentName: agent.name,
       });
-      const config = withRouterFetch(resolved, fetch);
-      started = await runs.begin({ workspace, agent, request: runRequest, config, idempotency });
+      const conversationKey = readConversationKey(request.get(CONVERSATION_HEADER));
+      const conversation =
+        conversationKey === null ? null : await runs.openConversation(workspaceId, agent, conversationKey);
+      if (runRequest.answers.length > 0) {
+        // Tool messages at the end answer a run that handed calls back: that same run carries on.
+        const waiting = await runs.waitingFor(workspaceId, agent.id, runRequest.answers);
+        const isOtherConversation = conversation !== null && waiting.conversationId !== conversation.id;
+        if (isOtherConversation) {
+          throw new RequestRefusal(
+            CONVERSATION_HEADER,
+            `${CONVERSATION_HEADER}: the tool messages answer a run of another conversation, or of none.`,
+          );
+        }
+        const layers = resumedLayers(runRequest, waiting.resume);
+        const resolved = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
+        const config = withRouterFetch(resolved, fetch);
+        const input = { workspace, agent, request: runRequest, config, idempotency, conversation };
+        started = await runs.resume(input, waiting);
+      } else {
+        const withConversation = conversation === null ? runRequest : withHistory(runRequest, conversation);
+        const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, current);
+        const config = withRouterFetch(resolved, fetch);
+        const input = { workspace, agent, request: withConversation, config, idempotency, conversation };
+        started = await runs.begin(input);
+      }
     } catch (error) {
       if (error instanceof RequestRefusal) {
         refuse(response, ModelFailure.BadRequest, error.message, error.param);
+        return;
+      }
+      if (error instanceof RunConflict) {
+        refuse(response, error.failure, error.message);
         return;
       }
       if (error instanceof UnreadableAgentError) {
@@ -323,20 +367,28 @@ export function createAgentRoutes({
       }
     });
     if (delivery.stream === false) {
-      const finished = await started.execute(() => {}, disconnected.signal);
-      answerFinished(response, finished, delivery, settings.heartbeatSeconds);
+      const events: RunEvent[] = [];
+      const listener = { onText: () => {}, onEvent: (event: RunEvent) => events.push(event) };
+      const finished = await started.execute(listener, disconnected.signal);
+      answerFinished(response, finished, { ...delivery, events: delivery.progress ? events : null }, heartbeatSeconds);
       return;
     }
     const meta = { runId: started.runId, model: agent.name, startedAt: started.startedAt };
-    const stream = openChunkStream(response, meta, delivery.includeUsage, settings.heartbeatSeconds);
-    const finished = await started.execute((text) => stream.text(text), disconnected.signal);
-    if (finished.status === RunStatus.Completed) {
+    const stream = openChunkStream(response, meta, delivery.includeUsage, heartbeatSeconds);
+    const listener = {
+      onText: (text: string) => stream.text(text),
+      onEvent: (event: RunEvent) => {
+        if (delivery.progress) {
+          stream.event(event);
+        }
+      },
+    };
+    const finished = await started.execute(listener, disconnected.signal);
+    const refusal = UNANSWERED[finished.status];
+    if (refusal === undefined) {
       stream.end(finished);
     } else {
-      const isCancelled = finished.status === RunStatus.Cancelled;
-      const failure = isCancelled ? ModelFailure.RunCancelled : ModelFailure.RunFailed;
-      const said = isCancelled ? 'The run was cancelled' : 'The run failed';
-      stream.fail(openAiErrorBody(failure, `${said}: ${finished.error ?? ''}`));
+      stream.fail(openAiErrorBody(refusal.failure, `${refusal.said}: ${finished.error ?? ''}`));
     }
   });
 

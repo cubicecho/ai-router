@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatDuration, shortError, statusOf } from '../../web/runs/shapes.ts';
-import { latestUsage, type TimelineEvent, timelineOf } from '../../web/runs/timeline.ts';
+import { type TimelineEvent, timelineOf } from '../../web/runs/timeline.ts';
 
 // The run page draws agent-core's RunEvents as a timeline, live now and from stored events in phase 7.
 
@@ -80,7 +80,7 @@ describe('timelineOf', () => {
     expect(entry).toMatchObject({ type: 'note', kind: 'compaction', text: 'folded 12 messages' });
   });
 
-  it('reads usage per turn and the latest totals', () => {
+  it('reads usage per turn', () => {
     const events = [
       event(1, {
         kind: 'usage',
@@ -90,7 +90,6 @@ describe('timelineOf', () => {
       event(3, { kind: 'done', ok: true }),
     ];
     expect(timelineOf(events)[0]).toMatchObject({ type: 'usage', usage: { turn: { prompt: 10, completion: 5 } } });
-    expect(latestUsage(events)).toEqual({ promptTokens: 30, completionTokens: 9, turn: null });
   });
 });
 

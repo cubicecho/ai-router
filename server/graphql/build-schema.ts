@@ -22,9 +22,12 @@ import { permissions } from './permissions.ts';
 /** better-auth's tables, and the pairing's secrets. Never served: every read of them goes through the server. */
 const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
+/** Tables served only through hand-written fields: a run's events are `Run.events`, in the subscription's shape. */
+const HAND_SERVED_TABLES = ['runEvents'];
+
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
- * usage, secrets, activity and runs.
+ * usage, secrets, activity, runs and conversations.
  */
 const WRITES_RESERVED = new Set<string>([
   'users',
@@ -36,6 +39,7 @@ const WRITES_RESERVED = new Set<string>([
   'agentRevisions',
   'overridePolicies',
   'runs',
+  'conversations',
 ]);
 
 /** Tables whose rows are created by hand-written mutations: `installServer`, `createAgent`. */
@@ -91,14 +95,15 @@ export function createSchema(db: DB): GraphQLSchema {
     // Table keys are plural (`workspaces`). Types and single-row fields are singular (Workspace, workspace).
     typeNameMapper: 'singularize',
     exclude: {
-      tables: SERVER_TABLES,
+      tables: [...SERVER_TABLES, ...HAND_SERVED_TABLES],
       columns: {
         workspaceKeys: ['hash'],
         providers: ['apiKey'],
         servers: ['oauth'],
         serverSecrets: ['value'],
         // A fingerprint of an app's request: of no use to a person, and a way to test a guess at what it said.
-        runs: ['requestHash'],
+        // A waiting run's transcript and the app's tools: what it carries on with, not what it is.
+        runs: ['requestHash', 'resume'],
       },
     },
     features: {

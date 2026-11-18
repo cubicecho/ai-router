@@ -20,6 +20,8 @@ export const ModelFailure = {
   },
   RunCancelled: { status: HttpStatus.Conflict, type: INVALID_REQUEST, code: 'run_cancelled' },
   RunInProgress: { status: HttpStatus.Conflict, type: INVALID_REQUEST, code: 'run_in_progress' },
+  RunExpired: { status: HttpStatus.Conflict, type: INVALID_REQUEST, code: 'run_expired' },
+  ConversationBusy: { status: HttpStatus.Conflict, type: INVALID_REQUEST, code: 'conversation_busy' },
   RunFailed: { status: HttpStatus.InternalServerError, type: API_ERROR, code: 'run_failed' },
   ModelNotFound: { status: HttpStatus.NotFound, type: INVALID_REQUEST, code: 'model_not_found' },
   NotFound: { status: HttpStatus.NotFound, type: INVALID_REQUEST, code: 'not_found' },

@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { createAgentRoutes } from '../agents/routes.ts';
 import { createRunService, type RunService } from '../agents/run.ts';
+import { createRunRecordRoutes } from '../agents/run-records.ts';
 import { type AuthHost, createAuthHost } from '../auth/auth-host.ts';
 import { createRateLimiter, type RateLimiter } from '../auth/rate-limit.ts';
 import { trustProxy as configuredTrustProxy } from '../core/config.ts';
@@ -80,7 +81,7 @@ export interface BuiltApp {
 }
 
 /**
- * Builds the Express app: /graphql, the agents endpoint /v1, /healthz, the OIDC redirects and the UI.
+ * Builds the Express app: /graphql, the agents endpoint /v1, the run records /runs, /healthz, the OIDC redirects and the UI.
  *
  * @param deps - What the router talks to.
  * @returns The app and its snapshot host. It does not listen, migrate or start timers.
@@ -123,6 +124,8 @@ export async function createApp({
   app.all(graphql.graphqlEndpoint, (request, response) => graphql(request, response));
   // Workspace keys only: a session is never read here, on a trusted network too.
   app.use('/v1', createAgentRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
+  // The same keys, each reading only its own workspace's runs.
+  app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, bus: runService.bus }));
   app.get('/healthz', async (_request, response) => {
     const health = await checkHealth(db, children);
     response.status(health.ok ? HttpStatus.Ok : HttpStatus.ServiceUnavailable).json(health);

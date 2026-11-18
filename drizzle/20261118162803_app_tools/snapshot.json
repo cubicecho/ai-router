@@ -1,0 +1,184 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "096b5f27-143c-4a85-b213-5478a1f27d03",
+  "prevIds": [
+    "69dc924e-8109-4229-8338-a57936178806"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "waiting_since"
+      ],
+      "writes": [
+        "s|col|public.runs.waiting_since",
+        "n|col|public.runs.waiting_since",
+        "e|col|public.runs.waiting_since"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "pending_call_ids"
+      ],
+      "writes": [
+        "s|col|public.runs.pending_call_ids",
+        "n|col|public.runs.pending_call_ids",
+        "e|col|public.runs.pending_call_ids"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "resume"
+      ],
+      "writes": [
+        "s|col|public.runs.resume",
+        "n|col|public.runs.resume",
+        "e|col|public.runs.resume"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "idx_runs_pending_call_ids"
+      ],
+      "writes": [
+        "s|idx|public.idx_runs_pending_call_ids",
+        "n|idx|public.idx_runs_pending_call_ids",
+        "e|idx|public.idx_runs_pending_call_ids",
+        "n|rel|public.idx_runs_pending_call_ids"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.pending_call_ids"
+      ]
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "runs"
+      ],
+      "writes": [
+        "s|ck|public.runs.ck_runs_status"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.status",
+        "e|col|public.runs.status"
+      ],
+      "sqlHash": "6794e8e238afc9a4"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "waiting_since",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "pending_call_ids",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 1,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "resume",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "idx_runs_pending_call_ids",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "pending_call_ids",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "gin",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"runs\",\"ck_runs_status\"]",
+      "set": {
+        "value": "\"status\" in ('running', 'waiting', 'completed', 'failed', 'cancelled', 'expired')"
+      }
+    }
+  ]
+}

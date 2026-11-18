@@ -10,6 +10,7 @@ export const relations = defineRelations(schema, (relate) => ({
     activity: relate.many.activity(),
     agents: relate.many.workspaceAgents(),
     runs: relate.many.runs(),
+    conversations: relate.many.conversations(),
   },
   workspaceKeys: {
     workspace: relate.one.workspaces({ from: relate.workspaceKeys.workspaceId, to: relate.workspaces.id }),
@@ -63,8 +64,14 @@ export const relations = defineRelations(schema, (relate) => ({
     workspace: relate.one.workspaces({ from: relate.runs.workspaceId, to: relate.workspaces.id }),
     agent: relate.one.agents({ from: relate.runs.agentId, to: relate.agents.id }),
     revision: relate.one.agentRevisions({ from: relate.runs.revisionId, to: relate.agentRevisions.id }),
+    conversation: relate.one.conversations({ from: relate.runs.conversationId, to: relate.conversations.id }),
     // No foreign key: a call's activity is written a few seconds after it, and outlives its run's record.
     activity: relate.many.activity({ from: relate.runs.id, to: relate.activity.runId }),
+  },
+  conversations: {
+    workspace: relate.one.workspaces({ from: relate.conversations.workspaceId, to: relate.workspaces.id }),
+    agent: relate.one.agents({ from: relate.conversations.agentId, to: relate.agents.id }),
+    runs: relate.many.runs(),
   },
   activity: {
     server: relate.one.servers({ from: relate.activity.serverId, to: relate.servers.id }),
