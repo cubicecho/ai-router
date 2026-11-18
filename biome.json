@@ -1,14 +1,33 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "plugins": ["./no-negation.grit"],
   "files": {
     "ignoreUnknown": true,
     "includes": ["**", "!**/dist", "!**/__generated__", "!**/drizzle", "!package-lock.json", "!**/*.md"]
   },
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
-  "javascript": { "formatter": { "quoteStyle": "single", "trailingCommas": "all", "semicolons": "always" } },
-  "css": { "parser": { "tailwindDirectives": true } },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -28,21 +47,90 @@
         "noNamespace": "error",
         "noParameterProperties": "error",
         "noNonNullAssertion": "error",
-        "useFilenamingConvention": { "level": "error", "options": { "filenameCases": ["kebab-case"] } }
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "filenameCases": ["kebab-case"]
+          }
+        }
       },
-      "suspicious": { "noExplicitAny": "error" }
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
     }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "overrides": [
     {
-      "includes": ["**/components/ui/**"],
-      "linter": { "enabled": false },
-      "formatter": { "enabled": false }
+      "includes": [
+        "web/components/app-bar.tsx",
+        "web/components/app-form.tsx",
+        "web/components/card-layout.tsx",
+        "web/components/centered-card-layout.tsx",
+        "web/components/combobox.tsx",
+        "web/components/confirm-button.tsx",
+        "web/components/dialog-layout.tsx",
+        "web/components/empty-state.tsx",
+        "web/components/form-field.tsx",
+        "web/components/header-content-footer.tsx",
+        "web/components/list-item.tsx",
+        "web/components/list.tsx",
+        "web/components/load-state.tsx",
+        "web/components/page-header.tsx",
+        "web/components/page-layout.tsx",
+        "web/components/password-input.tsx",
+        "web/components/section-heading.tsx",
+        "web/components/section.tsx",
+        "web/components/sidebar.tsx",
+        "web/components/split-layout.tsx",
+        "web/lib/bottom-bar.ts",
+        "web/lib/color.ts",
+        "web/lib/error-message.ts",
+        "web/lib/form-binding.ts",
+        "web/lib/frame-focus-guard.ts",
+        "web/lib/number-draft.ts",
+        "web/lib/readable-text-color.ts",
+        "web/lib/select-options.ts",
+        "web/lib/utils.ts",
+        "web/components/ui/**",
+        "cubeui-tokens.css",
+        "cubeui-reset.css"
+      ],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
     },
     {
       "includes": ["**/*.test.ts", "**/*.test.tsx", "**/tests/**", "spikes/**"],
-      "linter": { "rules": { "style": { "noMagicNumbers": "off" } } }
+      "linter": {
+        "rules": {
+          "style": {
+            "noMagicNumbers": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["server/**", "tests/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off"
+          }
+        }
+      }
     }
   ]
 }

@@ -1,0 +1,50 @@
+query AuthConfig {
+  authConfig {
+    trustedNetwork
+    sso {
+      name
+      signInUrl
+    }
+  }
+  ssoSetup {
+    source
+    canPair
+    redirectUri
+  }
+}
+
+query Me {
+  me {
+    id
+    email
+    name
+    role
+  }
+}
+
+mutation SignInOnTrustedNetwork {
+  signInOnTrustedNetwork {
+    token
+    userId
+  }
+}
+
+mutation VerifyOneTimeToken($token: String!) {
+  verifyOneTimeToken(token: $token) {
+    token
+    userId
+  }
+}
+
+mutation SignOut {
+  signOut {
+    success
+  }
+}
+
+mutation PairSso($setupUrl: String!) {
+  pairSso(setupUrl: $setupUrl) {
+    source
+    canPair
+  }
+}

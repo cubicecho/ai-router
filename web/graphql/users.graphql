@@ -1,0 +1,20 @@
+query Users {
+  users(orderBy: { createdAt: { direction: asc, priority: 1 } }) {
+    id
+    email
+    name
+    role
+    createdAt
+  }
+}
+
+mutation SetUserRole($id: UUID!, $role: UsersRoleEnum!) {
+  setUserRole(id: $id, role: $role) {
+    id
+    role
+  }
+}
+
+mutation DeleteUser($id: UUID!) {
+  deleteUser(id: $id)
+}

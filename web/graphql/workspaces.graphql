@@ -1,0 +1,68 @@
+fragment WorkspaceFields on Workspace {
+  id
+  slug
+  name
+  description
+  createdAt
+}
+
+fragment KeyFields on WorkspaceKey {
+  id
+  name
+  start
+  expiresAt
+  createdAt
+  creator {
+    name
+    email
+  }
+}
+
+query Workspaces {
+  workspaces(orderBy: { slug: { direction: asc, priority: 1 } }) {
+    ...WorkspaceFields
+    keysAggregate {
+      count
+    }
+  }
+}
+
+query Workspace($id: UUID!) {
+  workspace(where: { id: { eq: $id } }) {
+    ...WorkspaceFields
+    keys(orderBy: { createdAt: { direction: desc, priority: 1 } }) {
+      ...KeyFields
+    }
+  }
+}
+
+mutation CreateWorkspace($slug: String!, $name: String!, $description: String!) {
+  createWorkspace(values: { slug: $slug, name: $name, description: $description }) {
+    ...WorkspaceFields
+  }
+}
+
+mutation UpdateWorkspace($id: UUID!, $slug: String!, $name: String!, $description: String!) {
+  updateWorkspace(where: { id: { eq: $id } }, set: { slug: $slug, name: $name, description: $description }) {
+    ...WorkspaceFields
+  }
+}
+
+mutation DeleteWorkspace($id: UUID!) {
+  deleteWorkspace(where: { id: { eq: $id } }) {
+    id
+  }
+}
+
+mutation CreateWorkspaceKey($workspaceId: UUID!, $name: String!, $expiresInDays: Int) {
+  createWorkspaceKey(workspaceId: $workspaceId, name: $name, expiresInDays: $expiresInDays) {
+    secret
+    key {
+      ...KeyFields
+    }
+  }
+}
+
+mutation RevokeWorkspaceKey($id: UUID!) {
+  revokeWorkspaceKey(id: $id)
+}
