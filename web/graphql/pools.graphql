@@ -7,7 +7,9 @@ fragment PoolFields on Pool {
   strategy
   affinity
   maxLoadFactor
-  targets(orderBy: { position: { direction: asc, priority: 1 } }) {
+  # A pool may have 64 targets (MODEL_CONFIG_DEFAULTS.maxTargets), more than the default page of 50. The targets
+  # dialog saves the list whole, so it must be given all of them.
+  targets(orderBy: { position: { direction: asc, priority: 1 } }, limit: 64) {
     id
     model
     position
@@ -19,9 +21,18 @@ fragment PoolFields on Pool {
   }
 }
 
+# The list shows only how many targets each pool has: selecting them whole prices each row at a page of targets with
+# their providers, past the operation limit.
 query Pools {
   pools(orderBy: { name: { direction: asc, priority: 1 } }) {
-    ...PoolFields
+    id
+    name
+    displayName
+    enabled
+    strategy
+    targets(limit: 64) {
+      id
+    }
   }
 }
 
