@@ -49,8 +49,20 @@ const indexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/workspaces' });
+    throw redirect({ to: '/agents' });
   },
+});
+
+const agentsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agents',
+  component: lazyRouteComponent(() => import('@/routes/agents'), 'AgentsRoute'),
+});
+
+const agentRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agents/$agentId',
+  component: lazyRouteComponent(() => import('@/routes/agent'), 'AgentRoute'),
 });
 
 const workspacesRoute = createRoute({
@@ -113,6 +125,8 @@ export const router = createRouter({
     ssoRoute,
     appRoute.addChildren([
       indexRoute,
+      agentsRoute,
+      agentRoute,
       workspacesRoute,
       workspaceRoute,
       providersRoute,

@@ -1,0 +1,126 @@
+fragment AgentRevisionFields on AgentRevision {
+  id
+  agentId
+  number
+  document
+  warnings
+  message
+  createdBy
+  createdAt
+  promotedAt
+  creator {
+    name
+    email
+  }
+}
+
+query Agents {
+  agents(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    liveRevisionId
+    liveRevision {
+      id
+      document
+    }
+  }
+}
+
+query Agent($id: UUID!) {
+  agent(where: { id: { eq: $id } }) {
+    id
+    name
+    liveRevisionId
+    liveRevision {
+      ...AgentRevisionFields
+    }
+    revisions(orderBy: { number: { direction: desc, priority: 1 } }) {
+      ...AgentRevisionFields
+    }
+    workspaces(orderBy: { workspace: { name: { direction: asc, priority: 1 } } }) {
+      id
+      workspace {
+        id
+        name
+      }
+    }
+  }
+}
+
+query CheckAgent($document: JSON!, $id: UUID) {
+  checkAgent(document: $document, id: $id) {
+    errors
+    warnings
+  }
+}
+
+mutation CreateAgent($document: JSON!, $message: String) {
+  createAgent(document: $document, message: $message) {
+    id
+    name
+    liveRevision {
+      id
+      number
+      warnings
+    }
+  }
+}
+
+mutation SaveAgent($id: UUID!, $document: JSON!, $message: String) {
+  saveAgent(id: $id, document: $document, message: $message) {
+    id
+    number
+    warnings
+  }
+}
+
+mutation PromoteRevision($id: UUID!) {
+  promoteRevision(id: $id) {
+    id
+    liveRevisionId
+  }
+}
+
+mutation DeleteAgent($id: UUID!) {
+  deleteAgent(where: { id: { eq: $id } }) {
+    id
+  }
+}
+
+fragment WorkspaceAgentChoice on Agent {
+  id
+  name
+  liveRevisionId
+  liveRevision {
+    id
+    document
+  }
+}
+
+query WorkspaceAgents($workspaceId: UUID!) {
+  workspaceAgents(
+    where: { workspaceId: { eq: $workspaceId } }
+    orderBy: { agent: { name: { direction: asc, priority: 1 } } }
+  ) {
+    id
+    agentId
+    agent {
+      ...WorkspaceAgentChoice
+    }
+  }
+  agents(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...WorkspaceAgentChoice
+  }
+}
+
+mutation CreateWorkspaceAgent($workspaceId: UUID!, $agentId: UUID!) {
+  createWorkspaceAgent(values: { workspaceId: $workspaceId, agentId: $agentId }) {
+    id
+  }
+}
+
+mutation DeleteWorkspaceAgent($id: UUID!) {
+  deleteWorkspaceAgent(where: { id: { eq: $id } }) {
+    id
+  }
+}

@@ -11,7 +11,7 @@ export const UNAUTHENTICATED = 'UNAUTHENTICATED';
 /** One error in a GraphQL answer, as far as the UI reads it. */
 interface GraphQLErrorBody {
   message: string;
-  extensions?: { code?: string };
+  extensions?: { code?: string; [key: string]: unknown };
 }
 
 /** A GraphQL answer. */
@@ -24,17 +24,21 @@ interface GraphQLResponse<T> {
 export class RequestError extends Error {
   /** `extensions.code`, such as `UNAUTHENTICATED` or `BAD_USER_INPUT`. Empty when there was none. */
   readonly code: string;
+  /** The error's whole `extensions`, holding such things as a refused save's `errors` and `warnings`. */
+  readonly extensions: Readonly<Record<string, unknown>>;
 
   /**
    * Builds the error from the answer's first error.
    *
    * @param message - What the server said.
    * @param code - Its code.
+   * @param extensions - The error's `extensions`, as the server sent them.
    */
-  constructor(message: string, code: string) {
+  constructor(message: string, code: string, extensions: Readonly<Record<string, unknown>> = {}) {
     super(message);
     this.name = 'RequestError';
     this.code = code;
+    this.extensions = extensions;
   }
 }
 
@@ -46,7 +50,7 @@ export class RequestError extends Error {
  * @param document - The operation, from codegen.
  * @param variables - Its variables; left out for an operation that takes none.
  * @returns The answer's `data`.
- * @throws {@link RequestError} With the first error's message and code.
+ * @throws {@link RequestError} With the first error's message, code and extensions.
  */
 export async function request<TResult, TVariables>(
   document: TypedDocumentNode<TResult, TVariables>,
@@ -61,7 +65,7 @@ export async function request<TResult, TVariables>(
   const body: GraphQLResponse<TResult> = await response.json();
   const [first] = body.errors ?? [];
   if (first !== undefined) {
-    throw new RequestError(first.message, first.extensions?.code ?? '');
+    throw new RequestError(first.message, first.extensions?.code ?? '', first.extensions ?? {});
   }
   if (body.data === undefined || body.data === null) {
     throw new RequestError(`The server answered with no data (HTTP ${response.status}).`, '');

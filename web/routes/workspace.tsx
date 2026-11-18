@@ -8,6 +8,7 @@ import {
   UsageByWorkspaceDocument,
   WorkspaceDocument,
 } from '@/__generated__/graphql';
+import { WorkspaceAgentsSection } from '@/agents/workspace-agents-section';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
@@ -34,7 +35,7 @@ function dateOf(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** One workspace: what it is, the keys its apps call with, and how its agent runs use servers. */
+/** One workspace: the agents its apps may run, the keys they call with, and how their runs use servers. */
 export function WorkspaceRoute() {
   const { workspaceId } = useParams({ from: '/app/workspaces/$workspaceId' });
   const navigate = useNavigate();
@@ -115,6 +116,7 @@ export function WorkspaceRoute() {
       }
       contentSlot={
         <>
+          <WorkspaceAgentsSection workspaceId={record.id} />
           <Section
             title="Keys"
             description="Each app sends one with every request. A key sees this workspace and nothing else."

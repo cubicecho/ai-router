@@ -3,7 +3,7 @@ import { extendSchema, GraphQLError, type GraphQLSchema, parse } from 'graphql';
 import { z } from 'zod';
 import { CALLER_USER, type Context } from '../core/context.ts';
 import { AGENT_CONFIG_DEFAULTS } from '../core/defaults.ts';
-import { badInput, ErrorCode, notFound } from '../core/errors.ts';
+import { ErrorCode, notFound } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import type { Transaction } from '../db/client.ts';
 import { agentRevisions } from '../db/tables/agent-revisions.ts';
@@ -148,7 +148,10 @@ export function applyAgentsExtension(schema: GraphQLSchema): GraphQLSchema {
     const created = await ctx.db.transaction(async (tx) => {
       const [taken] = await tx.select({ id: agents.id }).from(agents).where(eq(agents.name, name));
       if (taken !== undefined) {
-        throw badInput(`An agent named "${name}" already exists. Save a new revision of it instead.`);
+        throw refusal({
+          ...check,
+          errors: [`id: an agent named "${name}" already exists. Save a new revision of it instead.`],
+        });
       }
       const [agent] = await tx.insert(agents).values({ name }).returning();
       if (agent === undefined) {
