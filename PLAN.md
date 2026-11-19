@@ -445,6 +445,10 @@ The acceptance check for the first release.
      or from `/runs/<id>`. Such a profile sends no MCP tools (today an empty server list means
      all of them), and no compaction or tool-select model.
    - telos: a lane whose agent is a router agent, with its Runs tab filled the same way.
+
+   Until an app is moved over, it can still connect as a plain OpenAI client: README.md,
+   "Connecting an older app", says how (side tasks on a minimal agent, the unlisted-fields
+   setting for strict-field refusals, and `context_length` on `/v1/models`).
 9. **Admin server.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`. Drafts,
    discarding and auto-promote arrive here, because this is the first way anything other than a
    user can save an agent. Decided 2026-11-18:
