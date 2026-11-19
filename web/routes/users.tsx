@@ -7,8 +7,20 @@ import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { countOf, formatDate } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
+
+/**
+ * Says how many people there are, and how many of them are admins.
+ *
+ * @param users - How many have signed in.
+ * @param admins - How many of them are admins.
+ * @returns Such as "4 users · 1 admin".
+ */
+function headcountOf(users: number, admins: number): string {
+  return `${countOf(users, 'user', 'users')} · ${countOf(admins, 'admin', 'admins')}`;
+}
 
 /** Everyone who has signed in, and who of them is an admin. Admin only. */
 export function UsersRoute() {
@@ -30,9 +42,12 @@ export function UsersRoute() {
 
   return (
     <PageLayout
-      width="prose"
+      width="full"
       title="Users"
       description="Anyone your sign-in provider lets through can sign in. Admins may also set secrets, settings and roles."
+      actionSlot={
+        rows.length > 0 ? <Badge variant="secondary">{headcountOf(rows.length, adminCount)}</Badge> : undefined
+      }
       contentSlot={
         <>
           <LoadState query={users} what="the users" count={rows.length} />
@@ -52,7 +67,13 @@ export function UsersRoute() {
                       ? `${user.email} · The only admin: make someone else admin to change this one.`
                       : user.email
                   }
-                  meta={isAdmin ? <Badge>Admin</Badge> : undefined}
+                  meta={
+                    <span className="flex items-center gap-2 text-foreground/60 text-xs">
+                      <span>Joined {formatDate(user.createdAt)}</span>
+                      {isMe ? <Badge variant="info-soft">You</Badge> : null}
+                      {isAdmin ? <Badge>Admin</Badge> : null}
+                    </span>
+                  }
                   actionSlot={
                     isOnlyAdmin ? undefined : (
                       <>

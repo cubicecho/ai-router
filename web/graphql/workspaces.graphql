@@ -21,7 +21,16 @@ fragment KeyFields on WorkspaceKey {
 query Workspaces {
   workspaces(orderBy: { slug: { direction: asc, priority: 1 } }) {
     ...WorkspaceFields
+    agentsAggregate {
+      count
+    }
     keysAggregate {
+      count
+    }
+    serversAggregate {
+      count
+    }
+    runsAggregate {
       count
     }
   }
