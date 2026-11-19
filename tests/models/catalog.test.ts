@@ -66,6 +66,21 @@ describe('ModelCatalog', () => {
     expect(asked).toHaveLength(2);
   });
 
+  it('asks anew on a refresh, and reuses that listing after', async () => {
+    const { fetch, asked } = fakeProvider(LIST);
+    const catalog = new ModelCatalog(fetch);
+    await catalog.list(PROVIDER);
+    expect(await catalog.refresh(PROVIDER)).toEqual([{ id: 'qwen3:8b' }]);
+    await catalog.list(PROVIDER);
+    expect(asked).toHaveLength(2);
+  });
+
+  it('gives up on a refresh past its own timeout', async () => {
+    const fetch: UpstreamFetch = (_url, init) =>
+      new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
+    await expect(new ModelCatalog(fetch).refresh(PROVIDER, 10)).rejects.toThrow(/Could not reach ollama/);
+  });
+
   it('does not cache a failure', async () => {
     const { fetch, asked } = fakeProvider(new Error('refused'), LIST);
     const catalog = new ModelCatalog(fetch);

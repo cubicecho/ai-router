@@ -73,7 +73,7 @@ export interface BuiltApp {
   app: Express;
   /** The snapshot host the app routes by, for background work that writes. */
   snapshot: SnapshotHost;
-  /** The models area, whose usage recorder boot starts and shutdown stops. */
+  /** The models area, whose usage recorder and pool health checks boot starts and shutdown stops. */
   models: ModelServices;
   /** The tools area, whose activity recorder boot starts and whose instances shutdown stops. */
   tools: ToolServiceParts;

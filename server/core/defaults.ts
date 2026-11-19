@@ -219,6 +219,19 @@ export const MODEL_DEFAULTS: Readonly<ModelSettings> = Object.freeze({
   unreachableCooldownSeconds: 30,
 });
 
+/** Checking a pool's targets in the background, so one that is down is passed over before a call finds it. */
+export interface PoolHealthSettings {
+  /** How often a round of checks starts. Each provider an enabled pool uses is asked once a round. */
+  intervalSeconds: number;
+  /** How long a provider may take to list its models before its targets count as down. */
+  timeoutMs: number;
+}
+
+export const POOL_HEALTH_DEFAULTS: Readonly<PoolHealthSettings> = Object.freeze({
+  intervalSeconds: 30,
+  timeoutMs: 5_000,
+});
+
 /** Counting usage. */
 export interface UsageSettings {
   /** How often counts gathered in memory are written. A crash loses at most this much. */
@@ -249,6 +262,10 @@ export interface ModelConfigSettings {
   maxApiKeyLength: number;
   /** Most targets one pool may have. */
   maxTargets: number;
+  /** The largest weight a target may have: its share of the pool's calls against a target of weight 1. */
+  maxTargetWeight: number;
+  /** The highest price per million tokens a model or pool may be given, in whatever currency prices are entered in. */
+  maxPricePerMillion: number;
   /** Longest model id at a provider, in characters. */
   maxModelLength: number;
 }
@@ -260,6 +277,8 @@ export const MODEL_CONFIG_DEFAULTS: Readonly<ModelConfigSettings> = Object.freez
   maxHeaderValueLength: 4_096,
   maxApiKeyLength: 4_096,
   maxTargets: 64,
+  maxTargetWeight: 100,
+  maxPricePerMillion: 100_000,
   maxModelLength: 256,
 });
 

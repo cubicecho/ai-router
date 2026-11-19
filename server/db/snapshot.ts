@@ -54,6 +54,8 @@ export interface SnapshotTarget {
   providerName: string;
   /** The model's id at the provider. */
   model: string;
+  /** Its share of the pool's calls, at least 1. */
+  weight: number;
 }
 
 /** A pool as a run's model calls see it. */
@@ -292,9 +294,9 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
   const policies = new Map(policyRows.map((row) => [row.id, row.rules]));
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
-  for (const { poolId, providerId, model } of targetRows) {
+  for (const { poolId, providerId, model, weight } of targetRows) {
     const providerName = providerNames.get(providerId) ?? '';
-    targetsByPool.set(poolId, [...(targetsByPool.get(poolId) ?? []), { providerId, providerName, model }]);
+    targetsByPool.set(poolId, [...(targetsByPool.get(poolId) ?? []), { providerId, providerName, model, weight }]);
   }
   return {
     settings: routerSettingsFrom(savedSettingsFrom(settingsRow?.values)),

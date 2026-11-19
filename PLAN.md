@@ -86,7 +86,7 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 | --- | --- |
 | auth | better-auth's `users` (with `role`), `sessions`, `accounts`, `verifications`; `oidc_settings`, the paired provider |
 | router | `settings`, a single row |
-| models | `providers`, `pools`, `pool_targets`, `usage_counts` (all internal: used by agent runs) |
+| models | `providers`, `pools`, `pool_targets`, `usage_counts`, `model_prices` (all internal: used by agent runs) |
 | tools | `registries`, `servers`, `server_secrets`, `activity` (all internal) |
 | agents | `agents` (with `override_policy_id`), `agent_revisions`, `override_policies` (seeded with one default row), `runs`, `run_events`, `conversations` |
 | workspaces | `workspaces`, `workspace_keys`, `workspace_agents`, `workspace_servers` (env, args, headers and URL overrides for the workspace's agent runs) |
@@ -267,13 +267,20 @@ The acceptance check for the first release.
      time (use UTC).
    - **Kept on purpose:** two pools that share a target share its in-flight count, since it is
      one server's load.
+   - **Failover, health and weights (2026-11-18, #29):** a call whose target can't be reached
+     goes to the pool's next target, and that target is passed over for 30 seconds. Health
+     checks ask each provider an enabled pool uses for its model list every 30 seconds
+     (`POOL_HEALTH_DEFAULTS`, a 5 s timeout), and a target whose provider doesn't answer or
+     doesn't list its model is passed over until a later round finds it up. Each target has a
+     weight (1 to 100): smooth weighted round-robin, weighted random, least load per unit of
+     weight, and weighted rendezvous hashing with bounded load at each target's weighted share.
    - **Usage outlives its provider:** a usage row keeps the provider's name as text, and its
      `provider_id` is an optional foreign key, set to null when the provider is deleted.
    - **The response timeout** (10 minutes until the first byte) is a `defaults.ts` value, not
      an editable setting, until something else needs runtime settings.
    - **Tables:** `providers` (name, display name, description, enabled, base URL, `api_key` as a
      write-only secret, `headers`), `pools` (name, display name, description, enabled, strategy,
-     affinity, `max_load_factor`) and `pool_targets` (pool, provider, model, position).
+     affinity, `max_load_factor`) and `pool_targets` (pool, provider, model, position, weight).
    - **Admin API:** generated CRUD, checked by hooks and rebuilding the snapshot on commit, plus
      `setProviderApiKey` (admin only), `setPoolTargets` (the whole list, in order, in one
      transaction), `providerModels(id, refresh)` and `poolLoad(id)`.
@@ -288,7 +295,8 @@ The acceptance check for the first release.
      for a Bearer key.
    - **Forwarding is a function** (`models/forward`), not an HTTP door: a run's `fetch` calls it
      ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)).
-   - **Usage:** one row per UTC day, workspace, agent, provider and model, with requests, input
+   - **Usage:** one row per UTC day, workspace, agent, pool (null for a direct call; #23),
+     provider and model, with requests, input
      and output tokens. Counted from the provider's own numbers on a 2xx only: a stream's last
      usage chunk, or a JSON answer up to 8 MB. Days older than 90 fold into an all-time row.
      Counts gather in memory and are written every few seconds and at shutdown. A row keeps the
@@ -296,7 +304,8 @@ The acceptance check for the first release.
      usage outlives both.
    - **UI:** Providers (list, add and edit, the key set by an admin, the live model list with
      refresh, usage per model and day), Pools (list, edit, an ordered target editor, strategy,
-     affinity, load factor, live in-flight load), and usage on each workspace's page.
+     affinity, load factor, live in-flight load, usage per target and day), and usage on each
+     workspace's page.
    - **Tests:** llm-router's balancer, affinity and usage-reader tests, ported; forwarding
      against a fake OpenAI server on loopback (streams, provider errors passed through,
      unreachable, the timeout, the caller aborting, a lease released on every path); the secrets
@@ -521,11 +530,11 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
-- **Failover and health for pools.** A call whose target can't be reached goes to the pool's next
-  target, and that target is passed over for 30 seconds (2026-11-18). Still open: health checks
-  that probe a target before a call finds it down, and per-target weights.
-- **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
-  cost.
+- **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own). Cost
+  is done (2026-11-18, #30): prices people enter, per provider model (`model_prices`, set by any
+  user with `setModelPrice`) or per pool (its own price columns, which win for calls through
+  it), in one currency of the user's choosing, and usage's cost worked out at today's prices.
+  Still open: prices kept as they were when the calls were made.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
   app's MCP client, but an agent run has no MCP client to forward to. Phases 6 and 7 decline it.
   Phase 7's waiting runs make the later option cheap: hand the request back like an app tool

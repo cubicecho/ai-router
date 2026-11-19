@@ -22,6 +22,7 @@ const ADMIN_SERVER_KEPT =
 const CHECK_MESSAGES: Readonly<Record<string, string>> = {
   ck_servers_name_reserved: ADMIN_SERVER_KEPT,
   ck_servers_builtin_source: ADMIN_SERVER_KEPT,
+  ck_pools_price: 'A pool has both prices, in and out, or neither.',
 };
 
 /**

@@ -10,12 +10,32 @@ import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { request } from '@/lib/gql';
+import { parseNumber } from '@/lib/number-draft';
+
+/** The weight a target is added with: an equal share of the pool's calls. */
+const EQUAL_WEIGHT = 1;
+/** The largest weight the router takes, as `MODEL_CONFIG_DEFAULTS.maxTargetWeight` says. */
+const MAX_WEIGHT = 100;
 
 /** One target as the dialog holds it. */
 interface DraftTarget {
   providerId: string;
   providerName: string;
   model: string;
+  /** The weight as typed, so a box being cleared to type another doesn't jump back. */
+  weight: string;
+}
+
+/**
+ * Reads a typed weight.
+ *
+ * @param text - What is in the box.
+ * @returns The weight, or null when it is not a whole number the router takes.
+ */
+function weightOf(text: string): number | null {
+  const weight = parseNumber(text, true);
+  const isInRange = weight !== null && weight >= EQUAL_WEIGHT && weight <= MAX_WEIGHT;
+  return isInRange ? weight : null;
 }
 
 /** What the targets dialog is given. */
@@ -35,6 +55,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
       providerId: target.provider?.id ?? '',
       providerName: target.provider?.name ?? '',
       model: target.model,
+      weight: String(target.weight),
     }));
   const [targets, setTargets] = useState<DraftTarget[]>(initial);
   const [providerId, setProviderId] = useState<string | undefined>(undefined);
@@ -43,7 +64,11 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
     mutationFn: () =>
       request(SetPoolTargetsDocument, {
         poolId: pool.id,
-        targets: targets.map((target) => ({ providerId: target.providerId, model: target.model })),
+        targets: targets.map((target) => ({
+          providerId: target.providerId,
+          model: target.model,
+          weight: weightOf(target.weight) ?? EQUAL_WEIGHT,
+        })),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pools'] });
@@ -53,12 +78,22 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
   const chosen = providers.find((provider) => provider.id === providerId);
   const isDuplicate = targets.some((target) => target.providerId === providerId && target.model === model.trim());
   const canAdd = chosen !== undefined && model.trim() !== '' && isDuplicate === false;
+  const areWeightsValid = targets.every((target) => weightOf(target.weight) !== null);
   const add = () => {
     if (chosen === undefined) {
       return;
     }
-    setTargets([...targets, { providerId: chosen.id, providerName: chosen.name, model: model.trim() }]);
+    const added = {
+      providerId: chosen.id,
+      providerName: chosen.name,
+      model: model.trim(),
+      weight: String(EQUAL_WEIGHT),
+    };
+    setTargets([...targets, added]);
     setModel('');
+  };
+  const reweigh = (at: number, weight: string) => {
+    setTargets(targets.map((target, index) => (index === at ? { ...target, weight } : target)));
   };
   const move = (from: number, to: number) => {
     const next = [...targets];
@@ -80,7 +115,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
       open={open}
       onOpenChange={close}
       title={`${pool.name}'s targets`}
-      description="Where a call to this pool may go: a provider and the model's id there. Order breaks ties."
+      description="Where a call to this pool may go: a provider and the model's id there. A target of weight 2 takes twice the calls of one of weight 1. Order breaks ties."
       contentSlot={
         <div className="grid gap-4">
           {targets.length === 0 ? (
@@ -94,6 +129,18 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
                   title={`${target.providerName}/${target.model}`}
                   actionSlot={
                     <>
+                      <Input
+                        aria-label={`Weight of ${target.providerName}/${target.model}`}
+                        type="number"
+                        inputMode="numeric"
+                        min={EQUAL_WEIGHT}
+                        max={MAX_WEIGHT}
+                        prefixText="Weight"
+                        wrapperClassName="w-32"
+                        aria-invalid={weightOf(target.weight) === null}
+                        value={target.weight}
+                        onChange={(event) => reweigh(index, event.target.value)}
+                      />
                       <Button
                         variant="outline"
                         size="icon-sm"
@@ -150,7 +197,13 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
       footerActionsSlot={(dismiss) => (
         <>
           <Button variant="outline" onClick={dismiss} content="Cancel" />
-          <Button variant="positive" loading={save.isPending} onClick={() => save.mutate()} content="Save targets" />
+          <Button
+            variant="positive"
+            loading={save.isPending}
+            disabled={areWeightsValid === false}
+            onClick={() => save.mutate()}
+            content="Save targets"
+          />
         </>
       )}
     />
