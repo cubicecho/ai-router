@@ -34,13 +34,20 @@ query RunSessions($workspaceId: UUID, $agentName: String, $limit: Int!, $offset:
     count
     sessions {
       key
+      title
       workspaceId
       workspaceName
       agentNames
       runCount
       openRunCount
+      failedRunCount
+      cancelledRunCount
+      lastStatus
+      lastError
       startedAt
       lastStartedAt
+      lastFinishedAt
+      runMs
       inputTokens
       outputTokens
     }
