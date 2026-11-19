@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/cubicecho/ai-router/compare/v0.9.0...v0.10.0) (2026-11-19)
+
+### Features
+
+* **runs:** a session's title, how it went and how long it took ([ed0846c](https://github.com/cubicecho/ai-router/commit/ed0846c00d5431de933a8fb4b5b215ea5ef7c7c7))
+* **web:** session rows show their title, failures and time ([bdd23a1](https://github.com/cubicecho/ai-router/commit/bdd23a180acca275a9975492247b66b149ebabf6))
+
 # [0.9.0](https://github.com/cubicecho/ai-router/compare/v0.8.0...v0.9.0) (2026-11-19)
 
 ### Features
