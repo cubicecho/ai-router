@@ -9,7 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { serverUrl } from '../../core/config.ts';
 import { SERVER_LOGIN_DEFAULTS } from '../../core/defaults.ts';
-import type { ServerOAuth } from '../shapes.ts';
+import type { HttpTransportType, ServerOAuth } from '../shapes.ts';
 
 /** Where a server's login sends the browser back to, under the router's address. */
 export const SERVER_LOGIN_CALLBACK_PATH = '/oauth/callback';
@@ -21,6 +21,8 @@ export interface StoredServerLogin {
   name: string;
   /** The server's address, streamable HTTP or SSE. */
   url: string;
+  /** Which of the two it speaks, which decides how a login knocks on it. */
+  transport: HttpTransportType;
   /** Its login as stored, null when it has none. */
   oauth: ServerOAuth | null;
   /** The header secrets its base instance sends. The first knock carries them, and nothing sent to its login does. */

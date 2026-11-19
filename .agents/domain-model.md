@@ -369,7 +369,9 @@ Everything about the code comes after `Owner:`.
 - **Transport:** how the router reaches a server: a program it starts, an address it connects to,
   or, for the admin server, inside the router itself. An address is reached over streamable HTTP,
   or over SSE, the older transport that streams events from one address and takes messages posted
-  to another. Both take headers and a login, and are never stopped for being idle. Owner:
+  to another. Both take headers and a login, and are never stopped for being idle. A request a
+  server refused because it no longer has the session (as after a restart) is sent once more on a
+  new one; a request it took and never answered is not, since it may have run. Owner:
   `servers.transport`; `stdio`, `streamable-http`, `sse`, or `builtin` (only `ai-router`'s),
   connected in process. `tools/shapes` `isHttpTransport` is true for the two HTTP ones.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
@@ -405,7 +407,9 @@ Everything about the code comes after `Owner:`.
 - **Server login:** the login a remote server asks for, which a user starts once and the router
   keeps for it, refreshing its tokens as they run out. Owner: `tools/oauth`; OAuth, the `oauth`
   column on `servers`, read from the snapshot; the UI sees only `signed_in` and the `login`
-  status. The login comes back to `/oauth/callback`, and the router names itself by
+  status. A login starts by knocking without a token: an `initialize` posted to a
+  streamable-HTTP server, or opening an SSE server's event stream. The login comes back to
+  `/oauth/callback`, and the router names itself by
   `/oauth/client-metadata.json` to a login that takes that as a client id.
 - **Activity:** the record of tool calls made through the router, kept for a while: which tool,
   how long, whether it failed, and the agent, run and workspace that made it (shown on a server's

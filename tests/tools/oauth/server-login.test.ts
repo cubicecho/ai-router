@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express from 'express';
+import express, { type Request, type Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SERVER_LOGIN_DEFAULTS } from '../../../server/core/defaults.ts';
 import { ErrorCode } from '../../../server/core/errors.ts';
@@ -27,11 +29,17 @@ import {
   ServerLoginService,
   serverLoginStatus,
 } from '../../../server/tools/oauth/service.ts';
-import type { ServerOAuth } from '../../../server/tools/shapes.ts';
+import {
+  type HttpTransportType,
+  type ServerOAuth,
+  TRANSPORT_SSE,
+  TRANSPORT_STREAMABLE_HTTP,
+} from '../../../server/tools/shapes.ts';
 import { portOf } from '../../helpers.ts';
 
 // Server login against a stand-in for an OAuth-protected MCP server on loopback: the protected
-// resource at /mcp and its own authorization server at the root, with dynamic registration, or
+// resource at /mcp (streamable HTTP) and at /sse (the older HTTP+SSE transport, its messages posted
+// to /messages), and its own authorization server at the root, with dynamic registration, or
 // taking metadata URLs as client ids the way Home Assistant does.
 
 const ROUTER_URL = 'http://router.test';
@@ -46,6 +54,8 @@ type ClientMode = 'register' | 'metadata-url';
 interface Upstream {
   origin: string;
   url: string;
+  /** The same server over SSE: its event stream's address. */
+  sseUrl: string;
   /** Access tokens /mcp lets through. */
   valid: Set<string>;
   registrations: Record<string, unknown>[];
@@ -76,6 +86,7 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
   const upstream: Upstream = {
     origin,
     url: `${origin}/mcp`,
+    sseUrl: `${origin}/sse`,
     valid: new Set(),
     registrations: [],
     tokenRequests: [],
@@ -91,7 +102,12 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
       });
       return { code, state: params.get('state') ?? '', params };
     },
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        // The SSE streams stay open until closed.
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
 
   app.use((req, _res, next) => {
@@ -102,6 +118,9 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
   });
   app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
     res.json({ resource: upstream.url, authorization_servers: [origin] });
+  });
+  app.get('/.well-known/oauth-protected-resource/sse', (_req, res) => {
+    res.json({ resource: upstream.sseUrl, authorization_servers: [origin] });
   });
   app.get('/.well-known/oauth-authorization-server', (_req, res) => {
     res.json({
@@ -155,21 +174,65 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
       refresh_token: 'planted-refresh-token',
     });
   });
+  /**
+   * Answers 401 for a request without a token the stand-in let through.
+   *
+   * @param req - The request.
+   * @param res - The answer.
+   * @param resource - The protected resource's path, which its metadata is named after.
+   * @returns true when it refused.
+   */
+  const refusedToken = (req: Request, res: Response, resource: string): boolean => {
+    const bearer = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+    if (upstream.valid.has(bearer)) {
+      return false;
+    }
+    res
+      .status(HttpStatus.Unauthorized)
+      .set('www-authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/${resource}"`)
+      .end();
+    return true;
+  };
+  /**
+   * Builds the MCP server behind the protected resource.
+   *
+   * @returns It, with a `hello` tool.
+   */
+  const protectedServer = (): McpServer => {
+    const mcp = new McpServer({ name: 'protected', version: '1.0.0' });
+    mcp.registerTool('hello', { description: 'Says hello.' }, () => ({ content: [{ type: 'text', text: 'hi' }] }));
+    return mcp;
+  };
+  const sseSessions = new Map<string, SSEServerTransport>();
+  app.get('/sse', async (req, res) => {
+    if (refusedToken(req, res, 'sse')) {
+      return;
+    }
+    const transport = new SSEServerTransport('/messages', res);
+    sseSessions.set(transport.sessionId, transport);
+    res.on('close', () => sseSessions.delete(transport.sessionId));
+    await protectedServer().connect(transport);
+  });
+  app.post('/messages', express.json(), async (req, res) => {
+    if (refusedToken(req, res, 'sse')) {
+      return;
+    }
+    const transport = sseSessions.get(String(req.query.sessionId ?? ''));
+    if (transport === undefined) {
+      res.status(HttpStatus.NotFound).end();
+      return;
+    }
+    await transport.handlePostMessage(req, res, req.body);
+  });
   app.post('/mcp', express.json(), async (req, res) => {
     if (upstream.gate !== null && req.headers['x-gate'] !== upstream.gate) {
       res.status(HttpStatus.Forbidden).end();
       return;
     }
-    const bearer = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
-    if (upstream.valid.has(bearer) === false) {
-      res
-        .status(HttpStatus.Unauthorized)
-        .set('www-authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`)
-        .end();
+    if (refusedToken(req, res, 'mcp')) {
       return;
     }
-    const mcp = new McpServer({ name: 'protected', version: '1.0.0' });
-    mcp.registerTool('hello', { description: 'Says hello.' }, () => ({ content: [{ type: 'text', text: 'hi' }] }));
+    const mcp = protectedServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void mcp.close();
@@ -185,10 +248,15 @@ async function startUpstream(mode: ClientMode): Promise<Upstream> {
  *
  * @param url - The server's address.
  * @param [oauth] - Its login to start with.
+ * @param [transport] - What it speaks.
  * @returns The store, and the row it keeps.
  */
-function memoryStore(url: string, oauth: ServerOAuth | null = null): ServerLoginStore & { row: StoredServerLogin } {
-  const row: StoredServerLogin = { name: 'protected', url, oauth, headers: {} };
+function memoryStore(
+  url: string,
+  oauth: ServerOAuth | null = null,
+  transport: HttpTransportType = TRANSPORT_STREAMABLE_HTTP,
+): ServerLoginStore & { row: StoredServerLogin } {
+  const row: StoredServerLogin = { name: 'protected', url, transport, oauth, headers: {} };
   return {
     row,
     async load(serverId) {
@@ -243,6 +311,20 @@ async function connectInstance(service: ServerLoginService, url: string): Promis
   return client;
 }
 
+/**
+ * Connects an instance's MCP client over SSE, as `tools/instance` does for an SSE server.
+ *
+ * @param service - Server login.
+ * @param url - The event stream's address.
+ * @returns The connected client.
+ */
+async function connectSseInstance(service: ServerLoginService, url: string): Promise<Client> {
+  const client = new Client({ name: 'instance', version: '1.0.0' });
+  const transport = new SSEClientTransport(new URL(url), { authProvider: service.providerFor(SERVER_ID, url) });
+  await client.connect(transport);
+  return client;
+}
+
 let upstream: Upstream;
 let routes: RouterEndpoints;
 
@@ -264,11 +346,12 @@ afterEach(async () => {
  *
  * @param mode - How the stand-in takes clients.
  * @param [now] - The service's clock.
+ * @param [over] - Which of the stand-in's transports the store names.
  * @returns The store and the service.
  */
-async function setUp(mode: ClientMode, now?: () => number) {
+async function setUp(mode: ClientMode, now?: () => number, over: HttpTransportType = TRANSPORT_STREAMABLE_HTTP) {
   upstream = await startUpstream(mode);
-  const store = memoryStore(upstream.url);
+  const store = over === TRANSPORT_SSE ? memoryStore(upstream.sseUrl, null, TRANSPORT_SSE) : memoryStore(upstream.url);
   const service = new ServerLoginService({ store }, {}, now);
   routes = await startRoutes(service);
   return { store, service };
@@ -540,6 +623,42 @@ describe('server login', () => {
       redirect_uris: [`${ROUTER_URL}${SERVER_LOGIN_CALLBACK_PATH}`],
       token_endpoint_auth_method: 'none',
     });
+  });
+});
+
+describe('server login over SSE', () => {
+  it('signs in for an SSE server, whose stream and messages then carry the token', async () => {
+    const { store, service } = await setUp('register', undefined, TRANSPORT_SSE);
+
+    const page = await signIn(service);
+
+    expect(page.status).toBe(HttpStatus.Ok);
+    expect(store.row.oauth?.tokens).toMatchObject({ access_token: 'planted-access-token' });
+    const instance = await connectSseInstance(service, upstream.sseUrl);
+    expect((await instance.listTools()).tools.map((tool) => tool.name)).toEqual(['hello']);
+    expect(await instance.callTool({ name: 'hello', arguments: {} })).toMatchObject({
+      content: [{ type: 'text', text: 'hi' }],
+    });
+    await instance.close();
+  });
+
+  it('refreshes an expired token when the event stream is refused', async () => {
+    const { store, service } = await setUp('register', undefined, TRANSPORT_SSE);
+    await signIn(service);
+    upstream.valid.delete('planted-access-token');
+
+    const instance = await connectSseInstance(service, upstream.sseUrl);
+
+    expect(upstream.tokenRequests.at(-1)).toMatchObject({ grant_type: 'refresh_token' });
+    expect(store.row.oauth?.tokens).toMatchObject({ access_token: 'refreshed-access-1' });
+    expect((await instance.listTools()).tools).toHaveLength(1);
+    await instance.close();
+  });
+
+  it('fails an SSE connect that needs a person to sign in', async () => {
+    const { service } = await setUp('register', undefined, TRANSPORT_SSE);
+
+    await expect(connectSseInstance(service, upstream.sseUrl)).rejects.toBeInstanceOf(ServerLoginRequiredError);
   });
 });
 
