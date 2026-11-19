@@ -8,7 +8,8 @@ import {
 } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
-import { validateRunsSearch } from '@/runs/search';
+import { tabSearch } from '@/lib/tab-search';
+import { RUN_TABS, validateRunsSearch } from '@/runs/search';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -77,6 +78,7 @@ const runsRoute = createRoute({
 const runRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agent-runs/$runId',
+  validateSearch: tabSearch(RUN_TABS),
   component: lazyRouteComponent(() => import('@/routes/run'), 'RunRoute'),
 });
 
