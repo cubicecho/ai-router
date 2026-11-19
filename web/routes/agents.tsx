@@ -60,7 +60,7 @@ export function AgentsRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="Agents"
       description="A model, a prompt and tools, defined once. An app picks one as its model, by its name."
       actionSlot={rows.length > 0 ? add : undefined}

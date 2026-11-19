@@ -83,7 +83,7 @@ export function ProviderRoute() {
       <PageLayout
         title="Provider"
         backSlot={back}
-        width="full"
+        width="page"
         loading={provider.isPending}
         contentSlot={
           <LoadState
@@ -114,7 +114,7 @@ export function ProviderRoute() {
         }
         description={record.description === '' ? undefined : record.description}
         backSlot={back}
-        width="full"
+        width="page"
         actionSlot={
           <>
             <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
@@ -128,7 +128,7 @@ export function ProviderRoute() {
           </>
         }
         headerBarSlot={
-          <div className={cn(titleColumn('full'), 'pb-3')}>
+          <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label="Provider">
               {PROVIDER_TABS.map((tab) => (
                 <TabsTrigger key={tab} value={tab}>

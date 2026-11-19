@@ -42,7 +42,7 @@ export function UsersRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="Users"
       description="Anyone your sign-in provider lets through can sign in. Admins may also set secrets, settings and roles."
       actionSlot={

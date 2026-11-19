@@ -57,7 +57,7 @@ export function AgentRoute() {
       <PageLayout
         title="Agent"
         backSlot={back}
-        width="full"
+        width="page"
         loading={agent.isPending}
         contentSlot={
           <LoadState query={agent} what="this agent" record={record} notFoundLabel="Agent not found" level={2} />
@@ -90,7 +90,7 @@ export function AgentRoute() {
         title={displayName}
         description={facts.description ?? undefined}
         backSlot={back}
-        width="full"
+        width="page"
         actionSlot={
           <>
             <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
@@ -104,7 +104,7 @@ export function AgentRoute() {
           </>
         }
         headerBarSlot={
-          <div className={cn(titleColumn('full'), 'pb-3')}>
+          <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label={`${displayName} tabs`}>
               {AGENT_TABS.map((value) => (
                 <TabsTrigger key={value} value={value} trailingSlot={trailing[value]}>

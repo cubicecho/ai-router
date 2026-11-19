@@ -93,7 +93,7 @@ export function ServerRoute() {
       <PageLayout
         title="MCP server"
         backSlot={back}
-        width="full"
+        width="page"
         loading={server.isPending}
         contentSlot={
           <LoadState query={server} what="this server" record={record} notFoundLabel="Server not found" level={2} />
@@ -132,7 +132,7 @@ export function ServerRoute() {
         }
         description={record.description === '' ? undefined : record.description}
         backSlot={back}
-        width="full"
+        width="page"
         actionSlot={
           isBuiltin ? (
             <Button
@@ -155,7 +155,7 @@ export function ServerRoute() {
           )
         }
         headerBarSlot={
-          <div className={cn(titleColumn('full'), 'pb-3')}>
+          <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label="MCP server">
               {tabs.map((value) => (
                 <TabsTrigger

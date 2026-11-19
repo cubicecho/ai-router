@@ -49,7 +49,7 @@ export function PoolRoute() {
       <PageLayout
         title="Pool"
         backSlot={back}
-        width="full"
+        width="page"
         loading={pool.isPending}
         contentSlot={
           <LoadState query={pool} what="this pool" record={record} notFoundLabel="Pool not found" level={2} />
@@ -73,7 +73,7 @@ export function PoolRoute() {
         }
         description={record.description === '' ? undefined : record.description}
         backSlot={back}
-        width="full"
+        width="page"
         actionSlot={
           <>
             <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
@@ -87,7 +87,7 @@ export function PoolRoute() {
           </>
         }
         headerBarSlot={
-          <div className={cn(titleColumn('full'), 'pb-3')}>
+          <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label="Pool">
               {POOL_TABS.map((tab) => (
                 <TabsTrigger
