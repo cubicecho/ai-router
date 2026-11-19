@@ -264,9 +264,11 @@ export function createAgentRoutes({
   });
 
   router.get('/models/:id', (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
-    const agent = runnableAgent(snapshot.current().agents, response.locals.caller.workspaceId, request.params.id);
+    const { id } = request.params;
+    const agent = runnableAgent(snapshot.current().agents, response.locals.caller.workspaceId, id);
     if (agent === null) {
-      refuse(response, ModelFailure.ModelNotFound, `There is no agent named "${request.params.id}" for this key.`);
+      // The same answer as for a chat request that names it, so a probe can't tell an ungranted agent apart.
+      refuse(response, ModelFailure.ModelNotFound, `There is no agent named "${id}" for this key.`, 'model');
       return;
     }
     response.json(modelEntry(agent));
