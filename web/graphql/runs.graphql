@@ -4,6 +4,7 @@ fragment RunRowFields on Run {
   agentName
   workspaceId
   workspaceName
+  sessionKey
   status
   startedAt
   finishedAt
@@ -24,6 +25,25 @@ query Runs($where: RunFilters, $limit: Int!, $offset: Int!) {
   }
   runsAggregate(where: $where) {
     count
+  }
+}
+
+# The latest session first. A session's runs are read with Runs, filtered by its key.
+query RunSessions($workspaceId: UUID, $agentName: String, $limit: Int!, $offset: Int!) {
+  runSessions(workspaceId: $workspaceId, agentName: $agentName, limit: $limit, offset: $offset) {
+    count
+    sessions {
+      key
+      workspaceId
+      workspaceName
+      agentNames
+      runCount
+      openRunCount
+      startedAt
+      lastStartedAt
+      inputTokens
+      outputTokens
+    }
   }
 }
 
