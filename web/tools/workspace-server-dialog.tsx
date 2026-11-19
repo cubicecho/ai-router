@@ -70,6 +70,7 @@ function kindOf(server: ServerChoice | undefined): EntryKind {
 const ENTRY_KINDS: Readonly<Record<ReturnType<typeof transportOf>['type'], EntryKind>> = Object.freeze({
   stdio: 'program',
   'streamable-http': 'address',
+  sse: 'address',
   [BUILTIN]: 'roles',
 });
 
@@ -203,7 +204,7 @@ export function WorkspaceServerDialog({
             <InputField
               form={form}
               name="url"
-              label="Address"
+              label="URL"
               description="In place of the server's own. Left blank, it keeps it."
               validators={{
                 onChange: ({ value }) =>

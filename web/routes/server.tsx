@@ -28,9 +28,12 @@ import {
   commandLine,
   describeSource,
   describeTimeout,
+  describeTransport,
   envMetaOf,
   envOf,
   groupsToText,
+  HTTP_TRANSPORT_HINTS,
+  SSE,
   STDIO,
   STREAMABLE_HTTP,
   sourceOf,
@@ -208,14 +211,17 @@ export function ServerRoute() {
                         />
                       </>
                     ) : null}
-                    {transport.type === STREAMABLE_HTTP ? (
-                      <PropertyRow
-                        label="Address"
-                        value={transport.url}
-                        valueClassName="font-mono break-all"
-                        hint="Reached over streamable HTTP."
-                        actionSlot={<CopyButton value={transport.url} label="Copy address" />}
-                      />
+                    {transport.type === STREAMABLE_HTTP || transport.type === SSE ? (
+                      <>
+                        <PropertyRow label="Transport" value={describeTransport(transport)} />
+                        <PropertyRow
+                          label="URL"
+                          value={transport.url}
+                          valueClassName="font-mono break-all"
+                          hint={HTTP_TRANSPORT_HINTS[transport.type]}
+                          actionSlot={<CopyButton value={transport.url} label="Copy URL" />}
+                        />
+                      </>
                     ) : null}
                     {isBuiltin ? (
                       <PropertyRow
