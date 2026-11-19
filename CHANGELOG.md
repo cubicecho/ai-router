@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/cubicecho/ai-router/compare/v0.8.0...v0.9.0) (2026-11-19)
+
+### Features
+
+* **runs:** record each run's session, and list sessions ([c46a5a2](https://github.com/cubicecho/ai-router/commit/c46a5a276beaa3177689f15fa6dc7cfb9a9549fe)), closes [#38](https://github.com/cubicecho/ai-router/issues/38)
+* **web:** a Sessions tab on the runs screen ([f1c02f6](https://github.com/cubicecho/ai-router/commit/f1c02f6e2904dc8ba2d2161086e9f7909b567c8c)), closes [#38](https://github.com/cubicecho/ai-router/issues/38)
+
 # [0.8.0](https://github.com/cubicecho/ai-router/compare/v0.7.0...v0.8.0) (2026-11-19)
 
 ### Bug Fixes
