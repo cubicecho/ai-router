@@ -47,7 +47,7 @@ run ─in process→ admin server ai-router ─→ the same schema, as far as it
   agent names it.
 
 The address is the same for every app. The **key** decides what is behind it. `/mcp` at the root
-is kept for agents offered as MCP tools, in a later phase.
+offers the same agents to MCP clients, one tool per agent.
 
 Dependencies point one way:
 - **General folders** (`core`, `db`, `auth`) know no area.
@@ -64,12 +64,12 @@ Dependencies point one way:
 
 | Actor | Is | Reaches the system through | May change |
 |---|---|---|---|
-| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
+| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings, roles and override policies. Creates and revokes workspace keys, promotes revisions, and chooses each agent's override policy from those an admin wrote |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
-| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
+| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client, any MCP client | `/v1`, `/runs` and `/mcp`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
-| Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
+| Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, the state of server instances, and which pool targets its health checks found down (in memory only). Never config, so a config change by anything other than a user is a bug |
 
 ## Lifecycles
 
@@ -114,11 +114,12 @@ received --resolve--> running --model answers--> completed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
                       running --app without a key disconnects--> cancelled
+                      running --cancel (the app's key, or a user)--> cancelled
                       running --model calls an app tool--> waiting (finish_reason: tool_calls)
                       waiting --app answers every handed-back call--> running
                       waiting --no answer before the wait timeout--> expired
+                      waiting --cancel (the app's key, or a user)--> cancelled
                       waiting --the router stops or restarts--> waiting
-                      running --cancel (app, later)--> cancelled
 ```
 
 - **Resolving:** the router applies the override policy to the layers above the agent, then
@@ -147,6 +148,12 @@ received --resolve--> running --model answers--> completed
     that answers anything else. A late answer to an expired run gets 409 `run_expired`.
   - **The run timeout** counts the time a run runs, from its start or a resume; waiting doesn't
     count. Waiting past `RUN_DEFAULTS.waitTimeoutHours` expires it.
+- **Cancelling:** an app cancels a run of its own workspace with `POST /runs/<id>/cancel`, and a
+  user cancels any run with `cancelRun` or the run page's Cancel. A running run stops its loop and
+  the model and tool calls it is making; a waiting one stops waiting. Either ends `cancelled`, with
+  the reason the canceller gave (or one naming them) as its error and a last `done` event, and an
+  open stream or a repeated key gets 409 `run_cancelled`. Cancelling a run that has ended answers
+  with it unchanged. A late answer to a cancelled run's calls gets 409 `run_cancelled` too.
 - **Recording:** a run is recorded from `running` on, with the revision it ran, what its requests added, and the end it came
   to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
   retention period. A run the router was running when it stopped is marked failed at the next boot.
@@ -228,7 +235,9 @@ created (shown once) --> in use --revoke--> deleted
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app. An agent a workspace may not run gets the same 404 as one that doesn't exist, and every other `/v1` path a 404, all in OpenAI's error envelope | `agents/routes`, `http/app` |
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
-| A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
+| A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, and one the health checks found down until a later round finds it up, unless that leaves a pool none | `models/forward`, `models/balancer`, `models/health` |
+| A health check asks each provider an enabled pool uses for its model list once a round, whatever the number of targets; a target is down when its provider can't be listed or doesn't list its model | `models/health` |
+| A target's weight is its share of its pool's calls under every strategy, and under affinity: weighted rendezvous hashing, so a target leaving moves only its own keys, and bounded load caps each target at its weighted share | `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint: it is connected in process, through the tools area's instances, like any other server a run reaches | `admin/server` `createAdminServer`, handed to `tools/instances` `serveBuiltin` by `http/app`; no route |
 | A run is listed only the admin server's tools whose root field its workspace's roles reach, and none with no entry or no roles. The listing is not the lock: the same permissions `/graphql` has guard every call, so a call past the roles is refused with FORBIDDEN. A tool's result carries no stored secret | `admin/server` (`canReachField`), `graphql/permissions`, `graphql/abilities` |
@@ -258,11 +267,13 @@ created (shown once) --> in use --revoke--> deleted
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
 | `GET /v1/models/<id>` answers with the same entry `GET /v1/models` lists for an agent the key's workspace may run, and with `model_not_found` otherwise: the same 404 for an agent that doesn't exist, has no live revision, or isn't the workspace's to run | `agents/routes` `modelEntry`, `runnableAgent` |
 | An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
+| A cancel ends only a run that is running or waiting, as `cancelled` with one last `done`; an ended run is answered unchanged. A key cancels only its own workspace's runs, and another workspace's run answers the same 404 as one that doesn't exist. `cancelRun` is for people: no admin-server role reaches it | `agents/run` `cancel`, `agents/run-records`; `graphql/permissions` |
+| `/mcp` lists exactly the agents `/v1/models` does for the same key, and a tool call is a run of the key's workspace, checked against the agent's override policy like any request. It never hands calls back, so its runs never wait | `agents/mcp`, `agents/start` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client | `agents/routes`; `ai_router.kind` |
-| Every agent has exactly one override policy. Until policies can be chosen, every agent uses the one seeded default | `db/schema`: `agents.override_policy_id`, defaulting to the seeded row |
+| Every agent has exactly one override policy, the seeded default until a user chooses another, and a run is checked against the one its agent has when the request arrives. Only an admin writes a policy; any user chooses one. The default is never deleted, and neither is a policy an agent uses. A policy's sampling fields are OpenAI wire names, each once, and never a field the router reads itself | `db/schema`: `agents.override_policy_id` (restrict on delete), `agents/policy-resolvers`, `agents/policy` `overridePolicyInputSchema`; `graphql/permissions` |
 | An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
@@ -279,6 +290,7 @@ created (shown once) --> in use --revoke--> deleted
 | An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
+| A pool has both prices or neither; prices are never below 0. A call through a pool with a price costs the pool's price, else its provider's model's | `ck_pools_price`, `models/input`, `web/models/cost` |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent, run and workspace, those it makes through the admin server's `try_server_tool` included, even on a server's base instance. A run never tries the admin server's own tools through `try_server_tool` | `models/usage`, `tools/activity`, `tools/resolvers` (`tryServerTool`) |
 
 ## Glossary
@@ -318,11 +330,20 @@ Everything about the code comes after `Owner:`.
   `context_length` when it is known: the document's `model.contextLength`, else what its
   provider's model list states for the model (a pool's smallest), read from the cached listing
   with a short bounded wait. Owner: `agents/routes`, `agents/context-length`; `/v1`.
+- **Agents MCP door:** the same agents for an MCP client (Claude Desktop, an editor), with the same
+  key: one tool per agent its workspace may run, named for the agent. A call takes a `message` and
+  an optional `conversation`, which carries history across calls as `X-Conversation-Id` does, and
+  answers with the agent's text, the run's id in `_meta.runId`; its steps come as progress
+  notifications when the client asks. Each call is a run like any other, recorded under the
+  workspace. It sends no app tools, so its runs never wait. A cancelled call or a dropped
+  connection cancels the run. Stateless. Owner: `agents/mcp`; `/mcp`, with `agents/start` shared
+  with `/v1` for starting a run.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
-  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
+  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error),
   `/runs/<id>/events` (JSON, or a live event stream with `Accept: text/event-stream`, which a
-  client rejoins with `Last-Event-ID`), with workspace keys only and `{ error, code }` refusals.
+  client rejoins with `Last-Event-ID`) and `POST /runs/<id>/cancel` (an optional `{ reason }`,
+  answered with the run's record), with workspace keys only and `{ error, code }` refusals.
 
 ### Workspaces
 
@@ -345,15 +366,32 @@ Everything about the code comes after `Owner:`.
 - **Model id:** how an agent names its model: one provider's model, named after the provider, or a
   pool. Owner: `models/naming`; `<provider>/<model>`, split at the first `/`, or a pool's name.
 - **Pool:** one model name served by several targets, with the router choosing one for each
-  call: the least busy, in turn, or at random. A target the router could not reach is passed
-  over for a while, and the call goes to the next. Owner: `models/balancer`; the `pools` table.
-- **Target:** one place a pool can send a call: a provider and the model's name there. Owner:
-  `models/balancer`; the `pool_targets` table, written whole by `setPoolTargets`.
+  call: the least busy, in turn, or at random, each target by its weight. A target that is down
+  is passed over, and the call goes to the next. Owner: `models/balancer`; the `pools` table.
+- **Target:** one place a pool can send a call: a provider, the model's name there, and a weight,
+  its share of the pool's calls (1 unless set). Owner: `models/balancer`; the `pool_targets`
+  table, written whole by `setPoolTargets`.
+- **Health check:** the router asking, every `POOL_HEALTH_DEFAULTS.intervalSeconds`, each
+  provider an enabled pool uses for its model list. A target whose provider doesn't answer, or
+  doesn't list its model, is down, and passed over by every pool until a later check finds it
+  up. A target is also down for a while after a call could not reach it. The pool page shows
+  when each target was last checked and why it is down. Owner: `models/health`; the results are
+  held by `models/balancer`, in memory.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
-- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Usage
-  stays after its provider or workspace is deleted. Owner: `models/usage`; the `usage_counts`
-  table, which keeps both names, with optional foreign keys to them, written every few seconds.
+- **Usage:** requests and tokens, counted per day, workspace, agent, pool, provider and model. A
+  call that named a pool counts under the pool as well as the target it went to, so a pool's
+  share of a target's calls is told apart from calls naming the target directly. Usage stays
+  after its provider, pool, agent or workspace is deleted. Owner: `models/usage`; the
+  `usage_counts` table, which keeps their names, with optional foreign keys to them, written
+  every few seconds.
+- **Price:** what a model costs per million tokens in and out, entered by a user in whatever
+  currency they use for every price; nothing is fetched. A provider's model has one, or a pool
+  has its own, which wins for calls through the pool. Usage shows its cost at the prices entered
+  now, so a price change reprices past usage, and usage with no price shows none. Owner:
+  `models/resolvers` `setModelPrice` and the `model_prices` table for a provider's model (gone
+  with its provider); the `pools` price columns for a pool; the UI's `models/cost` works the cost
+  out.
 
 ### Tools
 
@@ -453,12 +491,14 @@ Everything about the code comes after `Owner:`.
   request (the sampling settings the app sent). Owner: `agents/layers`; the router layer sets
   `endpoint` to the router's internal model address, which the run's `fetch` hands to
   `models/forward`.
-- **Override policy:** what the layers above an agent may change. Anything it does not allow is
-  refused. For now there is one policy, which every agent uses: an app may add its own
-  instructions, narrow the servers and set sampling settings, but never change the model. Owner:
-  `agents/policy` (`DEFAULT_POLICY_RULES`); the `override_policies` table, seeded with one row by
-  the migration, and `agents.override_policy_id`, which defaults to it. There is no UI for it, and
-  no API writes it.
+- **Override policy:** what the layers above an agent may change: whether an app may add its
+  own instructions (system messages) or a task, narrow the servers, send `response_format`, and
+  which sampling fields it may set. Anything it does not allow is refused. No policy changes the
+  model. The seeded **default** lets an app do all of these, and a new agent starts with it. An
+  admin writes more on the Policies page, and any user chooses one for an agent on its page.
+  Owner: `agents/policy` (`DEFAULT_POLICY_RULES`, the input rules), `agents/policy-resolvers`
+  (`createOverridePolicy`, `updateOverridePolicy`, `deleteOverridePolicy`,
+  `setAgentOverridePolicy`); the `override_policies` table and `agents.override_policy_id`.
 - **Reach:** the models and servers an agent may use, taken from the agent itself, not from the
   app's workspace. The workspace can still configure those servers for its own runs, but never
   add to them. Owner: `agents/reach`.

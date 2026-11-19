@@ -22,6 +22,21 @@ query Provider($id: UUID!) {
   }
 }
 
+query ModelPrices($providerId: UUID!) {
+  modelPrices(where: { providerId: { eq: $providerId } }, limit: 500) {
+    id
+    model
+    inputPerMillion
+    outputPerMillion
+  }
+}
+
+mutation SetModelPrice($providerId: UUID!, $model: String!, $price: ModelPriceInput) {
+  setModelPrice(providerId: $providerId, model: $model, price: $price) {
+    id
+  }
+}
+
 query ProviderModels($id: UUID!, $refresh: Boolean) {
   providerModels(id: $id, refresh: $refresh) {
     id

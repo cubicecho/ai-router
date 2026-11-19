@@ -5,6 +5,7 @@ import { MS_PER_DAY, MS_PER_HOUR, MS_PER_SECOND } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { existingIds } from '../db/existing-ids.ts';
 import { agents } from '../db/tables/agents.ts';
+import { pools } from '../db/tables/pools.ts';
 import { providers } from '../db/tables/providers.ts';
 import { type NewUsageCount, usageCounts } from '../db/tables/usage-counts.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
@@ -13,7 +14,7 @@ import type { ReportedUsage } from './usage-reader.ts';
 /** Characters of an ISO timestamp that are its date, `YYYY-MM-DD`. */
 const ISO_DATE_LENGTH = 10;
 
-/** Who a model call counts under: the run's workspace and agent, and where it went. */
+/** Who a model call counts under: the run's workspace and agent, and where it went: through a pool or not. */
 export interface ServedBy {
   /** null for a call no workspace made. */
   workspaceId: string | null;
@@ -21,6 +22,9 @@ export interface ServedBy {
   /** null for a call no agent made. */
   agentId: string | null;
   agentName: string | null;
+  /** null for a call that named a provider's model directly. */
+  poolId: string | null;
+  poolName: string | null;
   providerId: string;
   providerName: string;
   /** The model's id at the provider. */
@@ -62,11 +66,14 @@ export function utcDay(moment: Date): string {
  * @param row - The row's key columns.
  * @returns One string per row the unique key tells apart.
  */
-function rowKey(row: Pick<NewUsageCount, 'day' | 'workspaceName' | 'agentName' | 'providerName' | 'model'>): string {
+function rowKey(
+  row: Pick<NewUsageCount, 'day' | 'workspaceName' | 'agentName' | 'poolName' | 'providerName' | 'model'>,
+): string {
   return JSON.stringify([
     row.day ?? null,
     row.workspaceName ?? null,
     row.agentName ?? null,
+    row.poolName ?? null,
     row.providerName,
     row.model,
   ]);
@@ -90,6 +97,7 @@ async function addCounts(db: Pick<DB, 'insert'>, rows: NewUsageCount[]): Promise
         usageCounts.day,
         usageCounts.workspaceName,
         usageCounts.agentName,
+        usageCounts.poolName,
         usageCounts.providerName,
         usageCounts.model,
       ],
@@ -100,6 +108,7 @@ async function addCounts(db: Pick<DB, 'insert'>, rows: NewUsageCount[]): Promise
         // The latest ids win: a provider deleted and made again under its name is the one counted now.
         workspaceId: sql`coalesce(excluded.workspace_id, ${usageCounts.workspaceId})`,
         agentId: sql`coalesce(excluded.agent_id, ${usageCounts.agentId})`,
+        poolId: sql`coalesce(excluded.pool_id, ${usageCounts.poolId})`,
         providerId: sql`coalesce(excluded.provider_id, ${usageCounts.providerId})`,
       },
     });
@@ -145,7 +154,13 @@ export function createUsageRecorder(
         agents.id,
         rows.map((row) => row.agentId),
       );
-      // A provider, workspace or agent deleted since the call keeps its name here, and loses its id.
+      const livePools = await existingIds(
+        db,
+        pools,
+        pools.id,
+        rows.map((row) => row.poolId),
+      );
+      // A provider, workspace, agent or pool deleted since the call keeps its name here, and loses its id.
       await addCounts(
         db,
         rows.map((row) => ({
@@ -153,6 +168,7 @@ export function createUsageRecorder(
           providerId: liveProviders.has(row.providerId ?? '') ? row.providerId : null,
           workspaceId: liveWorkspaces.has(row.workspaceId ?? '') ? row.workspaceId : null,
           agentId: liveAgents.has(row.agentId ?? '') ? row.agentId : null,
+          poolId: livePools.has(row.poolId ?? '') ? row.poolId : null,
         })),
       );
     } catch (error) {

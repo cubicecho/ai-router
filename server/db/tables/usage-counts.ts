@@ -1,11 +1,12 @@
 import { bigint, date, index, integer, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
 import { agents } from './agents.ts';
+import { pools } from './pools.ts';
 import { providers } from './providers.ts';
 import { workspaces } from './workspaces.ts';
 
 /**
- * Requests and tokens, per UTC day, workspace, agent, provider and model. A row is keyed by names, so
- * it outlives what it names: deleting a provider or workspace only clears its id here.
+ * Requests and tokens, per UTC day, workspace, agent, pool, provider and model. A row is keyed by names, so
+ * it outlives what it names: deleting a provider, pool or workspace only clears its id here.
  */
 export const usageCounts = pgTable(
   'usage_counts',
@@ -19,6 +20,10 @@ export const usageCounts = pgTable(
     /** The agent whose run made the calls. */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name'),
+    /** The pool the calls named, which sent them to this provider's model. */
+    poolId: uuid('pool_id').references(() => pools.id, { onDelete: 'set null' }),
+    /** Null for calls that named the provider's model directly. */
+    poolName: text('pool_name'),
     providerId: uuid('provider_id').references(() => providers.id, { onDelete: 'set null' }),
     providerName: text('provider_name').notNull(),
     /** The model's id at the provider. */
@@ -29,10 +34,11 @@ export const usageCounts = pgTable(
   },
   (table) => [
     unique('uq_usage_counts_key')
-      .on(table.day, table.workspaceName, table.agentName, table.providerName, table.model)
+      .on(table.day, table.workspaceName, table.agentName, table.poolName, table.providerName, table.model)
       .nullsNotDistinct(),
     index('idx_usage_counts_workspace_id').on(table.workspaceId),
     index('idx_usage_counts_provider_id').on(table.providerId),
+    index('idx_usage_counts_pool_id').on(table.poolId),
     index('idx_usage_counts_day').on(table.day),
   ],
 );

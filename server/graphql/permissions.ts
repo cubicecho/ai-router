@@ -155,6 +155,7 @@ export const permissions: PermissionsMap = {
     createWorkspaceKey: isUser,
     revokeWorkspaceKey: isUser,
     setProviderApiKey: isAdmin,
+    setModelPrice: isUser,
     setServerSecret: isAdmin,
     setServerLoginClient: isAdmin,
     promoteRevision: isUser,
@@ -165,12 +166,20 @@ export const permissions: PermissionsMap = {
     createWorkspaceServer: isUser,
     updateWorkspaceServer: isUser,
     deleteWorkspaceServer: isUser,
+    // People only, never a run on the admin server: no role grants stopping another run.
+    cancelRun: isUser,
+    // A policy widens what apps may do to an agent, as settings do: admins write them, and any user chooses one.
+    createOverridePolicy: isAdmin,
+    updateOverridePolicy: isAdmin,
+    deleteOverridePolicy: isAdmin,
+    setAgentOverridePolicy: isUser,
   },
   // A rule on a type guards it wherever it is reached, a relation included, so a run's read of an agent can't walk
   // into the workspaces that run it.
   Agent: canDo(read, Subject.Agent),
   AgentRevision: canDo(read, Subject.AgentRevision),
   Provider: canDo(read, Subject.Provider),
+  ModelPrice: canDo(read, Subject.Provider),
   Pool: canDo(read, Subject.Pool),
   PoolTarget: canDo(read, Subject.Pool),
   Server: canDo(read, Subject.Server),

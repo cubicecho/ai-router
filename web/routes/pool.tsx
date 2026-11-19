@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
-import { DeletePoolDocument, PoolDocument } from '@/__generated__/graphql';
+import { DeletePoolDocument, PoolDocument, UsageByPoolDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
-import { LoadState } from '@/components/load-state';
+import { LoadError, LoadState, RowSkeleton } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Badge } from '@/components/ui/badge';
@@ -15,14 +15,42 @@ import { request } from '@/lib/gql';
 import { AFFINITIES, PoolDialog, STRATEGIES } from '@/models/pool-dialog';
 import { PoolTargetsSection } from '@/models/pool-targets-section';
 import { POOL_TABS, type PoolTab } from '@/models/tabs';
+import { UsageSection } from '@/models/usage-section';
 
 /** What each tab is called. */
 const TAB_LABELS = {
   overview: 'Overview',
   targets: 'Targets',
+  usage: 'Usage',
 } as const satisfies Record<PoolTab, string>;
 
-/** One pool, in tabs: how it picks a target, and its targets with their load. */
+/**
+ * What the calls naming one pool used, by the target each went to and by day. Asked for only once its tab is open.
+ *
+ * @param props - The pool's id.
+ * @returns The usage section, or its loading and failed states.
+ */
+function PoolUsage({ poolId }: { poolId: string }) {
+  const usage = useQuery({
+    queryKey: ['usage', 'pool', poolId],
+    queryFn: () => request(UsageByPoolDocument, { poolId }),
+  });
+  if (usage.isError) {
+    return <LoadError error={usage.error} onRetry={usage.refetch} what="its usage" />;
+  }
+  if (usage.isPending) {
+    return <RowSkeleton rows={3} />;
+  }
+  return (
+    <UsageSection
+      rows={usage.data.usageCounts}
+      groupBy={(row) => `${row.providerName}/${row.model}`}
+      groupLabel="Target"
+    />
+  );
+}
+
+/** One pool, in tabs: how it picks a target, its targets with their load, and what its calls used. */
 export function PoolRoute() {
   const { poolId } = useParams({ from: '/app/pools/$poolId' });
   const navigate = useNavigate({ from: '/pools/$poolId' });
@@ -113,6 +141,14 @@ export function PoolRoute() {
                       label="Load factor"
                       value={record.maxLoadFactor === null ? 'Off' : String(record.maxLoadFactor)}
                     />
+                    <PropertyRow
+                      label="Price"
+                      value={
+                        record.inputPricePerMillion === null || record.outputPricePerMillion === null
+                          ? "Its targets' own"
+                          : `${record.inputPricePerMillion} in, ${record.outputPricePerMillion} out per million tokens`
+                      }
+                    />
                     <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
                   </>
                 }
@@ -120,6 +156,9 @@ export function PoolRoute() {
             </DetailTabPanel>
             <DetailTabPanel value="targets">
               <PoolTargetsSection pool={record} providers={pool.data?.providers ?? []} />
+            </DetailTabPanel>
+            <DetailTabPanel value="usage">
+              <PoolUsage poolId={record.id} />
             </DetailTabPanel>
             <PoolDialog open={isEditing} onOpenChange={setIsEditing} pool={record} />
           </>

@@ -1,7 +1,7 @@
 import { MODEL_DEFAULTS, type ModelSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { Snapshot, SnapshotHost, SnapshotProvider, SnapshotTarget } from '../db/snapshot.ts';
+import type { Snapshot, SnapshotHost, SnapshotPool, SnapshotProvider, SnapshotTarget } from '../db/snapshot.ts';
 import { AFFINITY_STICKY } from '../db/tables/pools.ts';
 import { affinityKey, SESSION_HEADER } from './affinity.ts';
 import type { PoolBalancer } from './balancer.ts';
@@ -48,7 +48,7 @@ const EVENT_STREAM_TYPE = 'text/event-stream';
 const MODELS_PATH = 'models';
 
 /** Who a call counts under, apart from where it goes. */
-export type Attribution = Omit<ServedBy, 'providerId' | 'providerName' | 'model'>;
+export type Attribution = Omit<ServedBy, 'poolId' | 'poolName' | 'providerId' | 'providerName' | 'model'>;
 
 /** One call to forward. */
 export interface ModelCall {
@@ -106,6 +106,8 @@ interface Route {
   provider: SnapshotProvider;
   /** The model's id at the provider. */
   model: string;
+  /** The pool it named. null for a call that named a provider's model. */
+  pool: SnapshotPool | null;
   /** The pool's target it went to. null for a call that named a provider's model. */
   target: SnapshotTarget | null;
   /** Frees a pool target's slot. Does nothing for a call that named a provider's model. */
@@ -188,7 +190,7 @@ function route(
       lease.release();
       throw new Refusal(ModelFailure.Unavailable, `Pool "${name}" picked a provider that is gone.`);
     }
-    return { provider, model: lease.model, target: lease, release: lease.release };
+    return { provider, model: lease.model, pool, target: lease, release: lease.release };
   }
   const split = splitModelId(name);
   const provider = split === null ? undefined : snapshot.providers.get(split.providerName);
@@ -198,7 +200,7 @@ function route(
       `The model "${name}" does not exist on this router. Name a provider's model as <provider>/<model>, or a pool.`,
     );
   }
-  return { provider, model: split.model, target: null, release: NOTHING_TO_RELEASE };
+  return { provider, model: split.model, pool: null, target: null, release: NOTHING_TO_RELEASE };
 }
 
 /**
@@ -415,7 +417,7 @@ export function createForwarder({
         if (target === null || isUnreachable === false) {
           throw error;
         }
-        balancer.markUnreachable(target);
+        balancer.markUnreachable(target, error.message);
         tried.add(modelId(target.providerName, target.model));
         unreachable = error;
         console.warn(`[models] ${error.message} Pool "${body.model}" passes that target over for a while.`);
@@ -435,8 +437,15 @@ export function createForwarder({
       const { path, search } = safePath(call.path);
       const { routed, upstream } = await askRouted(call, body, path, search);
       // The slot is held from here, and the answer's body frees it.
-      const { provider, model } = routed;
-      const served: ServedBy = { ...call.attribution, providerId: provider.id, providerName: provider.name, model };
+      const { provider, model, pool } = routed;
+      const served: ServedBy = {
+        ...call.attribution,
+        poolId: pool?.id ?? null,
+        poolName: pool?.name ?? null,
+        providerId: provider.id,
+        providerName: provider.name,
+        model,
+      };
       return passThrough(upstream, served, routed.release, call.signal);
     } catch (error) {
       if (error instanceof Refusal) {

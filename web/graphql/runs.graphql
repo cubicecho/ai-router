@@ -88,3 +88,11 @@ subscription RunEvents($runId: UUID!) {
     loads
   }
 }
+
+mutation CancelRun($id: UUID!) {
+  cancelRun(id: $id) {
+    id
+    status
+    error
+  }
+}

@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, pgTable, real, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  doublePrecision,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 /** How a pool picks a target when affinity doesn't decide. */
 export const PoolStrategy = { LeastBusy: 'least-busy', RoundRobin: 'round-robin', Random: 'random' } as const;
@@ -30,6 +40,13 @@ export const pools = pgTable(
       .default(AFFINITY_STICKY),
     /** Bounded load: a sticky call skips a target holding more than this times the average. Null is off. */
     maxLoadFactor: real('max_load_factor'),
+    /**
+     * What a call through the pool costs per million tokens in, as a person entered it. It wins over its target's
+     * own price. Null, with the output price, for none.
+     */
+    inputPricePerMillion: doublePrecision('input_price_per_million'),
+    /** What a call through the pool costs per million tokens out. Null, with the input price, for none. */
+    outputPricePerMillion: doublePrecision('output_price_per_million'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -41,6 +58,10 @@ export const pools = pgTable(
     check('ck_pools_strategy', sql`${table.strategy} in ('least-busy', 'round-robin', 'random')`),
     check('ck_pools_affinity', sql`${table.affinity} in ('sticky', 'none')`),
     check('ck_pools_max_load_factor', sql`${table.maxLoadFactor} is null or ${table.maxLoadFactor} >= 1`),
+    check(
+      'ck_pools_price',
+      sql`(${table.inputPricePerMillion} is null) = (${table.outputPricePerMillion} is null) and coalesce(${table.inputPricePerMillion}, 0) >= 0 and coalesce(${table.outputPricePerMillion}, 0) >= 0`,
+    ),
   ],
 );
 

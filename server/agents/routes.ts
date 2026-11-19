@@ -6,7 +6,7 @@ import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { Snapshot, SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
+import type { Snapshot, SnapshotHost } from '../db/snapshot.ts';
 import type { RunResume } from '../db/tables/runs.ts';
 import { RunStatus } from '../db/tables/runs.ts';
 import type { ModelCatalog } from '../models/catalog.ts';
@@ -15,7 +15,7 @@ import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
 import { completionBody, HEADER_LIST_JOIN, openChunkStream, PRUNED_TOOLS_HEADER, RUN_ID_HEADER } from './completion.ts';
 import { agentContextLength } from './context-length.ts';
-import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
+import { CONVERSATION_HEADER, readConversationKey } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import {
   IGNORED_HEADER,
@@ -27,6 +27,7 @@ import {
   requestedStream,
 } from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
+import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** The header a retry-safe request carries. */
 const IDEMPOTENCY_HEADER = 'idempotency-key';
@@ -35,8 +36,8 @@ const OWNER = 'ai-router';
 /** The request fields a repeat may change and still be the same request. */
 const DELIVERY_FIELDS: ReadonlySet<string> = new Set(['stream', 'stream_options']);
 /** What body-parser calls a body over the limit, and one that isn't JSON. */
-const TOO_LARGE = 'entity.too.large';
-const NOT_JSON = 'entity.parse.failed';
+export const TOO_LARGE = 'entity.too.large';
+export const NOT_JSON = 'entity.parse.failed';
 
 /** What the agents endpoint talks to. */
 export interface AgentRoutesDeps {
@@ -66,9 +67,6 @@ interface Delivery {
   /** The events a non-streamed answer carries as `ai_router.events`, when the app asked for progress. */
   events?: RunEvent[] | null;
 }
-
-/** An agent with a live revision, which a request may run. */
-type RunnableAgent = SnapshotAgent & { document: Readonly<Record<string, unknown>> };
 
 /** A request that got past the key check: who it is from. */
 interface AppLocals {
@@ -115,27 +113,6 @@ function requestHash(body: unknown): string {
     ? Object.fromEntries(Object.entries(body).filter(([field]) => DELIVERY_FIELDS.has(field) === false))
     : body;
   return createHash('sha256').update(canonicalJson(kept)).digest('hex');
-}
-
-/**
- * Finds the agent a workspace may run by its name.
- *
- * @param agents - The snapshot's agents.
- * @param workspaceId - The key's workspace.
- * @param name - The `model` the request names.
- * @returns The agent, or null when it doesn't exist, has no live revision, or isn't the workspace's to run.
- */
-function runnableAgent(
-  agents: ReadonlyMap<string, SnapshotAgent>,
-  workspaceId: string,
-  name: string | null,
-): RunnableAgent | null {
-  const agent = name === null ? undefined : agents.get(name);
-  if (agent === undefined || agent.workspaceIds.has(workspaceId) === false) {
-    return null;
-  }
-  const { document } = agent;
-  return agent.liveRevisionId === null || document === null ? null : { ...agent, document };
 }
 
 /**
@@ -282,12 +259,8 @@ export function createAgentRoutes({
     modelEntry(agent, await agentContextLength(agent.name, agent.document, current, catalog));
 
   router.get('/models', async (_request: Request, response: Response<unknown, AppLocals>) => {
-    const { workspaceId } = response.locals.caller;
     const current = snapshot.current();
-    const runnable = [...current.agents.values()].flatMap((agent) => {
-      const found = runnableAgent(current.agents, workspaceId, agent.name);
-      return found === null ? [] : [found];
-    });
+    const runnable = runnableAgents(current, response.locals.caller.workspaceId);
     const data = await Promise.all(runnable.map((agent) => entryOf(agent, current)));
     response.json({ object: 'list', data });
   });
@@ -343,12 +316,6 @@ export function createAgentRoutes({
       if (ignored !== null) {
         response.setHeader(IGNORED_HEADER, ignored);
       }
-      const fetch = forwarder.fetchFor({
-        workspaceId,
-        workspaceName: workspace.slug,
-        agentId: agent.id,
-        agentName: agent.name,
-      });
       const conversationKey = readConversationKey(request.get(CONVERSATION_HEADER));
       const conversation =
         conversationKey === null ? null : await runs.openConversation(workspaceId, agent, conversationKey);
@@ -364,15 +331,23 @@ export function createAgentRoutes({
         }
         const layers = resumedLayers(runRequest, waiting.resume);
         const resolved = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
+        const fetch = forwarder.fetchFor({
+          workspaceId,
+          workspaceName: workspace.slug,
+          agentId: agent.id,
+          agentName: agent.name,
+        });
         const config = withRouterFetch(resolved, fetch);
         const input = { workspace, agent, request: runRequest, config, idempotency, conversation };
         started = await runs.resume(input, waiting);
       } else {
-        const withConversation = conversation === null ? runRequest : withHistory(runRequest, conversation);
-        const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, current);
-        const config = withRouterFetch(resolved, fetch);
-        const input = { workspace, agent, request: withConversation, config, idempotency, conversation };
-        started = await runs.begin(input);
+        started = await beginRun(runs, forwarder, current, {
+          workspace,
+          agent,
+          request: runRequest,
+          conversation,
+          idempotency,
+        });
       }
     } catch (error) {
       if (error instanceof RequestRefusal) {

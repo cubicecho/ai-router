@@ -113,7 +113,19 @@ export class ModelCatalog {
     if (isFresh) {
       return cached.models;
     }
-    const models = this.fetchModels(provider);
+    return this.refresh(provider);
+  }
+
+  /**
+   * Lists a provider's models anew, and keeps the listing for `list` to reuse.
+   *
+   * @param provider - The provider.
+   * @param [timeoutMs] - How long the provider may take; the health checks wait less than a person would.
+   * @returns The models as the provider lists them.
+   * @throws {@link ModelListError} When the provider can't be listed. A failure is not cached.
+   */
+  refresh(provider: SnapshotProvider, timeoutMs = this.settings.modelListTimeoutMs): Promise<UpstreamModel[]> {
+    const models = this.fetchModels(provider, timeoutMs);
     this.listings.set(provider.id, {
       providerUpdatedAt: provider.updatedAt.getTime(),
       expiresAt: this.now() + this.settings.modelListCacheSeconds * MS_PER_SECOND,
@@ -147,22 +159,14 @@ export class ModelCatalog {
   }
 
   /**
-   * Drops a provider's cached listing, so the next one is fetched.
-   *
-   * @param providerId - The provider; an unknown one is not an error.
-   */
-  forget(providerId: string): void {
-    this.listings.delete(providerId);
-  }
-
-  /**
    * Fetches `<baseUrl>/models` from a provider.
    *
    * @param provider - The provider.
+   * @param timeoutMs - How long it may take.
    * @returns The models it lists.
    * @throws {@link ModelListError} For an unreachable or slow provider, a non-2xx answer or an unexpected body.
    */
-  private async fetchModels(provider: SnapshotProvider): Promise<UpstreamModel[]> {
+  private async fetchModels(provider: SnapshotProvider, timeoutMs: number): Promise<UpstreamModel[]> {
     const url = upstreamUrl(provider.baseUrl, 'models');
     let status: number;
     let isOk: boolean;
@@ -171,7 +175,7 @@ export class ModelCatalog {
       const answer = await this.fetch(url, {
         method: 'GET',
         headers: providerHeaders(provider),
-        signal: AbortSignal.timeout(this.settings.modelListTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       status = answer.status;
       isOk = answer.ok;

@@ -166,7 +166,7 @@ beforeEach(() => {
           strategy: PoolStrategy.LeastBusy,
           affinity: AFFINITY_NONE,
           maxLoadFactor: null,
-          targets: [{ providerId: ollama.id, providerName: 'ollama', model: 'qwen3:8b' }],
+          targets: [{ providerId: ollama.id, providerName: 'ollama', model: 'qwen3:8b', weight: 1 }],
         },
       ],
     ]),
@@ -184,7 +184,14 @@ describe('forwarding a provider model', () => {
     expect(received[0]?.headers['x-extra']).toBe('yes');
     expect(recorded).toEqual([
       {
-        served: { ...ATTRIBUTION, providerId: 'id-ollama', providerName: 'ollama', model: 'qwen3:8b' },
+        served: {
+          ...ATTRIBUTION,
+          poolId: null,
+          poolName: null,
+          providerId: 'id-ollama',
+          providerName: 'ollama',
+          model: 'qwen3:8b',
+        },
         reported: { inputTokens: 5, outputTokens: 7 },
       },
     ]);
@@ -258,7 +265,7 @@ describe('refusing', () => {
 });
 
 describe('pools', () => {
-  const target = { providerName: 'ollama', providerId: 'id-ollama', model: 'qwen3:8b' };
+  const target = { providerName: 'ollama', providerId: 'id-ollama', model: 'qwen3:8b', weight: 1 };
 
   it('sends a pool call to its target, and frees the slot when the answer ends', async () => {
     const answer = await call('chat/completions', { model: 'qwen3', messages: [] });
@@ -266,6 +273,13 @@ describe('pools', () => {
     expect(balancer.inFlightTo(target)).toBe(1);
     await answer.text();
     expect(balancer.inFlightTo(target)).toBe(0);
+  });
+
+  it('counts a pool call under the pool as well as its target', async () => {
+    await (await call('chat/completions', { model: 'qwen3', messages: [] })).text();
+    expect(recorded.map((entry) => entry.served)).toEqual([
+      expect.objectContaining({ poolId: 'p1', poolName: 'qwen3', providerName: 'ollama', model: 'qwen3:8b' }),
+    ]);
   });
 
   it('frees the slot when the caller abandons the answer', async () => {
@@ -316,7 +330,7 @@ describe('pools', () => {
   });
 
   describe('with a target that cannot be reached', () => {
-    const deadTarget = { providerName: 'dead', providerId: 'id-dead', model: 'qwen3:8b' };
+    const deadTarget = { providerName: 'dead', providerId: 'id-dead', model: 'qwen3:8b', weight: 1 };
 
     beforeEach(() => {
       const dead = providerEntry('dead', { baseUrl: 'http://127.0.0.1:1/v1' });

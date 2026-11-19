@@ -12,7 +12,7 @@ export const agents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     /** Its router name: the document's `id`, and the model an app picks on the agents endpoint. */
     name: text('name').notNull(),
-    /** What the layers above it may change. The seeded default until policies can be chosen. */
+    /** What the layers above it may change: the seeded default until a user chooses another. */
     overridePolicyId: uuid('override_policy_id')
       .notNull()
       .default(DEFAULT_POLICY_ID)

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { UserCaller } from '../../server/core/context.ts';
+import { MODEL_CONFIG_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
+import { usageCounts } from '../../server/db/schema.ts';
 import { createSnapshotHost } from '../../server/db/snapshot.ts';
 import { Role } from '../../server/db/tables/users.ts';
 import type { UpstreamFetch } from '../../server/models/outbound.ts';
@@ -28,8 +30,10 @@ const CREATE_POOL = `mutation ($values: CreatePoolInput!) {
   createPool(values: $values) { id name strategy affinity maxLoadFactor }
 }`;
 const SET_TARGETS = `mutation ($poolId: UUID!, $targets: [PoolTargetInput!]!) {
-  setPoolTargets(poolId: $poolId, targets: $targets) { id targets(orderBy: { position: { direction: asc, priority: 1 } }) { model position provider { name } } }
+  setPoolTargets(poolId: $poolId, targets: $targets) { id targets(orderBy: { position: { direction: asc, priority: 1 } }) { model position weight provider { name } } }
 }`;
+const POOL_LOAD =
+  'query ($id: UUID!) { poolLoad(id: $id) { providerName model weight inFlight reachable checkedAt downReason } }';
 const EVERYTHING = `{
   providers { id name displayName description enabled baseUrl headers apiKeySet createdAt updatedAt targets { model } usage { requests } }
   pools { id name targets { model provider { name baseUrl headers apiKeySet } } }
@@ -153,14 +157,32 @@ describe('pools', () => {
       ],
     });
     expect(first.setPoolTargets.targets).toEqual([
-      { model: 'qwen3:32b', position: 0, provider: { name: 'gpu' } },
-      { model: 'qwen3:8b', position: 1, provider: { name: 'ollama' } },
+      { model: 'qwen3:32b', position: 0, weight: 1, provider: { name: 'gpu' } },
+      { model: 'qwen3:8b', position: 1, weight: 1, provider: { name: 'ollama' } },
     ]);
     const second = await asUser.expectOk(SET_TARGETS, {
       poolId: createPool.id,
       targets: [{ providerId: ollama, model: 'qwen3:8b' }],
     });
-    expect(second.setPoolTargets.targets).toEqual([{ model: 'qwen3:8b', position: 0, provider: { name: 'ollama' } }]);
+    expect(second.setPoolTargets.targets).toEqual([
+      { model: 'qwen3:8b', position: 0, weight: 1, provider: { name: 'ollama' } },
+    ]);
+  });
+
+  it("keeps each target's weight", async () => {
+    const id = await makeProvider('ollama');
+    const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'qwen3' } });
+    const { setPoolTargets } = await asUser.expectOk(SET_TARGETS, {
+      poolId: createPool.id,
+      targets: [
+        { providerId: id, model: 'big', weight: MODEL_CONFIG_DEFAULTS.maxTargetWeight },
+        { providerId: id, model: 'small' },
+      ],
+    });
+    expect(setPoolTargets.targets.map((target: { weight: number }) => target.weight)).toEqual([
+      MODEL_CONFIG_DEFAULTS.maxTargetWeight,
+      1,
+    ]);
   });
 
   it.each([
@@ -173,6 +195,11 @@ describe('pools', () => {
     ],
     ['a provider that does not exist', () => [{ providerId: '00000000-0000-4000-8000-000000000000', model: 'm' }]],
     ['a target with no model', (id: string) => [{ providerId: id, model: ' ' }]],
+    ['a weight under 1', (id: string) => [{ providerId: id, model: 'm', weight: 0 }]],
+    [
+      'a weight over the most a target may have',
+      (id: string) => [{ providerId: id, model: 'm', weight: MODEL_CONFIG_DEFAULTS.maxTargetWeight + 1 }],
+    ],
   ])('refuses %s', async (_label, targets) => {
     const id = await makeProvider('ollama');
     const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'q' } });
@@ -189,17 +216,135 @@ describe('pools', () => {
     expect(pools).toEqual([{ targets: [] }]);
   });
 
-  it("reports each target's load", async () => {
+  it("reports each target's load, weight and health", async () => {
     const id = await makeProvider('ollama');
     const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'q' } });
-    await asUser.expectOk(SET_TARGETS, { poolId: createPool.id, targets: [{ providerId: id, model: 'm' }] });
-    const { poolLoad } = await asUser.expectOk(
-      'query ($id: UUID!) { poolLoad(id: $id) { providerName model inFlight reachable } }',
+    await asUser.expectOk(SET_TARGETS, { poolId: createPool.id, targets: [{ providerId: id, model: 'm', weight: 3 }] });
+    const { poolLoad } = await asUser.expectOk(POOL_LOAD, { id: createPool.id });
+    expect(poolLoad).toEqual([
       {
-        id: createPool.id,
+        providerName: 'ollama',
+        model: 'm',
+        weight: 3,
+        inFlight: 0,
+        reachable: true,
+        checkedAt: null,
+        downReason: null,
       },
+    ]);
+  });
+
+  it('says when a health check last looked at a target, and why it is down', async () => {
+    const fetch: UpstreamFetch = async () => {
+      const text = JSON.stringify({ data: [{ id: 'other' }] });
+      return { status: 200, ok: true, headers: new Headers(), body: null, text: async () => text };
+    };
+    const snapshot = await createSnapshotHost(db);
+    const models = createModelServices({ db, snapshot, fetch });
+    const client = createClient(db, user, { snapshot, models });
+    const { createProvider } = await client.expectOk(CREATE_PROVIDER, {
+      values: { name: 'ollama', baseUrl: 'http://o/v1' },
+    });
+    const { createPool } = await client.expectOk(CREATE_POOL, { values: { name: 'q' } });
+    await client.expectOk(SET_TARGETS, {
+      poolId: createPool.id,
+      targets: [{ providerId: createProvider.id, model: 'm' }],
+    });
+    await models.health.check();
+    const { poolLoad } = await client.expectOk(POOL_LOAD, { id: createPool.id });
+    expect(poolLoad).toEqual([
+      expect.objectContaining({
+        reachable: false,
+        checkedAt: expect.any(Date),
+        downReason: 'ollama does not list m.',
+      }),
+    ]);
+  });
+});
+
+describe('model prices', () => {
+  const SET_PRICE = `mutation ($providerId: UUID!, $model: String!, $price: ModelPriceInput) {
+    setModelPrice(providerId: $providerId, model: $model, price: $price) { model inputPerMillion outputPerMillion }
+  }`;
+  const PRICES = '{ modelPrices { model inputPerMillion outputPerMillion provider { name } } }';
+
+  it('are set by any user, replaced by a second set, and cleared by null', async () => {
+    const providerId = await makeProvider('openai');
+    const price = { inputPerMillion: 1.25, outputPerMillion: 10 };
+    const { setModelPrice } = await asUser.expectOk(SET_PRICE, { providerId, model: ' gpt-5 ', price });
+    expect(setModelPrice).toEqual({ model: 'gpt-5', ...price });
+    const cheaper = { inputPerMillion: 0.5, outputPerMillion: 4 };
+    await asUser.expectOk(SET_PRICE, { providerId, model: 'gpt-5', price: cheaper });
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([
+      { model: 'gpt-5', ...cheaper, provider: { name: 'openai' } },
+    ]);
+    expect((await asUser.expectOk(SET_PRICE, { providerId, model: 'gpt-5', price: null })).setModelPrice).toBeNull();
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([]);
+  });
+
+  it.each([
+    ['a price below 0', { inputPerMillion: -1, outputPerMillion: 1 }],
+    ['a price past the most', { inputPerMillion: 1, outputPerMillion: MODEL_CONFIG_DEFAULTS.maxPricePerMillion + 1 }],
+  ])('refuses %s', async (_label, price) => {
+    const providerId = await makeProvider('openai');
+    const { code } = await asUser.expectError(SET_PRICE, { providerId, model: 'gpt-5', price });
+    expect(code).toBe(ErrorCode.BadUserInput);
+  });
+
+  it('answers NOT_FOUND for a provider that does not exist', async () => {
+    const { code } = await asUser.expectError(SET_PRICE, {
+      providerId: '00000000-0000-4000-8000-000000000000',
+      model: 'gpt-5',
+      price: { inputPerMillion: 1, outputPerMillion: 1 },
+    });
+    expect(code).toBe(ErrorCode.NotFound);
+  });
+
+  it("go with their provider when it's deleted", async () => {
+    const providerId = await makeProvider('openai');
+    await asUser.expectOk(SET_PRICE, {
+      providerId,
+      model: 'gpt-5',
+      price: { inputPerMillion: 1, outputPerMillion: 1 },
+    });
+    await asUser.expectOk('mutation ($id: UUID!) { deleteProvider(where: { id: { eq: $id } }) { id } }', {
+      id: providerId,
+    });
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([]);
+  });
+
+  it('are set on a pool with both prices or neither', async () => {
+    const { createPool } = await asUser.expectOk(
+      'mutation ($values: CreatePoolInput!) { createPool(values: $values) { inputPricePerMillion outputPricePerMillion } }',
+      { values: { name: 'priced', inputPricePerMillion: 0.2, outputPricePerMillion: 0.6 } },
     );
-    expect(poolLoad).toEqual([{ providerName: 'ollama', model: 'm', inFlight: 0, reachable: true }]);
+    expect(createPool).toEqual({ inputPricePerMillion: 0.2, outputPricePerMillion: 0.6 });
+    const { code, message } = await asUser.expectError(CREATE_POOL, {
+      values: { name: 'half', inputPricePerMillion: 0.2 },
+    });
+    expect(code).toBe(ErrorCode.BadUserInput);
+    expect(message).toContain('both prices');
+    const negative = await asUser.expectError(CREATE_POOL, {
+      values: { name: 'neg', inputPricePerMillion: -1, outputPricePerMillion: 1 },
+    });
+    expect(negative.code).toBe(ErrorCode.BadUserInput);
+  });
+});
+
+describe("a pool's usage", () => {
+  it('is read by the pool, apart from calls naming its targets directly', async () => {
+    const providerId = await makeProvider('ollama');
+    const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'qwen3' } });
+    const row = { day: '2026-11-18', providerId, providerName: 'ollama', model: 'qwen3:8b', requests: 1 };
+    await db.insert(usageCounts).values([
+      { ...row, poolId: createPool.id, poolName: 'qwen3', requests: 3 },
+      { ...row, poolId: null, poolName: null },
+    ]);
+    const { usageCounts: byPool } = await asUser.expectOk(
+      'query ($poolId: UUID!) { usageCounts(where: { poolId: { eq: $poolId } }) { poolName providerName requests } }',
+      { poolId: createPool.id },
+    );
+    expect(byPool).toEqual([{ poolName: 'qwen3', providerName: 'ollama', requests: 3 }]);
   });
 });
 

@@ -7,12 +7,15 @@ fragment PoolFields on Pool {
   strategy
   affinity
   maxLoadFactor
+  inputPricePerMillion
+  outputPricePerMillion
   # A pool may have 64 targets (MODEL_CONFIG_DEFAULTS.maxTargets), more than the default page of 50. The targets
   # dialog saves the list whole, so it must be given all of them.
   targets(orderBy: { position: { direction: asc, priority: 1 } }, limit: 64) {
     id
     model
     position
+    weight
     provider {
       id
       name
@@ -52,6 +55,8 @@ query PoolLoad($id: UUID!) {
     model
     inFlight
     reachable
+    checkedAt
+    downReason
   }
 }
 

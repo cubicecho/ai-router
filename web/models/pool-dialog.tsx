@@ -8,6 +8,7 @@ import {
 } from '@/__generated__/graphql';
 import { InputField, NumberField, SelectField, SwitchField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
+import { FieldRow } from '@/components/field-row';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
@@ -69,6 +70,8 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
       strategy: PoolsStrategyEnum;
       affinity: PoolsAffinityEnum;
       maxLoadFactor: number | null;
+      inputPricePerMillion: number | null;
+      outputPricePerMillion: number | null;
     }) => {
       if (pool === null) {
         return (await request(CreatePoolDocument, { values })).createPool;
@@ -94,6 +97,8 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
       strategy: pool?.strategy ?? 'least_busy',
       affinity: pool?.affinity ?? 'sticky',
       maxLoadFactor: pool?.maxLoadFactor ?? (null as number | null),
+      inputPricePerMillion: pool?.inputPricePerMillion ?? (null as number | null),
+      outputPricePerMillion: pool?.outputPricePerMillion ?? (null as number | null),
     },
     onSubmit: ({ value }) =>
       save.mutateAsync({
@@ -104,6 +109,8 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
         strategy: choiceOf(STRATEGIES, value.strategy),
         affinity: choiceOf(AFFINITIES, value.affinity),
         maxLoadFactor: value.maxLoadFactor,
+        inputPricePerMillion: value.inputPricePerMillion,
+        outputPricePerMillion: value.outputPricePerMillion,
       }),
   });
 
@@ -145,6 +152,28 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
             description="A kept conversation moves on once its target holds more than this times the average. Empty is off; 1.25 is a good start."
             min={1}
             step={0.05}
+          />
+          <FieldRow
+            contentSlot={
+              <>
+                <NumberField
+                  form={form}
+                  name="inputPricePerMillion"
+                  label="Price per million tokens in"
+                  description="Both empty: a call costs its target's own price."
+                  min={0}
+                  step={0.01}
+                />
+                <NumberField
+                  form={form}
+                  name="outputPricePerMillion"
+                  label="Price per million tokens out"
+                  description="Set both or neither, in the currency every price uses."
+                  min={0}
+                  step={0.01}
+                />
+              </>
+            }
           />
           <TextareaField form={form} name="description" label="Description" rows={2} />
           <SwitchField
