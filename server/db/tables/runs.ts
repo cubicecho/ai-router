@@ -114,6 +114,11 @@ export const runs = pgTable(
     /** The conversation it belongs to, from `X-Conversation-Id`. Set to null when the conversation is deleted. */
     conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
     /**
+     * The session the app said it belongs to: the conversation's key, else `X-Session-Id`. Runs of one workspace with
+     * the same key are one session, whichever agents ran them. A label only.
+     */
+    sessionKey: text('session_key'),
+    /**
      * What its requests added, in the order they came: the messages of the request that started it (for a
      * conversation, only the new ones), then the tool answers of each request that resumed it.
      */
@@ -153,6 +158,9 @@ export const runs = pgTable(
     index('idx_runs_agent_id').on(table.agentId),
     index('idx_runs_revision_id').on(table.revisionId),
     index('idx_runs_status').on(table.status),
+    index('idx_runs_workspace_id_session_key')
+      .on(table.workspaceId, table.sessionKey, table.startedAt)
+      .where(sql`${table.sessionKey} is not null`),
     index('idx_runs_pending_call_ids').using('gin', table.pendingCallIds),
     // One run at a time per conversation: a second that overlaps it can't be recorded.
     uniqueIndex('uq_runs_conversation_id_going')

@@ -506,6 +506,10 @@ export interface RunSettings {
   eventPageSize: number;
   /** The most events `Run.events` answers with at once. */
   maxEventPageSize: number;
+  /** Runs `GET /runs` and `runSessions` answer with when the request gives no limit. */
+  runPageSize: number;
+  /** The most runs `GET /runs`, or sessions `runSessions`, answer with at once. */
+  maxRunPageSize: number;
   /**
    * How long a run waits for the app to answer the tool calls it handed back before it expires. Generous, since an
    * app's tool may be a person answering a question.
@@ -530,6 +534,8 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   eventBatchSize: 500,
   eventPageSize: 500,
   maxEventPageSize: 5_000,
+  runPageSize: 25,
+  maxRunPageSize: 100,
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
 });

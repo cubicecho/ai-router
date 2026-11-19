@@ -10,8 +10,9 @@ import { runs } from '../db/tables/runs.ts';
 import { users } from '../db/tables/users.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
+import { listRunSessions, type RunSessionFilters } from './run-sessions.ts';
 
-const { eventPageSize, maxEventPageSize, maxErrorLength } = RUN_DEFAULTS;
+const { eventPageSize, maxEventPageSize, maxErrorLength, runPageSize, maxRunPageSize } = RUN_DEFAULTS;
 
 /** Why a person cancels a run, which the run's error says. */
 const reasonInput = z
@@ -71,6 +72,41 @@ const RUN_FIELD_SDL = `
   }
 `;
 
+/** Runs grouped by the session the app sent them under. */
+const SESSIONS_SDL = `
+  "Runs one workspace's app sent under one session key: the conversation's, else X-Session-Id. One chat or one task, whichever agents ran in it."
+  type RunSession {
+    "The key the app sent."
+    key: String!
+    "Null once the workspace is deleted."
+    workspaceId: UUID
+    "The workspace's slug when the session's latest run started."
+    workspaceName: String!
+    "The agents that ran in it, by name, A to Z."
+    agentNames: [String!]!
+    runCount: Int!
+    "Its runs that are running or waiting."
+    openRunCount: Int!
+    "When its first run started."
+    startedAt: DateTime!
+    "When its latest run started."
+    lastStartedAt: DateTime!
+    inputTokens: Int!
+    outputTokens: Int!
+  }
+
+  "A page of sessions, the latest first, and how many match."
+  type RunSessionPage {
+    sessions: [RunSession!]!
+    count: Int!
+  }
+
+  extend type Query {
+    "Sessions, the latest first: of one workspace, or ones an agent ran in. Runs sent without a session key are in none. limit is 1 to 100."
+    runSessions(workspaceId: UUID, agentName: String, limit: Int, offset: Int): RunSessionPage!
+  }
+`;
+
 /** The mutation people cancel a run with. */
 const CANCEL_SDL = `
   extend type Mutation {
@@ -121,7 +157,7 @@ async function cancelledBy(ctx: Context): Promise<string> {
 
 /**
  * Adds the `runEvents` subscription, which people follow a run with, `Run.events`, which reads its stored events,
- * and `cancelRun`.
+ * `runSessions`, and `cancelRun`.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -135,7 +171,10 @@ export function applyRunsExtension(schema: GraphQLSchema): GraphQLSchema {
     schema.getSubscriptionType() === null || schema.getSubscriptionType() === undefined
       ? `type Subscription {${RUN_EVENTS_FIELD}}\nextend schema { subscription: Subscription }`
       : `extend type Subscription {${RUN_EVENTS_FIELD}}`;
-  const extended = extendSchema(schema, parse(`${EVENT_TYPE_SDL}\n${RUN_FIELD_SDL}\n${CANCEL_SDL}\n${root}`));
+  const extended = extendSchema(
+    schema,
+    parse(`${EVENT_TYPE_SDL}\n${RUN_FIELD_SDL}\n${SESSIONS_SDL}\n${CANCEL_SDL}\n${root}`),
+  );
   const fields = objectType(extended, 'Subscription').getFields();
 
   fields.runEvents.subscribe = async (
@@ -161,6 +200,21 @@ export function applyRunsExtension(schema: GraphQLSchema): GraphQLSchema {
     }
     const events = await ctx.runs.bus.events(runId, args.afterSeq ?? 0, limit);
     return args.folded === true ? fold(events) : events;
+  };
+
+  const queries = objectType(extended, 'Query').getFields();
+  queries.runSessions.resolve = (
+    _parent: unknown,
+    args: Partial<Omit<RunSessionFilters, 'limit' | 'offset'>> & { limit?: number | null; offset?: number | null },
+    ctx: Context,
+  ) => {
+    const limit = args.limit ?? runPageSize;
+    const offset = args.offset ?? 0;
+    const isInRange = limit >= 1 && limit <= maxRunPageSize && offset >= 0;
+    if (isInRange === false) {
+      throw badInput(`runSessions: limit is 1 to ${maxRunPageSize}, and offset 0 or more.`);
+    }
+    return listRunSessions(ctx.db, { workspaceId: args.workspaceId, agentName: args.agentName, limit, offset });
   };
 
   const mutations = objectType(extended, 'Mutation').getFields();

@@ -9,6 +9,7 @@ import { isRecord } from '../core/is-record.ts';
 import type { Snapshot, SnapshotHost } from '../db/snapshot.ts';
 import type { RunResume } from '../db/tables/runs.ts';
 import { RunStatus } from '../db/tables/runs.ts';
+import { SESSION_HEADER } from '../models/affinity.ts';
 import type { ModelCatalog } from '../models/catalog.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
@@ -27,6 +28,7 @@ import {
   requestedStream,
 } from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
+import { readSessionKey } from './session.ts';
 import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** The header a retry-safe request carries. */
@@ -317,6 +319,7 @@ export function createAgentRoutes({
         response.setHeader(IGNORED_HEADER, ignored);
       }
       const conversationKey = readConversationKey(request.get(CONVERSATION_HEADER));
+      const sessionKey = readSessionKey(conversationKey, request.get(SESSION_HEADER));
       const conversation =
         conversationKey === null ? null : await runs.openConversation(workspaceId, agent, conversationKey);
       if (runRequest.answers.length > 0) {
@@ -338,7 +341,7 @@ export function createAgentRoutes({
           agentName: agent.name,
         });
         const config = withRouterFetch(resolved, fetch);
-        const input = { workspace, agent, request: runRequest, config, idempotency, conversation };
+        const input = { workspace, agent, request: runRequest, config, idempotency, conversation, sessionKey };
         started = await runs.resume(input, waiting);
       } else {
         started = await beginRun(runs, forwarder, current, {
@@ -346,6 +349,7 @@ export function createAgentRoutes({
           agent,
           request: runRequest,
           conversation,
+          sessionKey,
           idempotency,
         });
       }

@@ -94,6 +94,8 @@ export interface RunInput {
   idempotency: Idempotency | null;
   /** The conversation the request names, whose history is already in `request`. Null for a stateless request. */
   conversation: Conversation | null;
+  /** The session the request says it belongs to (`readSessionKey`). Recorded on a new run; a resume keeps the run's. */
+  sessionKey: string | null;
 }
 
 /** A waiting run that a request's tool messages answer. */
@@ -846,6 +848,7 @@ export function createRunService({
           agentName: agent.name,
           revisionId: agent.liveRevisionId,
           conversationId: conversation?.id ?? null,
+          sessionKey: input.sessionKey,
           input: request.input,
           user: request.user,
           stream: request.stream,

@@ -41,6 +41,7 @@ describe('GET /runs/<id>', () => {
     expect(body).toEqual({
       id: runId,
       conversation: null,
+      session: null,
       agent: 'helper',
       agentId: h.agentId,
       revisionId: h.revisionId,
