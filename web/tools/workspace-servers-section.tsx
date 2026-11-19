@@ -10,10 +10,11 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError } from '@/components/load-state';
+import { LoadState } from '@/components/load-state';
 import { Section } from '@/components/section';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { KeyRound, Pencil, Plus } from '@/components/ui/icons';
+import { KeyRound, Pencil, Plug, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { describeRoles, rolesOf } from './admin-roles';
 import { SecretDialog, type SecretKind } from './secret-dialog';
@@ -73,7 +74,8 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
   });
   const remove = useMutation({
     mutationFn: (id: string) => request(DeleteWorkspaceServerDocument, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspaces', workspaceId] }),
+    // The whole prefix: the workspaces list counts each one's entries too.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
   });
   const rows = entries.data?.workspaceServers ?? [];
   const servers = entries.data?.servers ?? [];
@@ -90,67 +92,73 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
         <>
-          {entries.isError ? (
-            <LoadError error={entries.error} onRetry={entries.refetch} what="its servers" compact />
-          ) : rows.length === 0 && entries.isPending === false ? (
-            <EmptyState compact title="No entries. Runs here use each server as it is." actionSlot={add} />
-          ) : (
-            <List
-              label="MCP servers"
-              contentSlot={rows.map((entry) => {
-                const name = entry.server?.name ?? 'A deleted server';
-                const kind: SecretKind =
-                  entry.server === null ||
-                  entry.server === undefined ||
-                  transportOf(entry.server.transport).type === STDIO
-                    ? 'env'
-                    : 'header';
-                return (
-                  <ListItem
-                    key={entry.id}
-                    title={
-                      <Link
-                        to="/mcp-servers/$serverId"
-                        params={{ serverId: entry.serverId }}
-                        className="hover:underline"
-                      >
-                        {entry.server?.displayName ?? name}
-                      </Link>
-                    }
-                    description={overridesOf(entry, secretsOf(entry.serverId))}
-                    actionSlot={
-                      <>
-                        {isAdmin && isBuiltin(entry.server?.transport) === false ? (
-                          <Button
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label={`Set a secret for ${name} here`}
-                            iconSlot={<KeyRound />}
-                            onClick={() => setSecretTarget({ serverId: entry.serverId, serverName: name, kind })}
-                          />
-                        ) : null}
+          <LoadState
+            query={entries}
+            what="its MCP Servers"
+            count={rows.length}
+            emptySlot={
+              <EmptyState
+                iconSlot={<Plug />}
+                title="No entries yet"
+                description="Runs here use each MCP Server as it is. Add an entry to give one an account's login or other settings here."
+                actionSlot={add}
+              />
+            }
+          />
+          <List
+            label="MCP Servers"
+            contentSlot={rows.map((entry) => {
+              const name = entry.server?.name ?? 'A deleted server';
+              const kind: SecretKind =
+                entry.server === null ||
+                entry.server === undefined ||
+                transportOf(entry.server.transport).type === STDIO
+                  ? 'env'
+                  : 'header';
+              const isBuiltinServer = isBuiltin(entry.server?.transport);
+              return (
+                <ListItem
+                  key={entry.id}
+                  title={entry.server?.displayName ?? name}
+                  description={overridesOf(entry, secretsOf(entry.serverId))}
+                  meta={isBuiltinServer ? <Badge variant="secondary">Built in</Badge> : undefined}
+                  linkSlot={
+                    entry.server === null || entry.server === undefined ? undefined : (
+                      <Link to="/mcp-servers/$serverId" params={{ serverId: entry.serverId }} />
+                    )
+                  }
+                  actionSlot={
+                    <>
+                      {isAdmin && isBuiltinServer === false ? (
                         <Button
                           variant="outline"
                           size="icon-sm"
-                          aria-label={`Edit ${name} here`}
-                          iconSlot={<Pencil />}
-                          onClick={() => setEditing(entry)}
+                          aria-label={`Set a secret for ${name} here`}
+                          iconSlot={<KeyRound />}
+                          onClick={() => setSecretTarget({ serverId: entry.serverId, serverName: name, kind })}
                         />
-                        <ConfirmButton
-                          size="sm"
-                          title={`Remove ${name} from this workspace?`}
-                          description="Runs here use the server's own settings again. Its secret overrides here are kept."
-                          confirmLabel="Remove"
-                          onConfirm={() => remove.mutate(entry.id)}
-                          content="Remove"
-                        />
-                      </>
-                    }
-                  />
-                );
-              })}
-            />
-          )}
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={`Edit ${name} here`}
+                        iconSlot={<Pencil />}
+                        onClick={() => setEditing(entry)}
+                      />
+                      <ConfirmButton
+                        size="sm"
+                        title={`Remove ${name} from this workspace?`}
+                        description="Runs here use the server's own settings again. Its secret overrides here are kept."
+                        confirmLabel="Remove"
+                        onConfirm={() => remove.mutate(entry.id)}
+                        content="Remove"
+                      />
+                    </>
+                  }
+                />
+              );
+            })}
+          />
           {editing === undefined ? null : (
             <WorkspaceServerDialog
               key={editing?.id ?? 'new'}

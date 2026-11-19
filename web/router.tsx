@@ -8,7 +8,9 @@ import {
 } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
+import { tabSearch } from '@/lib/tab-search';
 import { validateRunsSearch } from '@/runs/search';
+import { WORKSPACE_TABS } from '@/workspaces/tabs';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -89,6 +91,7 @@ const workspacesRoute = createRoute({
 const workspaceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/workspaces/$workspaceId',
+  validateSearch: tabSearch(WORKSPACE_TABS),
   component: lazyRouteComponent(() => import('@/routes/workspace'), 'WorkspaceRoute'),
 });
 
