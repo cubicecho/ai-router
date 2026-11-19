@@ -122,6 +122,31 @@ describe('reading a request against the override policy', () => {
     expect(readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, IGNORING).ignored).toEqual([]);
   });
 
+  it('drops unknown stream_options keys when the settings ignore unlisted fields, keeping include_usage', () => {
+    const body = {
+      model: 'x',
+      messages: [QUESTION],
+      stream: true,
+      stream_options: { include_obfuscation: false, include_usage: true, chunk_size: null },
+    };
+    const refusal = refusalOf(body);
+    expect(refusal.param).toBe('stream_options');
+    expect(refusal.message).toContain('include_obfuscation');
+    const request = readRunRequest(body, DEFAULT_POLICY_RULES, IGNORING);
+    expect(request.ignored).toEqual(['stream_options.include_obfuscation']);
+    expect(request.includeUsage).toBe(true);
+    const withField = { ...body, metadata: { app: 'a' } };
+    expect(readRunRequest(withField, DEFAULT_POLICY_RULES, IGNORING).ignored).toEqual([
+      'metadata',
+      'stream_options.include_obfuscation',
+    ]);
+    // A bad include_usage, or stream_options that aren't an object, are refused either way.
+    const ask = (streamOptions: unknown) =>
+      refusalOf({ ...body, stream_options: streamOptions }, DEFAULT_POLICY_RULES, IGNORING).param;
+    expect(ask({ include_usage: 'yes' })).toBe('stream_options');
+    expect(ask('usage')).toBe('stream_options');
+  });
+
   it('still refuses structural problems and bad values of listed fields when the settings ignore unlisted ones', () => {
     const closed = { ...DEFAULT_POLICY_RULES, hostPrompt: false, taskPrompt: false, responseFormat: false };
     const ask = (extra: Record<string, unknown>, policy: OverridePolicyRules = DEFAULT_POLICY_RULES) =>

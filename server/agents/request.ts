@@ -29,6 +29,11 @@ const IGNORED_JOIN = ', ';
 /** The roles whose leading messages become the host part. */
 const HOST_ROLES: ReadonlySet<string> = new Set(['system', 'developer']);
 
+/** The request field that says how a stream is sent. */
+const STREAM_OPTIONS = 'stream_options';
+/** The one key of `stream_options` the router reads. */
+const INCLUDE_USAGE = 'include_usage';
+
 /** The sampling field the agent format spells as `model.temperature`. */
 const TEMPERATURE = 'temperature';
 /** The two spellings of the reply's ceiling, `model.maxTokens`. Every other allowed field goes into `extraBody`. */
@@ -42,7 +47,7 @@ const READ_FIELDS: ReadonlySet<string> = new Set([
   'model',
   'messages',
   'stream',
-  'stream_options',
+  STREAM_OPTIONS,
   'n',
   'user',
   'ai_router',
@@ -417,6 +422,29 @@ function readSampling(
 }
 
 /**
+ * Checks `stream_options`, of which the router reads only `include_usage`.
+ *
+ * @param value - The request's `stream_options`.
+ * @param unlisted - The router's `unlistedFields` setting.
+ * @returns The keys dropped, as `stream_options.<key>`: under `ignore`, every key but `include_usage` that isn't
+ * null. None under `refuse`.
+ * @throws {@link RequestRefusal} When it isn't an object, `include_usage` isn't a boolean, or, under `refuse`, it
+ * holds another key.
+ */
+function readStreamOptions(value: unknown, unlisted: UnlistedFields): string[] {
+  const isIgnoring = unlisted === UnlistedFields.Ignore;
+  const shape = { include_usage: z.boolean().nullish() };
+  const schema = isIgnoring ? z.looseObject(shape) : z.strictObject(shape);
+  const options = parseField(schema.nullish(), value, STREAM_OPTIONS) ?? {};
+  if (isIgnoring === false) {
+    return [];
+  }
+  return Object.entries(options)
+    .filter(([key, option]) => key !== INCLUDE_USAGE && option !== null && option !== undefined)
+    .map(([key]) => `${STREAM_OPTIONS}.${key}`);
+}
+
+/**
  * Reads a chat completion request and checks it against the agent's override policy.
  *
  * @param body - The parsed body. Its `model` is the agent, already found.
@@ -428,7 +456,7 @@ function readSampling(
  * @remarks
  * Nothing is trimmed quietly. A field the router doesn't read and the policy doesn't list refuses the whole request,
  * or, when the router's `unlistedFields` setting is `ignore`, is dropped and named in `ignored`, for the answer's
- * `X-AI-Router-Ignored` header. Everything else still refuses: the messages, the tools, `n` above 1 (a run gives
+ * `X-AI-Router-Ignored` header, as is any key of `stream_options` but `include_usage`. Everything else still refuses: the messages, the tools, `n` above 1 (a run gives
  * one answer), system messages or `response_format` the policy refuses, which would change what the answer is, a
  * bad value of a listed field, and `ai_router`. `parallel_tool_calls` passes through, `user` is recorded, and a
  * field sent as null is read as not sent.
@@ -487,11 +515,7 @@ export function readRunRequest(
     sampling.extraBody.parallel_tool_calls = parseField(z.boolean(), body.parallel_tool_calls, 'parallel_tool_calls');
   }
   parseField(z.boolean().nullish(), body.stream, 'stream');
-  parseField(
-    z.strictObject({ include_usage: z.boolean().optional() }).nullish(),
-    body.stream_options,
-    'stream_options',
-  );
+  ignored.push(...readStreamOptions(body.stream_options, settings.unlistedFields));
   const user = parseField(z.string().max(RUN_DEFAULTS.maxUserLength).nullish(), body.user, 'user') ?? null;
   const answers = trailingAnswers(messages);
   return {

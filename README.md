@@ -96,7 +96,8 @@ OpenAI client or SDK) connects like this:
    `service_tier` and the like) answers 400, naming it. A client that can't stop sending them
    works once an admin sets **Settings → Fields the agent does not allow** to **Ignore the
    field**: those fields are then dropped, and the answer names them in
-   `X-AI-Router-Ignored`, streamed or not. Messages, tools, `n` above 1, a `tool_choice` other
+   `X-AI-Router-Ignored`, streamed or not. So is a newer SDK's `stream_options` key such as
+   `include_obfuscation` (as `stream_options.include_obfuscation`); `include_usage` still works. Messages, tools, `n` above 1, a `tool_choice` other
    than `auto`, the older `functions`, and a bad value of an allowed field are refused either way.
 6. **Timeouts.** A run without `stream` sends nothing until it ends, which can be long: see
    **Long runs** under [Running an agent](#running-an-agent). Prefer `stream: true`, or raise

@@ -304,10 +304,16 @@ describe('the agents endpoint', () => {
     expect(first).not.toHaveProperty('metadata');
     expect(first).not.toHaveProperty('store');
 
-    const streamed = await h.complete(base, { ...body, stream: true });
+    // A newer SDK's stream option is dropped too, and include_usage still asks for the usage chunk.
+    const streamOptions = { include_usage: true, include_obfuscation: false };
+    const streamed = await h.complete(base, { ...body, stream: true, stream_options: streamOptions });
     expect(streamed.headers.get('content-type')).toContain('text/event-stream');
-    expect(streamed.headers.get(IGNORED_HEADER)).toBe('reasoning_effort, metadata, store');
-    expect((await dataLines(streamed)).at(-1)).toBe('[DONE]');
+    expect(streamed.headers.get(IGNORED_HEADER)).toBe(
+      'reasoning_effort, metadata, store, stream_options.include_obfuscation',
+    );
+    const lines = await dataLines(streamed);
+    expect(lines.at(-1)).toBe('[DONE]');
+    expect(lines).toContainEqual(expect.objectContaining({ choices: [], usage: expect.any(Object) }));
 
     const plain = await h.complete(base, { model: 'helper', messages: [QUESTION] });
     expect(plain.headers.get(IGNORED_HEADER)).toBeNull();

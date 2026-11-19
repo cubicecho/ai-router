@@ -165,8 +165,8 @@ non-negotiables apply on top of these.
   settings pass only if the policy allows them, and never reach side tasks.
 - **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
   refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
-  named in `X-AI-Router-Ignored`, set before the first byte. Only those fields are ever ignored:
-  messages, tools, `n`, `response_format`, `ai_router`, system messages the policy refuses, and a
+  named in `X-AI-Router-Ignored`, set before the first byte, as is any `stream_options` key but
+  `include_usage` (named `stream_options.<key>`). Only those are ever ignored: messages, tools, `n`, `response_format`, `ai_router`, system messages the policy refuses, and a
   bad value of a listed field still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
   model address, which the run's `fetch` hands to the models area in process, so an agent
