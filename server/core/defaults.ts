@@ -258,6 +258,8 @@ export interface ModelConfigSettings {
   maxTargets: number;
   /** The largest weight a target may have: its share of the pool's calls against a target of weight 1. */
   maxTargetWeight: number;
+  /** The highest price per million tokens a model or pool may be given, in whatever currency prices are entered in. */
+  maxPricePerMillion: number;
   /** Longest model id at a provider, in characters. */
   maxModelLength: number;
 }
@@ -270,6 +272,7 @@ export const MODEL_CONFIG_DEFAULTS: Readonly<ModelConfigSettings> = Object.freez
   maxApiKeyLength: 4_096,
   maxTargets: 64,
   maxTargetWeight: 100,
+  maxPricePerMillion: 100_000,
   maxModelLength: 256,
 });
 

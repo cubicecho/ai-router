@@ -262,6 +262,75 @@ describe('pools', () => {
   });
 });
 
+describe('model prices', () => {
+  const SET_PRICE = `mutation ($providerId: UUID!, $model: String!, $price: ModelPriceInput) {
+    setModelPrice(providerId: $providerId, model: $model, price: $price) { model inputPerMillion outputPerMillion }
+  }`;
+  const PRICES = '{ modelPrices { model inputPerMillion outputPerMillion provider { name } } }';
+
+  it('are set by any user, replaced by a second set, and cleared by null', async () => {
+    const providerId = await makeProvider('openai');
+    const price = { inputPerMillion: 1.25, outputPerMillion: 10 };
+    const { setModelPrice } = await asUser.expectOk(SET_PRICE, { providerId, model: ' gpt-5 ', price });
+    expect(setModelPrice).toEqual({ model: 'gpt-5', ...price });
+    const cheaper = { inputPerMillion: 0.5, outputPerMillion: 4 };
+    await asUser.expectOk(SET_PRICE, { providerId, model: 'gpt-5', price: cheaper });
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([
+      { model: 'gpt-5', ...cheaper, provider: { name: 'openai' } },
+    ]);
+    expect((await asUser.expectOk(SET_PRICE, { providerId, model: 'gpt-5', price: null })).setModelPrice).toBeNull();
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([]);
+  });
+
+  it.each([
+    ['a price below 0', { inputPerMillion: -1, outputPerMillion: 1 }],
+    ['a price past the most', { inputPerMillion: 1, outputPerMillion: MODEL_CONFIG_DEFAULTS.maxPricePerMillion + 1 }],
+  ])('refuses %s', async (_label, price) => {
+    const providerId = await makeProvider('openai');
+    const { code } = await asUser.expectError(SET_PRICE, { providerId, model: 'gpt-5', price });
+    expect(code).toBe(ErrorCode.BadUserInput);
+  });
+
+  it('answers NOT_FOUND for a provider that does not exist', async () => {
+    const { code } = await asUser.expectError(SET_PRICE, {
+      providerId: '00000000-0000-4000-8000-000000000000',
+      model: 'gpt-5',
+      price: { inputPerMillion: 1, outputPerMillion: 1 },
+    });
+    expect(code).toBe(ErrorCode.NotFound);
+  });
+
+  it("go with their provider when it's deleted", async () => {
+    const providerId = await makeProvider('openai');
+    await asUser.expectOk(SET_PRICE, {
+      providerId,
+      model: 'gpt-5',
+      price: { inputPerMillion: 1, outputPerMillion: 1 },
+    });
+    await asUser.expectOk('mutation ($id: UUID!) { deleteProvider(where: { id: { eq: $id } }) { id } }', {
+      id: providerId,
+    });
+    expect((await asUser.expectOk(PRICES)).modelPrices).toEqual([]);
+  });
+
+  it('are set on a pool with both prices or neither', async () => {
+    const { createPool } = await asUser.expectOk(
+      'mutation ($values: CreatePoolInput!) { createPool(values: $values) { inputPricePerMillion outputPricePerMillion } }',
+      { values: { name: 'priced', inputPricePerMillion: 0.2, outputPricePerMillion: 0.6 } },
+    );
+    expect(createPool).toEqual({ inputPricePerMillion: 0.2, outputPricePerMillion: 0.6 });
+    const { code, message } = await asUser.expectError(CREATE_POOL, {
+      values: { name: 'half', inputPricePerMillion: 0.2 },
+    });
+    expect(code).toBe(ErrorCode.BadUserInput);
+    expect(message).toContain('both prices');
+    const negative = await asUser.expectError(CREATE_POOL, {
+      values: { name: 'neg', inputPricePerMillion: -1, outputPricePerMillion: 1 },
+    });
+    expect(negative.code).toBe(ErrorCode.BadUserInput);
+  });
+});
+
 describe("a pool's usage", () => {
   it('is read by the pool, apart from calls naming its targets directly', async () => {
     const providerId = await makeProvider('ollama');

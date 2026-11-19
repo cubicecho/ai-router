@@ -276,6 +276,7 @@ created (shown once) --> in use --revoke--> deleted
 | An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
+| A pool has both prices or neither; prices are never below 0. A call through a pool with a price costs the pool's price, else its provider's model's | `ck_pools_price`, `models/input`, `web/models/cost` |
 | Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent and run | `models/usage`, `tools/activity` |
 
 ## Glossary
@@ -355,6 +356,13 @@ Everything about the code comes after `Owner:`.
   after its provider, pool, agent or workspace is deleted. Owner: `models/usage`; the
   `usage_counts` table, which keeps their names, with optional foreign keys to them, written
   every few seconds.
+- **Price:** what a model costs per million tokens in and out, entered by a user in whatever
+  currency they use for every price; nothing is fetched. A provider's model has one, or a pool
+  has its own, which wins for calls through the pool. Usage shows its cost at the prices entered
+  now, so a price change reprices past usage, and usage with no price shows none. Owner:
+  `models/resolvers` `setModelPrice` and the `model_prices` table for a provider's model (gone
+  with its provider); the `pools` price columns for a pool; the UI's `models/cost` works the cost
+  out.
 
 ### Tools
 

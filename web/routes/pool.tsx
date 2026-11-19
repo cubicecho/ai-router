@@ -156,6 +156,14 @@ export function PoolRoute() {
                       label="Load factor"
                       value={record.maxLoadFactor === null ? 'Off' : String(record.maxLoadFactor)}
                     />
+                    <PropertyRow
+                      label="Price"
+                      value={
+                        record.inputPricePerMillion === null || record.outputPricePerMillion === null
+                          ? "Its targets' own"
+                          : `${record.inputPricePerMillion} in, ${record.outputPricePerMillion} out per million tokens`
+                      }
+                    />
                     <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
                   </>
                 }

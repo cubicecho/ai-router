@@ -3,12 +3,29 @@ fragment UsageFields on UsageCount {
   day
   workspaceName
   agentName
+  poolId
   poolName
+  providerId
   providerName
   model
   requests
   inputTokens
   outputTokens
+}
+
+# Every price people have entered, for the cost beside usage. Few enough to read whole.
+query PriceBook {
+  modelPrices(limit: 500) {
+    providerId
+    model
+    inputPerMillion
+    outputPerMillion
+  }
+  pools(limit: 500) {
+    id
+    inputPricePerMillion
+    outputPricePerMillion
+  }
 }
 
 query UsageByProvider($providerId: UUID!) {

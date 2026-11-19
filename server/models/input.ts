@@ -11,6 +11,7 @@ const {
   maxApiKeyLength,
   maxTargets,
   maxTargetWeight,
+  maxPricePerMillion,
   maxModelLength,
 } = MODEL_CONFIG_DEFAULTS;
 
@@ -23,6 +24,19 @@ const WEB_PROTOCOLS = ['http:', 'https:'];
 
 const displayName = z.string().trim().max(maxDisplayNameLength, 'Display name is too long.').nullable();
 const description = z.string().max(maxDescriptionLength, 'Description is too long.');
+
+/** A price per million tokens. */
+const pricePerMillion = z
+  .number()
+  .min(0, 'A price is not below 0.')
+  .max(maxPricePerMillion, `A price is at most ${maxPricePerMillion} per million tokens.`);
+
+/** The model's id at a provider. */
+const providerModel = z
+  .string()
+  .trim()
+  .min(1, 'Name the model at the provider.')
+  .max(maxModelLength, 'That model id is too long.');
 
 /** A provider's base URL: http or https. */
 const baseUrl = z
@@ -60,19 +74,24 @@ export const poolInput = z
     displayName,
     description,
     maxLoadFactor: z.number().min(1, 'The load factor is at least 1: a target may hold its share.').nullable(),
+    inputPricePerMillion: pricePerMillion.nullable(),
+    outputPricePerMillion: pricePerMillion.nullable(),
   })
   .partial();
+
+/** A model's price at a provider, as `setModelPrice` takes it. */
+export const modelPriceInput = z.object({
+  model: providerModel,
+  inputPerMillion: pricePerMillion,
+  outputPerMillion: pricePerMillion,
+});
 
 /** A pool's targets, in order. */
 export const targetsInput = z
   .array(
     z.object({
       providerId: z.uuid('Pick a provider.'),
-      model: z
-        .string()
-        .trim()
-        .min(1, 'Name the model at the provider.')
-        .max(maxModelLength, 'That model id is too long.'),
+      model: providerModel,
       weight: z
         .int('A weight is a whole number.')
         .min(EQUAL_WEIGHT, `A weight is at least ${EQUAL_WEIGHT}.`)

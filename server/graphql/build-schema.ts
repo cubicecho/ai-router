@@ -33,13 +33,14 @@ const HAND_SERVED_TABLES = ['runEvents', 'settings'];
 
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
- * usage, secrets, activity, runs and conversations.
+ * usage, model prices, secrets, activity, runs and conversations.
  */
 const WRITES_RESERVED = new Set<string>([
   'users',
   'workspaceKeys',
   'poolTargets',
   'usageCounts',
+  'modelPrices',
   'serverSecrets',
   'activity',
   'agentRevisions',

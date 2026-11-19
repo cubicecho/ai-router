@@ -112,6 +112,7 @@ export const FIELD_GRANTS = {
     ...tableReads('agentRevision', 'agentRevisions', Subject.AgentRevision),
     checkAgent: { action: read, subject: Subject.Agent },
     ...tableReads('provider', 'providers', Subject.Provider),
+    ...tableReads('modelPrice', 'modelPrices', Subject.Provider),
     ...tableReads('pool', 'pools', Subject.Pool),
     ...tableReads('poolTarget', 'poolTargets', Subject.Pool),
     providerModels: { action: read, subject: Subject.Provider },

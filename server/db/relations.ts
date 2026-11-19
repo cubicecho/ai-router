@@ -16,7 +16,14 @@ export const relations = defineRelations(schema, (relate) => ({
     workspace: relate.one.workspaces({ from: relate.workspaceKeys.workspaceId, to: relate.workspaces.id }),
     creator: relate.one.users({ from: relate.workspaceKeys.createdBy, to: relate.users.id }),
   },
-  providers: { targets: relate.many.poolTargets(), usage: relate.many.usageCounts() },
+  providers: {
+    targets: relate.many.poolTargets(),
+    usage: relate.many.usageCounts(),
+    prices: relate.many.modelPrices(),
+  },
+  modelPrices: {
+    provider: relate.one.providers({ from: relate.modelPrices.providerId, to: relate.providers.id }),
+  },
   pools: { targets: relate.many.poolTargets(), usage: relate.many.usageCounts() },
   poolTargets: {
     pool: relate.one.pools({ from: relate.poolTargets.poolId, to: relate.pools.id }),

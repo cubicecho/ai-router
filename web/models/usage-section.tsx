@@ -1,7 +1,10 @@
-import type { UsageFieldsFragment } from '@/__generated__/graphql';
+import { useQuery } from '@tanstack/react-query';
+import { PriceBookDocument, type UsageFieldsFragment } from '@/__generated__/graphql';
 import { EmptyState } from '@/components/empty-state';
 import { Section } from '@/components/section';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { request } from '@/lib/gql';
+import { costOf, formatCost, type PriceBook, priceBookFrom } from './cost';
 
 /** How many of the latest days the table shows. */
 const RECENT_DAYS = 14;
@@ -11,6 +14,10 @@ interface Totals {
   requests: number;
   inputTokens: number;
   outputTokens: number;
+  /** What the priced rows cost; null while none is priced. */
+  cost: number | null;
+  /** Whether some rows have no price, so the cost is a floor. */
+  hasUnpriced: boolean;
 }
 
 /** What the usage section is given. */
@@ -30,26 +37,36 @@ const NUMBER = new Intl.NumberFormat();
  *
  * @param rows - The rows.
  * @param keyOf - Each row's group.
+ * @param book - The prices each row's cost is worked out at.
  * @returns The totals per group.
  */
 function totalsBy(
   rows: readonly UsageFieldsFragment[],
   keyOf: (row: UsageFieldsFragment) => string,
+  book: PriceBook,
 ): [string, Totals][] {
   const totals = new Map<string, Totals>();
   for (const row of rows) {
     const key = keyOf(row);
-    const sum = totals.get(key) ?? { requests: 0, inputTokens: 0, outputTokens: 0 };
+    const sum = totals.get(key) ?? { requests: 0, inputTokens: 0, outputTokens: 0, cost: null, hasUnpriced: false };
+    const cost = costOf(row, book);
     totals.set(key, {
       requests: sum.requests + row.requests,
       inputTokens: sum.inputTokens + row.inputTokens,
       outputTokens: sum.outputTokens + row.outputTokens,
+      cost: cost === null ? sum.cost : (sum.cost ?? 0) + cost,
+      hasUnpriced: sum.hasUnpriced || cost === null,
     });
   }
   return [...totals.entries()];
 }
 
-/** One table of totals: a label column, then calls and tokens. */
+/**
+ * One table of totals: a label column, then calls, tokens and cost.
+ *
+ * @param props - The label column's name, and the totals by group.
+ * @returns The table.
+ */
 function TotalsTable({ label, entries }: { label: string; entries: [string, Totals][] }) {
   return (
     <Table>
@@ -59,6 +76,7 @@ function TotalsTable({ label, entries }: { label: string; entries: [string, Tota
           <TableHead className="text-right">Calls</TableHead>
           <TableHead className="text-right">Tokens in</TableHead>
           <TableHead className="text-right">Tokens out</TableHead>
+          <TableHead className="text-right">Cost</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -68,6 +86,7 @@ function TotalsTable({ label, entries }: { label: string; entries: [string, Tota
             <TableCell className="text-right tabular-nums">{NUMBER.format(totals.requests)}</TableCell>
             <TableCell className="text-right tabular-nums">{NUMBER.format(totals.inputTokens)}</TableCell>
             <TableCell className="text-right tabular-nums">{NUMBER.format(totals.outputTokens)}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatCost(totals.cost, totals.hasUnpriced)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -75,19 +94,26 @@ function TotalsTable({ label, entries }: { label: string; entries: [string, Tota
   );
 }
 
-/** Calls and tokens, in total by a group and by day for the last two weeks. */
+/**
+ * Calls, tokens and cost, in total by a group and by day for the last two weeks.
+ *
+ * @param props - The rows, and what they are grouped by.
+ * @returns The section.
+ */
 export function UsageSection({ rows, groupBy, groupLabel }: UsageSectionProps) {
-  const byDay = totalsBy(rows, (row) => row.day ?? 'Earlier').slice(0, RECENT_DAYS);
+  const prices = useQuery({ queryKey: ['prices'], queryFn: () => request(PriceBookDocument), meta: { quiet: true } });
+  const book = priceBookFrom(prices.data ?? { modelPrices: [], pools: [] });
+  const byDay = totalsBy(rows, (row) => row.day ?? 'Earlier', book).slice(0, RECENT_DAYS);
   return (
     <Section
       title="Usage"
-      description="Calls and tokens counted from each provider's own numbers. Days past 90 add up into Earlier."
+      description="Calls and tokens counted from each provider's own numbers. Days past 90 add up into Earlier. Cost is at the prices entered now, on the provider's Models tab or the pool; ≥ means some calls have no price."
       contentSlot={
         rows.length === 0 ? (
           <EmptyState compact title="Nothing used yet." />
         ) : (
           <div className="grid gap-4">
-            <TotalsTable label={groupLabel} entries={totalsBy(rows, groupBy)} />
+            <TotalsTable label={groupLabel} entries={totalsBy(rows, groupBy, book)} />
             <TotalsTable label="Day (UTC)" entries={byDay} />
           </div>
         )

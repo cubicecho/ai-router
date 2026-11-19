@@ -1,0 +1,369 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "05198eb7-3103-4ca2-b79d-4a32c5f46991",
+  "prevIds": [
+    "389b34b5-64d0-4f2f-80d5-4e460e04efe8"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "model_prices"
+      ],
+      "writes": [
+        "s|tbl|public.model_prices",
+        "n|tbl|public.model_prices",
+        "e|tbl|public.model_prices",
+        "n|rel|public.model_prices",
+        "n|type|public.model_prices",
+        "n|rel|public.model_prices_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "pools",
+        "input_price_per_million"
+      ],
+      "writes": [
+        "s|col|public.pools.input_price_per_million",
+        "n|col|public.pools.input_price_per_million",
+        "e|col|public.pools.input_price_per_million"
+      ],
+      "reads": [
+        "n|tbl|public.pools",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "pools",
+        "output_price_per_million"
+      ],
+      "writes": [
+        "s|col|public.pools.output_price_per_million",
+        "n|col|public.pools.output_price_per_million",
+        "e|col|public.pools.output_price_per_million"
+      ],
+      "reads": [
+        "n|tbl|public.pools",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "model_prices",
+        "uq_model_prices_provider_id_model"
+      ],
+      "writes": [
+        "s|idx|public.uq_model_prices_provider_id_model",
+        "n|idx|public.uq_model_prices_provider_id_model",
+        "e|idx|public.uq_model_prices_provider_id_model",
+        "n|rel|public.uq_model_prices_provider_id_model"
+      ],
+      "reads": [
+        "n|tbl|public.model_prices",
+        "n|sch|public",
+        "n|col|public.model_prices.provider_id",
+        "n|col|public.model_prices.model"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "model_prices"
+      ],
+      "writes": [
+        "s|fk|public.model_prices.model_prices_provider_id_providers_id_fkey",
+        "n|fk|public.model_prices.model_prices_provider_id_providers_id_fkey",
+        "e|fk|public.model_prices.model_prices_provider_id_providers_id_fkey",
+        "n|con|public.model_prices.model_prices_provider_id_providers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.model_prices",
+        "n|sch|public",
+        "n|tbl|public.providers",
+        "n|sch|public",
+        "n|col|public.model_prices.provider_id",
+        "n|col|public.providers.id",
+        "e|uniqueness|public.providers.id"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "pools"
+      ],
+      "writes": [
+        "s|ck|public.pools.ck_pools_price",
+        "n|ck|public.pools.ck_pools_price",
+        "e|ck|public.pools.ck_pools_price",
+        "n|con|public.pools.ck_pools_price"
+      ],
+      "reads": [
+        "n|tbl|public.pools",
+        "n|sch|public",
+        "n|col|public.pools.input_price_per_million",
+        "n|col|public.pools.output_price_per_million"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "model_prices",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "provider_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "model",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "input_per_million",
+        "type": "double precision",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "output_per_million",
+        "type": "double precision",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "input_price_per_million",
+        "type": "double precision",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "output_price_per_million",
+        "type": "double precision",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "uq_model_prices_provider_id_model",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "model",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "model_prices_provider_id_providers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "providers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "model_prices_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_prices",
+        "name": "ck_model_prices_not_negative",
+        "value": "\"input_per_million\" >= 0 and \"output_per_million\" >= 0",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pools",
+        "name": "ck_pools_price",
+        "value": "(\"input_price_per_million\" is null) = (\"output_price_per_million\" is null) and coalesce(\"input_price_per_million\", 0) >= 0 and coalesce(\"output_price_per_million\", 0) >= 0",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

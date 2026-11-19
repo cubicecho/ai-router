@@ -86,7 +86,7 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 | --- | --- |
 | auth | better-auth's `users` (with `role`), `sessions`, `accounts`, `verifications`; `oidc_settings`, the paired provider |
 | router | `settings`, a single row |
-| models | `providers`, `pools`, `pool_targets`, `usage_counts` (all internal: used by agent runs) |
+| models | `providers`, `pools`, `pool_targets`, `usage_counts`, `model_prices` (all internal: used by agent runs) |
 | tools | `registries`, `servers`, `server_secrets`, `activity` (all internal) |
 | agents | `agents` (with `override_policy_id`), `agent_revisions`, `override_policies` (seeded with one default row), `runs`, `run_events`, `conversations` |
 | workspaces | `workspaces`, `workspace_keys`, `workspace_agents`, `workspace_servers` (env, args, headers and URL overrides for the workspace's agent runs) |
@@ -526,8 +526,11 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
-- **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
-  cost.
+- **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own). Cost
+  is done (2026-11-18, #30): prices people enter, per provider model (`model_prices`, set by any
+  user with `setModelPrice`) or per pool (its own price columns, which win for calls through
+  it), in one currency of the user's choosing, and usage's cost worked out at today's prices.
+  Still open: prices kept as they were when the calls were made.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
   app's MCP client, but an agent run has no MCP client to forward to. Phases 6 and 7 decline it.
   Phase 7's waiting runs make the later option cheap: hand the request back like an app tool
