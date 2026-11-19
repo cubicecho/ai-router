@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { UserCaller } from '../../server/core/context.ts';
 import { MODEL_CONFIG_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
+import { usageCounts } from '../../server/db/schema.ts';
 import { createSnapshotHost } from '../../server/db/snapshot.ts';
 import { Role } from '../../server/db/tables/users.ts';
 import type { UpstreamFetch } from '../../server/models/outbound.ts';
@@ -258,6 +259,23 @@ describe('pools', () => {
         downReason: 'ollama does not list m.',
       }),
     ]);
+  });
+});
+
+describe("a pool's usage", () => {
+  it('is read by the pool, apart from calls naming its targets directly', async () => {
+    const providerId = await makeProvider('ollama');
+    const { createPool } = await asUser.expectOk(CREATE_POOL, { values: { name: 'qwen3' } });
+    const row = { day: '2026-11-18', providerId, providerName: 'ollama', model: 'qwen3:8b', requests: 1 };
+    await db.insert(usageCounts).values([
+      { ...row, poolId: createPool.id, poolName: 'qwen3', requests: 3 },
+      { ...row, poolId: null, poolName: null },
+    ]);
+    const { usageCounts: byPool } = await asUser.expectOk(
+      'query ($poolId: UUID!) { usageCounts(where: { poolId: { eq: $poolId } }) { poolName providerName requests } }',
+      { poolId: createPool.id },
+    );
+    expect(byPool).toEqual([{ poolName: 'qwen3', providerName: 'ollama', requests: 3 }]);
   });
 });
 

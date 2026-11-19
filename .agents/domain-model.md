@@ -349,9 +349,12 @@ Everything about the code comes after `Owner:`.
   held by `models/balancer`, in memory.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
-- **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Usage
-  stays after its provider or workspace is deleted. Owner: `models/usage`; the `usage_counts`
-  table, which keeps both names, with optional foreign keys to them, written every few seconds.
+- **Usage:** requests and tokens, counted per day, workspace, agent, pool, provider and model. A
+  call that named a pool counts under the pool as well as the target it went to, so a pool's
+  share of a target's calls is told apart from calls naming the target directly. Usage stays
+  after its provider, pool, agent or workspace is deleted. Owner: `models/usage`; the
+  `usage_counts` table, which keeps their names, with optional foreign keys to them, written
+  every few seconds.
 
 ### Tools
 

@@ -295,7 +295,8 @@ The acceptance check for the first release.
      for a Bearer key.
    - **Forwarding is a function** (`models/forward`), not an HTTP door: a run's `fetch` calls it
      ([agent-core#224](https://github.com/cubicecho/agent-core/issues/224)).
-   - **Usage:** one row per UTC day, workspace, agent, provider and model, with requests, input
+   - **Usage:** one row per UTC day, workspace, agent, pool (null for a direct call; #23),
+     provider and model, with requests, input
      and output tokens. Counted from the provider's own numbers on a 2xx only: a stream's last
      usage chunk, or a JSON answer up to 8 MB. Days older than 90 fold into an all-time row.
      Counts gather in memory and are written every few seconds and at shutdown. A row keeps the
@@ -303,7 +304,8 @@ The acceptance check for the first release.
      usage outlives both.
    - **UI:** Providers (list, add and edit, the key set by an admin, the live model list with
      refresh, usage per model and day), Pools (list, edit, an ordered target editor, strategy,
-     affinity, load factor, live in-flight load), and usage on each workspace's page.
+     affinity, load factor, live in-flight load, usage per target and day), and usage on each
+     workspace's page.
    - **Tests:** llm-router's balancer, affinity and usage-reader tests, ported; forwarding
      against a fake OpenAI server on loopback (streams, provider errors passed through,
      unreachable, the timeout, the caller aborting, a lease released on every path); the secrets

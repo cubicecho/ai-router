@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { providers, usageCounts, workspaces } from '../../server/db/schema.ts';
+import { pools, providers, usageCounts, workspaces } from '../../server/db/schema.ts';
 import { createUsageRecorder, type ServedBy, utcDay } from '../../server/models/usage.ts';
 import { closeTestDb, createTestDb, resetTestDb, type TestDb } from '../helpers.ts';
 
@@ -43,6 +43,8 @@ beforeEach(async () => {
     workspaceName: workspace.slug,
     agentId: null,
     agentName: null,
+    poolId: null,
+    poolName: null,
     providerId: provider.id,
     providerName: provider.name,
     model: 'qwen3:8b',
@@ -76,6 +78,40 @@ describe('the usage recorder', () => {
     recorder.record(unattributed);
     await recorder.flush();
     expect(await rows()).toEqual([{ ...unattributed, day: utcDay(NOW), requests: 2, inputTokens: 0, outputTokens: 0 }]);
+  });
+
+  it("keeps a pool's calls on rows apart from calls naming its target directly, and folds them apart", async () => {
+    const [pool] = await db.insert(pools).values({ name: 'qwen3' }).returning();
+    const viaPool = { ...served, poolId: pool.id, poolName: pool.name };
+    const recorder = createUsageRecorder(db, {}, () => NOW);
+    recorder.record(viaPool);
+    recorder.record(viaPool);
+    recorder.record(served);
+    await recorder.flush();
+    const day = utcDay(NOW);
+    expect(await rows()).toEqual(
+      expect.arrayContaining([
+        { ...viaPool, day, requests: 2, inputTokens: 0, outputTokens: 0 },
+        { ...served, day, requests: 1, inputTokens: 0, outputTokens: 0 },
+      ]),
+    );
+    await createUsageRecorder(db, { detailDays: -1 }, () => NOW).fold();
+    expect(await rows()).toEqual(
+      expect.arrayContaining([
+        { ...viaPool, day: null, requests: 2, inputTokens: 0, outputTokens: 0 },
+        { ...served, day: null, requests: 1, inputTokens: 0, outputTokens: 0 },
+      ]),
+    );
+    expect(await rows()).toHaveLength(2);
+  });
+
+  it('keeps a pool name on its usage once the pool is deleted', async () => {
+    const [pool] = await db.insert(pools).values({ name: 'qwen3' }).returning();
+    const recorder = createUsageRecorder(db, {}, () => NOW);
+    recorder.record({ ...served, poolId: pool.id, poolName: pool.name });
+    await recorder.flush();
+    await db.delete(pools).where(eq(pools.id, pool.id));
+    expect((await rows())[0]).toMatchObject({ poolId: null, poolName: 'qwen3', requests: 1 });
   });
 
   it('keeps usage after its provider and workspace are deleted, by name', async () => {

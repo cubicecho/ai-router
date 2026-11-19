@@ -3,6 +3,7 @@ fragment UsageFields on UsageCount {
   day
   workspaceName
   agentName
+  poolName
   providerName
   model
   requests
@@ -16,6 +17,12 @@ query UsageByProvider($providerId: UUID!) {
     orderBy: { day: { direction: desc, priority: 1 } }
     limit: 500
   ) {
+    ...UsageFields
+  }
+}
+
+query UsageByPool($poolId: UUID!) {
+  usageCounts(where: { poolId: { eq: $poolId } }, orderBy: { day: { direction: desc, priority: 1 } }, limit: 500) {
     ...UsageFields
   }
 }

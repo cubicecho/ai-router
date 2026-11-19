@@ -17,7 +17,7 @@ export const relations = defineRelations(schema, (relate) => ({
     creator: relate.one.users({ from: relate.workspaceKeys.createdBy, to: relate.users.id }),
   },
   providers: { targets: relate.many.poolTargets(), usage: relate.many.usageCounts() },
-  pools: { targets: relate.many.poolTargets() },
+  pools: { targets: relate.many.poolTargets(), usage: relate.many.usageCounts() },
   poolTargets: {
     pool: relate.one.pools({ from: relate.poolTargets.poolId, to: relate.pools.id }),
     provider: relate.one.providers({ from: relate.poolTargets.providerId, to: relate.providers.id }),
@@ -26,6 +26,7 @@ export const relations = defineRelations(schema, (relate) => ({
     workspace: relate.one.workspaces({ from: relate.usageCounts.workspaceId, to: relate.workspaces.id }),
     provider: relate.one.providers({ from: relate.usageCounts.providerId, to: relate.providers.id }),
     agent: relate.one.agents({ from: relate.usageCounts.agentId, to: relate.agents.id }),
+    pool: relate.one.pools({ from: relate.usageCounts.poolId, to: relate.pools.id }),
   },
   servers: {
     secrets: relate.many.serverSecrets(),
