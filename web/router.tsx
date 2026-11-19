@@ -6,6 +6,7 @@ import {
   Outlet,
   redirect,
 } from '@tanstack/react-router';
+import { AGENT_TABS } from '@/agents/search';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
 import { tabSearch } from '@/lib/tab-search';
@@ -64,6 +65,7 @@ const agentsRoute = createRoute({
 const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents/$agentId',
+  validateSearch: tabSearch(AGENT_TABS),
   component: lazyRouteComponent(() => import('@/routes/agent'), 'AgentRoute'),
 });
 
