@@ -1,3 +1,20 @@
+# [0.7.0](https://github.com/cubicecho/ai-router/compare/v0.6.0...v0.7.0) (2026-11-19)
+
+### Bug Fixes
+
+* **tools:** reconnect an SSE server that lost the session, and knock on its stream for a login ([9dda76a](https://github.com/cubicecho/ai-router/commit/9dda76ab6874c968b64d70646dc33ba43a64658e)), closes [#21](https://github.com/cubicecho/ai-router/issues/21)
+* **web:** the shared tab bar keeps the tabs at their own width, under the title ([2d45d02](https://github.com/cubicecho/ai-router/commit/2d45d029ccf80c3c99542de257f38cf781ed3e9c))
+
+### Features
+
+* **agents:** answer GET /v1/models/{id} with the list's entry, and model_not_found otherwise ([7032826](https://github.com/cubicecho/ai-router/commit/7032826f3438e987e4c6e207b618c05adb333483)), closes [#16](https://github.com/cubicecho/ai-router/issues/16)
+* **agents:** give each /v1/models entry the context_length its model reads ([3a1ad8b](https://github.com/cubicecho/ai-router/commit/3a1ad8b762ec62425521bf9f557b5f3976b1d3f7))
+* **agents:** ignore unknown stream_options keys when the router ignores unlisted fields ([6c5da32](https://github.com/cubicecho/ai-router/commit/6c5da3251e1618bea605652b5898b13ba13d0d35)), closes [#24](https://github.com/cubicecho/ai-router/issues/24)
+* **agents:** prune app tools that duplicate the agent's own instead of refusing them ([d69b130](https://github.com/cubicecho/ai-router/commit/d69b130dafdc3354373f2ed923d4b9923a2f39b8)), closes [#15](https://github.com/cubicecho/ai-router/issues/15)
+* **settings:** choose whether /v1 refuses or ignores request fields the policy doesn't list ([8e44873](https://github.com/cubicecho/ai-router/commit/8e44873c4438c83afb590ed179dbdf3be76c143d))
+* **tools:** record which run made an admin-server tool call, and show it on the Activity tab ([ff55d8c](https://github.com/cubicecho/ai-router/commit/ff55d8c32d09f1cdde6542a81422726ab0461120)), closes [#20](https://github.com/cubicecho/ai-router/issues/20)
+* **web:** drop section headings that repeat their tab's name, keeping descriptions ([0f9fd8e](https://github.com/cubicecho/ai-router/commit/0f9fd8ee6b8915a4e552d97ad6456159bcc7e253)), closes [#25](https://github.com/cubicecho/ai-router/issues/25)
+
 # [0.6.0](https://github.com/cubicecho/ai-router/compare/v0.5.1...v0.6.0) (2026-11-19)
 
 ### Features
