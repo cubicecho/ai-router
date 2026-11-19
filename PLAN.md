@@ -449,7 +449,7 @@ The acceptance check for the first release.
    Until an app is moved over, it can still connect as a plain OpenAI client: README.md,
    "Connecting an older app", says how (side tasks on a minimal agent, the unlisted-fields
    setting for strict-field refusals, and `context_length` on `/v1/models`).
-9. **Admin server.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`. Drafts,
+9. **Admin server. Done.** The built-in server `ai-router`, built with `@cubicecho/graphql-mcp`. Drafts,
    discarding and auto-promote arrive here, because this is the first way anything other than a
    user can save an agent. Decided 2026-11-18:
    - **Roles, not levels.** A workspace's entry for `ai-router` holds a set of roles, which add

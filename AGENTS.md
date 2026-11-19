@@ -13,9 +13,10 @@ ai-router gives every app on a network **agents**, through one address and one k
 llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`) stay in service. Their model and
 tool code is the reference to port from, not a dependency.
 
-**Status: phases 1 to 3 and 5 to 7 are built:** the scaffold, models, tools, agents and their
-revisions, and runs on `/v1` with app tools, progress events, run records at `/runs` and
-conversations. Consumers (phase 8) and the admin server (phase 9) come next (`PLAN.md`).
+**Status: phases 1 to 3, 5 to 7 and 9 are built:** the scaffold, models, tools, agents and their
+revisions, runs on `/v1` with app tools, progress events, run records at `/runs` and
+conversations, and the admin server with roles and drafts. The apps are moving over (phase 8).
+What comes next is in the GitHub issues and `PLAN.md`'s later list.
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
