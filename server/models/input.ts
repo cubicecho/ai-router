@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MODEL_CONFIG_DEFAULTS } from '../core/defaults.ts';
 import { nameSchema } from '../core/names.ts';
+import { EQUAL_WEIGHT } from '../db/tables/pool-targets.ts';
 
 const {
   maxDisplayNameLength,
@@ -9,6 +10,7 @@ const {
   maxHeaderValueLength,
   maxApiKeyLength,
   maxTargets,
+  maxTargetWeight,
   maxModelLength,
 } = MODEL_CONFIG_DEFAULTS;
 
@@ -71,6 +73,10 @@ export const targetsInput = z
         .trim()
         .min(1, 'Name the model at the provider.')
         .max(maxModelLength, 'That model id is too long.'),
+      weight: z
+        .int('A weight is a whole number.')
+        .min(EQUAL_WEIGHT, `A weight is at least ${EQUAL_WEIGHT}.`)
+        .max(maxTargetWeight, `A weight is at most ${maxTargetWeight}.`),
     }),
   )
   .max(maxTargets, `A pool may have at most ${maxTargets} targets.`)

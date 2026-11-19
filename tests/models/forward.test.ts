@@ -166,7 +166,7 @@ beforeEach(() => {
           strategy: PoolStrategy.LeastBusy,
           affinity: AFFINITY_NONE,
           maxLoadFactor: null,
-          targets: [{ providerId: ollama.id, providerName: 'ollama', model: 'qwen3:8b' }],
+          targets: [{ providerId: ollama.id, providerName: 'ollama', model: 'qwen3:8b', weight: 1 }],
         },
       ],
     ]),
@@ -258,7 +258,7 @@ describe('refusing', () => {
 });
 
 describe('pools', () => {
-  const target = { providerName: 'ollama', providerId: 'id-ollama', model: 'qwen3:8b' };
+  const target = { providerName: 'ollama', providerId: 'id-ollama', model: 'qwen3:8b', weight: 1 };
 
   it('sends a pool call to its target, and frees the slot when the answer ends', async () => {
     const answer = await call('chat/completions', { model: 'qwen3', messages: [] });
@@ -316,7 +316,7 @@ describe('pools', () => {
   });
 
   describe('with a target that cannot be reached', () => {
-    const deadTarget = { providerName: 'dead', providerId: 'id-dead', model: 'qwen3:8b' };
+    const deadTarget = { providerName: 'dead', providerId: 'id-dead', model: 'qwen3:8b', weight: 1 };
 
     beforeEach(() => {
       const dead = providerEntry('dead', { baseUrl: 'http://127.0.0.1:1/v1' });

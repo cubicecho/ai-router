@@ -267,13 +267,20 @@ The acceptance check for the first release.
      time (use UTC).
    - **Kept on purpose:** two pools that share a target share its in-flight count, since it is
      one server's load.
+   - **Failover, health and weights (2026-11-18, #29):** a call whose target can't be reached
+     goes to the pool's next target, and that target is passed over for 30 seconds. Health
+     checks ask each provider an enabled pool uses for its model list every 30 seconds
+     (`POOL_HEALTH_DEFAULTS`, a 5 s timeout), and a target whose provider doesn't answer or
+     doesn't list its model is passed over until a later round finds it up. Each target has a
+     weight (1 to 100): smooth weighted round-robin, weighted random, least load per unit of
+     weight, and weighted rendezvous hashing with bounded load at each target's weighted share.
    - **Usage outlives its provider:** a usage row keeps the provider's name as text, and its
      `provider_id` is an optional foreign key, set to null when the provider is deleted.
    - **The response timeout** (10 minutes until the first byte) is a `defaults.ts` value, not
      an editable setting, until something else needs runtime settings.
    - **Tables:** `providers` (name, display name, description, enabled, base URL, `api_key` as a
      write-only secret, `headers`), `pools` (name, display name, description, enabled, strategy,
-     affinity, `max_load_factor`) and `pool_targets` (pool, provider, model, position).
+     affinity, `max_load_factor`) and `pool_targets` (pool, provider, model, position, weight).
    - **Admin API:** generated CRUD, checked by hooks and rebuilding the snapshot on commit, plus
      `setProviderApiKey` (admin only), `setPoolTargets` (the whole list, in order, in one
      transaction), `providerModels(id, refresh)` and `poolLoad(id)`.
@@ -517,9 +524,6 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
 
 ## Open questions
 
-- **Failover and health for pools.** A call whose target can't be reached goes to the pool's next
-  target, and that target is passed over for 30 seconds (2026-11-18). Still open: health checks
-  that probe a target before a call finds it down, and per-target weights.
 - **Model features llm-router lacks:** native non-OpenAI APIs (Anthropic, Ollama's own), and
   cost.
 - **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the

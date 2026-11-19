@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { type PoolFieldsFragment, PoolLoadDocument } from '@/__generated__/graphql';
+import { type PoolFieldsFragment, PoolLoadDocument, type PoolLoadQuery } from '@/__generated__/graphql';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
@@ -15,6 +15,24 @@ import { TargetsDialog } from './targets-dialog';
 /** How often the load per target is read again while the targets are shown. */
 const LOAD_REFRESH_MS = 3_000;
 
+/** One target's entry in a pool's load. */
+type TargetLoad = PoolLoadQuery['poolLoad'][number];
+
+/**
+ * Says what the router last learned of a target's health, under its name.
+ *
+ * @param load - The target's entry in the pool's load; undefined before it has arrived.
+ * @returns Why it is passed over, while it is; else when a check last found it up; else nothing.
+ */
+function healthLine(load: TargetLoad | undefined): string | undefined {
+  const downReason = load?.downReason ?? null;
+  const checkedAt = load?.checkedAt ?? null;
+  if (downReason !== null) {
+    return downReason;
+  }
+  return checkedAt === null ? undefined : `Up at the last check, ${new Date(checkedAt).toLocaleTimeString()}.`;
+}
+
 /** What the targets section is given. */
 export interface PoolTargetsSectionProps {
   pool: PoolFieldsFragment;
@@ -23,8 +41,8 @@ export interface PoolTargetsSectionProps {
 }
 
 /**
- * A pool's targets in the order it tries them, with the calls each has in flight now, and the dialog that edits
- * them. Untitled: it is the Targets tab's whole pane, and the tab names it.
+ * A pool's targets in the order it tries them, with each one's weight, the calls it has in flight now and its
+ * health, and the dialog that edits them. Untitled: it is the Targets tab's whole pane, and the tab names it.
  */
 export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -48,7 +66,7 @@ export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps)
 
   return (
     <Section
-      description="Where its calls go, with how many each has in flight now. One that can't be reached is passed over for a while, and its calls go to the next."
+      description="Where its calls go, each taking a share of them by its weight, with how many each has in flight now. The router checks each target's provider in the background: one that is down, or that a call could not reach, is passed over and its calls go to the next."
       actionSlot={pool.targets.length > 0 ? edit : undefined}
       contentSlot={
         <>
@@ -64,6 +82,7 @@ export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps)
                     key={target.id}
                     title={`${target.provider?.name ?? '?'}/${target.model}`}
                     titleClassName="font-mono"
+                    description={healthLine(targetLoad)}
                     linkSlot={
                       target.provider === null || target.provider === undefined ? undefined : (
                         <Link to="/providers/$providerId" params={{ providerId: target.provider.id }} />
@@ -73,8 +92,9 @@ export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps)
                       <span className="flex items-center gap-2">
                         {target.provider?.enabled === false ? <Badge variant="outline">Provider off</Badge> : null}
                         {targetLoad?.reachable === false ? (
-                          <Badge variant="warning-soft">Unreachable, passed over</Badge>
+                          <Badge variant="warning-soft">Down, passed over</Badge>
                         ) : null}
+                        <span className="text-foreground/60 text-xs tabular-nums">Weight {target.weight}</span>
                         <span className="text-foreground/60 text-xs tabular-nums">
                           {targetLoad?.inFlight ?? 0} in flight
                         </span>

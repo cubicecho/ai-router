@@ -1,0 +1,76 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "33093e81-7ec8-496c-b268-ca5920056f31",
+  "prevIds": [
+    "a7ce011f-9670-44af-a28d-9cda971bc158"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "pool_targets",
+        "weight"
+      ],
+      "writes": [
+        "s|col|public.pool_targets.weight",
+        "n|col|public.pool_targets.weight",
+        "e|col|public.pool_targets.weight"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "pool_targets"
+      ],
+      "writes": [
+        "s|ck|public.pool_targets.ck_pool_targets_weight",
+        "n|ck|public.pool_targets.ck_pool_targets_weight",
+        "e|ck|public.pool_targets.ck_pool_targets_weight",
+        "n|con|public.pool_targets.ck_pool_targets_weight"
+      ],
+      "reads": [
+        "n|tbl|public.pool_targets",
+        "n|sch|public",
+        "n|col|public.pool_targets.weight"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "weight",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "1",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pool_targets",
+        "name": "ck_pool_targets_weight",
+        "value": "\"weight\" >= 1",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

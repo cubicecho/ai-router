@@ -43,6 +43,7 @@ const { app, models, tools, runs } = await createApp({
   staticDir: path.join(ROOT, 'dist'),
 });
 models.usage.start();
+models.health.start();
 tools.activity.start();
 // Before listening, so a retried request never finds a run that nothing is running.
 const recovered = await runs.recover();
@@ -71,6 +72,7 @@ const server = app.listen(port(), LISTEN_HOST, () => {
 
 stopOnSignals(server, {
   after: async () => {
+    models.health.stop();
     // Runs still going end first and are recorded, then MCP servers stop, then counts and calls gathered since the
     // last write go in before the database closes.
     await runs.stop();

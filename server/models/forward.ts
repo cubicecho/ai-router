@@ -415,7 +415,7 @@ export function createForwarder({
         if (target === null || isUnreachable === false) {
           throw error;
         }
-        balancer.markUnreachable(target);
+        balancer.markUnreachable(target, error.message);
         tried.add(modelId(target.providerName, target.model));
         unreachable = error;
         console.warn(`[models] ${error.message} Pool "${body.model}" passes that target over for a while.`);

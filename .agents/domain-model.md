@@ -69,7 +69,7 @@ Dependencies point one way:
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
-| Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
+| Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, the state of server instances, and which pool targets its health checks found down (in memory only). Never config, so a config change by anything other than a user is a bug |
 
 ## Lifecycles
 
@@ -225,7 +225,9 @@ created (shown once) --> in use --revoke--> deleted
 | Child processes are spawned with argument arrays and an env allowlist, never a shell string or the router's whole `process.env` | `tools/instance` |
 | The agents endpoint lists and runs only agents. No endpoint serves a raw model or tool to an app. An agent a workspace may not run gets the same 404 as one that doesn't exist, and every other `/v1` path a 404, all in OpenAI's error envelope | `agents/routes`, `http/app` |
 | A model id splits at its first `/`, and a name with no `/` is a pool | `models/naming` |
-| A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, unless that leaves a pool none | `models/forward`, `models/balancer` |
+| A pool call is sent again, to the pool's next target, only when its target could not be reached at all, so no provider has done any of it. A timeout or an error answer is passed back. A target that could not be reached is passed over by every pool for `unreachableCooldownSeconds`, and one the health checks found down until a later round finds it up, unless that leaves a pool none | `models/forward`, `models/balancer`, `models/health` |
+| A health check asks each provider an enabled pool uses for its model list once a round, whatever the number of targets; a target is down when its provider can't be listed or doesn't list its model | `models/health` |
+| A target's weight is its share of its pool's calls under every strategy, and under affinity: weighted rendezvous hashing, so a target leaving moves only its own keys, and bounded load caps each target at its weighted share | `models/balancer` |
 | An agent id is unique and follows the same name rule as providers and servers | `agents/document`, and `uq_agents_name` |
 | The admin server is the only way to the router's management tools. There is no separate admin endpoint: it is connected in process, through the tools area's instances, like any other server a run reaches | `admin/server` `createAdminServer`, handed to `tools/instances` `serveBuiltin` by `http/app`; no route |
 | A run is listed only the admin server's tools whose root field its workspace's roles reach, and none with no entry or no roles. The listing is not the lock: the same permissions `/graphql` has guard every call, so a call past the roles is refused with FORBIDDEN. A tool's result carries no stored secret | `admin/server` (`canReachField`), `graphql/permissions`, `graphql/abilities` |
@@ -334,10 +336,17 @@ Everything about the code comes after `Owner:`.
 - **Model id:** how an agent names its model: one provider's model, named after the provider, or a
   pool. Owner: `models/naming`; `<provider>/<model>`, split at the first `/`, or a pool's name.
 - **Pool:** one model name served by several targets, with the router choosing one for each
-  call: the least busy, in turn, or at random. A target the router could not reach is passed
-  over for a while, and the call goes to the next. Owner: `models/balancer`; the `pools` table.
-- **Target:** one place a pool can send a call: a provider and the model's name there. Owner:
-  `models/balancer`; the `pool_targets` table, written whole by `setPoolTargets`.
+  call: the least busy, in turn, or at random, each target by its weight. A target that is down
+  is passed over, and the call goes to the next. Owner: `models/balancer`; the `pools` table.
+- **Target:** one place a pool can send a call: a provider, the model's name there, and a weight,
+  its share of the pool's calls (1 unless set). Owner: `models/balancer`; the `pool_targets`
+  table, written whole by `setPoolTargets`.
+- **Health check:** the router asking, every `POOL_HEALTH_DEFAULTS.intervalSeconds`, each
+  provider an enabled pool uses for its model list. A target whose provider doesn't answer, or
+  doesn't list its model, is down, and passed over by every pool until a later check finds it
+  up. A target is also down for a while after a call could not reach it. The pool page shows
+  when each target was last checked and why it is down. Owner: `models/health`; the results are
+  held by `models/balancer`, in memory.
 - **Affinity (sticky):** keeping one conversation's requests on the same target, so its prompt
   cache is reused. Owner: `models/affinity`.
 - **Usage:** requests and tokens, counted per day, workspace, provider, model and agent. Usage
