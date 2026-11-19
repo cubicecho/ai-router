@@ -3,9 +3,10 @@ import {
   MeDocument,
   RouterSettingsDocument,
   type RouterSettingsQuery,
+  type UnlistedFields,
   UpdateRouterSettingsDocument,
 } from '@/__generated__/graphql';
-import { NumberField, useAppForm } from '@/components/app-form';
+import { NumberField, SelectField, useAppForm } from '@/components/app-form';
 import { CardLayout } from '@/components/card-layout';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
@@ -18,8 +19,29 @@ import { Role } from '@/lib/roles';
 /** The router's settings, as the page reads them. */
 type RouterSettings = RouterSettingsQuery['routerSettings'];
 
+/** What a change to the settings sends. null returns a setting to its default. */
+interface SettingsInput {
+  maxAppTools: number | null;
+  unlistedFields: UnlistedFields | null;
+}
+
+/** Every setting back to its default. */
+const DEFAULTS_INPUT: SettingsInput = { maxAppTools: null, unlistedFields: null };
+
 /** What the app-tool cap is called on the page. */
 const MAX_APP_TOOLS_LABEL = 'Most tools per request';
+/** What the unlisted-fields choice is called on the page. */
+const UNLISTED_FIELDS_LABEL = 'Fields the agent does not allow';
+
+/** Each choice for unlisted fields, as the page names it. */
+const UNLISTED_FIELDS_LABELS: Record<UnlistedFields, string> = {
+  refuse: 'Refuse the request',
+  ignore: 'Ignore the field',
+};
+const UNLISTED_FIELDS_OPTIONS: { value: UnlistedFields; label: string }[] = [
+  { value: 'refuse', label: UNLISTED_FIELDS_LABELS.refuse },
+  { value: 'ignore', label: UNLISTED_FIELDS_LABELS.ignore },
+];
 
 /**
  * Says what the app-tool cap does.
@@ -30,6 +52,18 @@ const MAX_APP_TOOLS_LABEL = 'Most tools per request';
 function maxAppToolsDescription(setting: RouterSettings['maxAppTools']): string {
   const source = setting.saved === null ? 'the default' : `set by an admin; the default is ${setting.default}`;
   return `The most tools an app may send with one request. OpenAI's own limit is 128. From ${setting.min} to ${setting.max}, now ${source}.`;
+}
+
+/**
+ * Says what the unlisted-fields choice does.
+ *
+ * @param setting - The choice, with its default.
+ * @returns One line for under the field or the value.
+ */
+function unlistedFieldsDescription(setting: RouterSettings['unlistedFields']): string {
+  const fallback = UNLISTED_FIELDS_LABELS[setting.default].toLowerCase();
+  const source = setting.saved === null ? 'the default' : `set by an admin; the default is to ${fallback}`;
+  return `What happens when an app sends a field the agent's override policy does not allow, such as reasoning_effort or metadata. Refusing answers with an error naming the field. Ignoring drops it, runs the agent, and names it in the X-AI-Router-Ignored header. Messages, tools, response_format and system messages are never ignored. Now ${source}.`;
 }
 
 /** What the settings form is given. */
@@ -45,19 +79,22 @@ interface SettingsFormProps {
  */
 function SettingsForm({ settings }: SettingsFormProps) {
   const queryClient = useQueryClient();
-  const { maxAppTools } = settings;
+  const { maxAppTools, unlistedFields } = settings;
   // null returns a setting to its default, so it follows the default if that changes.
   const save = useMutation({
-    mutationFn: (input: { maxAppTools: number | null }) => request(UpdateRouterSettingsDocument, { input }),
+    mutationFn: (input: SettingsInput) => request(UpdateRouterSettingsDocument, { input }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routerSettings'] }),
   });
-  // null while the box is empty or holds a fraction, for the validator to report.
-  const values: { maxAppTools: number | null } = { maxAppTools: maxAppTools.value };
+  // maxAppTools is null while the box is empty or holds a fraction, for the validator to report.
+  const values: { maxAppTools: number | null; unlistedFields: UnlistedFields } = {
+    maxAppTools: maxAppTools.value,
+    unlistedFields: unlistedFields.value,
+  };
   const form = useAppForm({
     defaultValues: values,
     onSubmit: ({ value }) => save.mutateAsync(value),
   });
-  const isDefault = maxAppTools.saved === null;
+  const isDefault = maxAppTools.saved === null && unlistedFields.saved === null;
 
   return (
     <CardLayout
@@ -72,31 +109,41 @@ function SettingsForm({ settings }: SettingsFormProps) {
         </form.AppForm>
       )}
       contentSlot={
-        <NumberField
-          form={form}
-          name="maxAppTools"
-          label={MAX_APP_TOOLS_LABEL}
-          description={maxAppToolsDescription(maxAppTools)}
-          required
-          integer
-          min={maxAppTools.min}
-          max={maxAppTools.max}
-          validators={{
-            onChange: ({ value }) => {
-              const isOutOfRange = value === null || value < maxAppTools.min || value > maxAppTools.max;
-              return isOutOfRange ? `Enter a whole number from ${maxAppTools.min} to ${maxAppTools.max}.` : undefined;
-            },
-          }}
-        />
+        <>
+          <NumberField
+            form={form}
+            name="maxAppTools"
+            label={MAX_APP_TOOLS_LABEL}
+            description={maxAppToolsDescription(maxAppTools)}
+            required
+            integer
+            min={maxAppTools.min}
+            max={maxAppTools.max}
+            validators={{
+              onChange: ({ value }) => {
+                const isOutOfRange = value === null || value < maxAppTools.min || value > maxAppTools.max;
+                return isOutOfRange ? `Enter a whole number from ${maxAppTools.min} to ${maxAppTools.max}.` : undefined;
+              },
+            }}
+          />
+          <SelectField
+            form={form}
+            name="unlistedFields"
+            label={UNLISTED_FIELDS_LABEL}
+            description={unlistedFieldsDescription(unlistedFields)}
+            options={UNLISTED_FIELDS_OPTIONS}
+            required
+          />
+        </>
       }
       footerActionsSlot={
         <>
           {isDefault ? null : (
             <Button
               variant="outline"
-              loading={save.isPending && save.variables?.maxAppTools === null}
-              onClick={() => save.mutate({ maxAppTools: null })}
-              content="Use the default"
+              loading={save.isPending && save.variables === DEFAULTS_INPUT}
+              onClick={() => save.mutate(DEFAULTS_INPUT)}
+              content="Use the defaults"
             />
           )}
           <form.SubmitButton requireChanges content="Save" />
@@ -113,7 +160,7 @@ function SettingsForm({ settings }: SettingsFormProps) {
  * @returns The card with each setting's value.
  */
 function SettingsValues({ settings }: SettingsFormProps) {
-  const { maxAppTools } = settings;
+  const { maxAppTools, unlistedFields } = settings;
   return (
     <CardLayout
       title="Apps"
@@ -122,11 +169,18 @@ function SettingsValues({ settings }: SettingsFormProps) {
       contentSlot={
         <PropertyList
           contentSlot={
-            <PropertyRow
-              label={MAX_APP_TOOLS_LABEL}
-              value={String(maxAppTools.value)}
-              hint={maxAppToolsDescription(maxAppTools)}
-            />
+            <>
+              <PropertyRow
+                label={MAX_APP_TOOLS_LABEL}
+                value={String(maxAppTools.value)}
+                hint={maxAppToolsDescription(maxAppTools)}
+              />
+              <PropertyRow
+                label={UNLISTED_FIELDS_LABEL}
+                value={UNLISTED_FIELDS_LABELS[unlistedFields.value]}
+                hint={unlistedFieldsDescription(unlistedFields)}
+              />
+            </>
           }
         />
       }

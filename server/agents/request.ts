@@ -2,6 +2,7 @@ import { type AgentLoopOptions, CALL_TOOL, LOAD_TOOLS, RECORD_ARTIFACT } from '@
 import { z } from 'zod';
 import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
+import { UnlistedFields } from '../core/settings.ts';
 import type { InputMessage } from '../db/tables/runs.ts';
 import type { OverridePolicyRules } from './policy.ts';
 
@@ -19,6 +20,11 @@ const TOOL_CHOICE_AUTO = 'auto';
 
 /** What joins the texts of the leading system messages into the host part. */
 const HOST_JOIN = '\n\n';
+
+/** The header an answer names the request fields it dropped in, when the router's settings ignore unlisted ones. */
+export const IGNORED_HEADER = 'X-AI-Router-Ignored';
+/** What joins the dropped fields' names in that header. */
+const IGNORED_JOIN = ', ';
 
 /** The roles whose leading messages become the host part. */
 const HOST_ROLES: ReadonlySet<string> = new Set(['system', 'developer']);
@@ -164,6 +170,18 @@ export interface RunRequest {
   user: string | null;
   /** `ai_router.progress`: whether the answer carries the run's events. */
   progress: boolean;
+  /** The fields the policy doesn't list that were dropped, in the body's order. Empty unless the settings ignore them. */
+  ignored: string[];
+}
+
+/**
+ * Writes the dropped fields as the `X-AI-Router-Ignored` header's value.
+ *
+ * @param ignored - The fields, from `RunRequest.ignored`.
+ * @returns Their names, comma-separated, or null when none was dropped and the header is left off.
+ */
+export function ignoredHeaderValue(ignored: readonly string[]): string | null {
+  return ignored.length === 0 ? null : ignored.join(IGNORED_JOIN);
 }
 
 /**
@@ -351,11 +369,22 @@ function isHostMessage(message: ParsedMessage): message is Extract<ParsedMessage
  *
  * @param body - The parsed body.
  * @param policy - The agent's override policy.
- * @returns The request's sampling settings.
- * @throws {@link RequestRefusal} For a field the policy doesn't allow, or a value out of range.
+ * @param unlisted - What the router's settings do with a field the policy doesn't list.
+ * @returns The request's sampling settings, and the unlisted fields dropped, in the body's order.
+ * @throws {@link RequestRefusal} For a field the policy doesn't allow while the settings refuse those, or a value
+ * out of range.
+ *
+ * @remarks
+ * Only the fields reach here that the router doesn't read itself, so ignoring never drops a message, a tool,
+ * `response_format` or `ai_router`.
  */
-function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules): RequestSampling {
+function readSampling(
+  body: Record<string, unknown>,
+  policy: OverridePolicyRules,
+  unlisted: UnlistedFields,
+): { sampling: RequestSampling; ignored: string[] } {
   const sampling: RequestSampling = { extraBody: {} };
+  const ignored: string[] = [];
   for (const [field, value] of Object.entries(body)) {
     // An unset field, as some clients send it, says nothing.
     const isUnset = value === null || value === undefined;
@@ -363,7 +392,14 @@ function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules
       continue;
     }
     if (policy.sampling.includes(field) === false) {
-      throw new RequestRefusal(field, `${field}: this agent's override policy doesn't let a request set it.`);
+      if (unlisted === UnlistedFields.Ignore) {
+        ignored.push(field);
+        continue;
+      }
+      throw new RequestRefusal(
+        field,
+        `${field}: this agent's override policy doesn't let a request set it. An admin can set the router to ignore such fields instead.`,
+      );
     }
     if (field === TEMPERATURE) {
       sampling.temperature = parseField(z.number().min(0).max(2), value, field);
@@ -377,7 +413,7 @@ function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules
       sampling.extraBody[field] = value;
     }
   }
-  return sampling;
+  return { sampling, ignored };
 }
 
 /**
@@ -390,9 +426,12 @@ function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules
  * @throws {@link RequestRefusal} For anything the router or the policy refuses, naming the field.
  *
  * @remarks
- * Nothing is quietly trimmed: a field the policy doesn't allow refuses the whole request. `response_format` follows
- * the policy, `parallel_tool_calls` passes through, `user` is recorded, and `n` above 1 is refused, because a run
- * gives one answer. A field sent as null is read as not sent.
+ * Nothing is trimmed quietly. A field the router doesn't read and the policy doesn't list refuses the whole request,
+ * or, when the router's `unlistedFields` setting is `ignore`, is dropped and named in `ignored`, for the answer's
+ * `X-AI-Router-Ignored` header. Everything else still refuses: the messages, the tools, `n` above 1 (a run gives
+ * one answer), system messages or `response_format` the policy refuses, which would change what the answer is, a
+ * bad value of a listed field, and `ai_router`. `parallel_tool_calls` passes through, `user` is recorded, and a
+ * field sent as null is read as not sent.
  */
 export function readRunRequest(
   body: unknown,
@@ -428,7 +467,7 @@ export function readRunRequest(
       "ai_router.servers: this agent's override policy doesn't let a request narrow its servers.",
     );
   }
-  const sampling = readSampling(body, policy);
+  const { sampling, ignored } = readSampling(body, policy, settings.unlistedFields);
   const hasResponseFormat = body.response_format !== undefined && body.response_format !== null;
   if (hasResponseFormat) {
     if (policy.responseFormat === false) {
@@ -467,5 +506,6 @@ export function readRunRequest(
     ...requestedStream(body),
     user,
     progress: options.progress === true,
+    ignored,
   };
 }

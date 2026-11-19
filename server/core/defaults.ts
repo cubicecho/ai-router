@@ -500,10 +500,16 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
 export interface RouterSettings {
   /** The most tools an app may send with one request on `/v1`. OpenAI's own limit is 128. */
   maxAppTools: number;
+  /**
+   * What a request on `/v1` gets for a field the agent's override policy doesn't list: `refuse` answers 400 naming
+   * it, and `ignore` drops it, runs, and names it in `X-AI-Router-Ignored`.
+   */
+  unlistedFields: 'refuse' | 'ignore';
 }
 
 export const ROUTER_DEFAULTS: Readonly<RouterSettings> = Object.freeze({
   maxAppTools: 128,
+  unlistedFields: 'refuse',
 });
 
 /** What an admin may set the router's settings to. */

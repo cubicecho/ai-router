@@ -3,7 +3,7 @@ import { ADMIN_ROLES } from '../../server/core/admin-roles.ts';
 import { CALLER_RUN, type UserCaller } from '../../server/core/context.ts';
 import { ROUTER_CONFIG_DEFAULTS, ROUTER_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
-import { MIN_APP_TOOLS } from '../../server/core/settings.ts';
+import { MIN_APP_TOOLS, UnlistedFields } from '../../server/core/settings.ts';
 import { createSnapshotHost, loadSnapshot, type SnapshotHost } from '../../server/db/snapshot.ts';
 import { settings } from '../../server/db/tables/settings.ts';
 import { Role } from '../../server/db/tables/users.ts';
@@ -18,7 +18,10 @@ import {
   workspaceCaller,
 } from '../helpers.ts';
 
-const READ = '{ routerSettings { maxAppTools { value saved default min max } } }';
+const READ =
+  '{ routerSettings { maxAppTools { value saved default min max } unlistedFields { value saved default } } }';
+const UPDATE_UNLISTED =
+  'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { unlistedFields { value saved } } }';
 const UPDATE =
   'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { maxAppTools { value saved } } }';
 
@@ -63,7 +66,28 @@ describe('the router settings', () => {
       min: MIN_APP_TOOLS,
       max: maxAppToolsLimit,
     });
+    expect(routerSettings.unlistedFields).toEqual({
+      value: UnlistedFields.Refuse,
+      saved: null,
+      default: UnlistedFields.Refuse,
+    });
     expect(snapshot.current().settings).toEqual(ROUTER_DEFAULTS);
+  });
+
+  it('let an admin choose to ignore unlisted request fields, keep the other settings, and return to refusing', async () => {
+    const asAdmin = createClient(db, admin, { snapshot });
+    await update({ maxAppTools: 16 });
+    const ignoring = await asAdmin.expectOk(UPDATE_UNLISTED, { input: { unlistedFields: UnlistedFields.Ignore } });
+    expect(ignoring.updateRouterSettings.unlistedFields).toEqual({
+      value: UnlistedFields.Ignore,
+      saved: UnlistedFields.Ignore,
+    });
+    expect(snapshot.current().settings).toEqual({ maxAppTools: 16, unlistedFields: UnlistedFields.Ignore });
+    const back = await asAdmin.expectOk(UPDATE_UNLISTED, { input: { unlistedFields: null } });
+    expect(back.updateRouterSettings.unlistedFields).toEqual({ value: UnlistedFields.Refuse, saved: null });
+    expect(snapshot.current().settings).toEqual({ maxAppTools: 16, unlistedFields: UnlistedFields.Refuse });
+    // GraphQL's enum refuses any other choice before the resolver sees it.
+    await asAdmin.expectError(UPDATE_UNLISTED, { input: { unlistedFields: 'trim' } });
   });
 
   it('let an admin change one, which the snapshot holds once the write answers', async () => {

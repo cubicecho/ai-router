@@ -99,7 +99,8 @@ non-negotiables apply on top of these.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
   follows its default. Every user reads `routerSettings`; only an admin calls
-  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap.
+  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap and
+  `unlistedFields`.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
@@ -162,6 +163,11 @@ non-negotiables apply on top of these.
   the agent passes the override policy before `resolveAgentSpec`. `endpoint` and the model never
   change for a request, and a caller's `servers` is intersected with the agent's. Sampling
   settings pass only if the policy allows them, and never reach side tasks.
+- **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
+  refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
+  named in `X-AI-Router-Ignored`, set before the first byte. Only those fields are ever ignored:
+  messages, tools, `n`, `response_format`, `ai_router`, system messages the policy refuses, and a
+  bad value of a listed field still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
   model address, which the run's `fetch` hands to the models area in process, so an agent
   without an endpoint, and its side tasks, can run, and usage counts under the run.

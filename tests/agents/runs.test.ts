@@ -1,9 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
+import { IGNORED_HEADER } from '../../server/agents/request.ts';
 import { createRunService } from '../../server/agents/run.ts';
+import { UnlistedFields } from '../../server/core/settings.ts';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { activity } from '../../server/db/tables/activity.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
+import { settings } from '../../server/db/tables/settings.ts';
 import { usageCounts } from '../../server/db/tables/usage-counts.ts';
 import { createSessionToken, createTestAuth, createWorkspaceWithKey } from '../helpers.ts';
 import {
@@ -229,6 +232,39 @@ describe('the agents endpoint', () => {
     }
     expect(await h.db.select().from(runs)).toEqual([]);
     expect(h.received).toEqual([]);
+  });
+
+  it('drops the fields the policy does not list when the router ignores them, and names them, streamed or not', async () => {
+    const { base } = await h.startRouter();
+    const unlisted = { reasoning_effort: 'low', metadata: { app: 'task_server' }, store: false };
+    const refused = await h.complete(base, { model: 'helper', messages: [QUESTION], ...unlisted });
+    expect(refused.status).toBe(HttpStatus.BadRequest);
+    expect((await refused.json()).error).toMatchObject({ param: 'reasoning_effort' });
+    expect(refused.headers.get(IGNORED_HEADER)).toBeNull();
+
+    await h.db.insert(settings).values({ values: { unlistedFields: UnlistedFields.Ignore } });
+    await h.snapshot.rebuild();
+    const body = { model: 'helper', messages: [QUESTION], top_k: 40, ...unlisted };
+    const answered = await h.complete(base, body);
+    expect(answered.status).toBe(HttpStatus.Ok);
+    expect(answered.headers.get(IGNORED_HEADER)).toBe('reasoning_effort, metadata, store');
+    expect((await answered.json()).choices[0].message.content).toBe('The tool said: hello there');
+    const [first] = h.received;
+    expect(first?.top_k).toBe(40);
+    expect(first).not.toHaveProperty('metadata');
+    expect(first).not.toHaveProperty('store');
+
+    const streamed = await h.complete(base, { ...body, stream: true });
+    expect(streamed.headers.get('content-type')).toContain('text/event-stream');
+    expect(streamed.headers.get(IGNORED_HEADER)).toBe('reasoning_effort, metadata, store');
+    expect((await dataLines(streamed)).at(-1)).toBe('[DONE]');
+
+    const plain = await h.complete(base, { model: 'helper', messages: [QUESTION] });
+    expect(plain.headers.get(IGNORED_HEADER)).toBeNull();
+    await plain.json();
+    const structural = await h.complete(base, { model: 'helper', messages: [QUESTION], n: 2, ...unlisted });
+    expect(structural.status).toBe(HttpStatus.BadRequest);
+    expect((await structural.json()).error).toMatchObject({ param: 'n' });
   });
 
   it('runs a workspace instance with its own settings when the workspace has an entry for the server', async () => {

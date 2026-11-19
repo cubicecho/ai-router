@@ -15,7 +15,15 @@ import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
 import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
-import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
+import {
+  IGNORED_HEADER,
+  ignoredHeaderValue,
+  RequestRefusal,
+  type RunRequest,
+  readRunRequest,
+  requestedAgent,
+  requestedStream,
+} from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
 
 /** The header a retry-safe request carries. */
@@ -306,6 +314,11 @@ export function createAgentRoutes({
     try {
       const runRequest = readRunRequest(body, agent.policy, current.settings);
       delivery = runRequest;
+      // Before the first byte, so a streamed answer carries it too.
+      const ignored = ignoredHeaderValue(runRequest.ignored);
+      if (ignored !== null) {
+        response.setHeader(IGNORED_HEADER, ignored);
+      }
       const fetch = forwarder.fetchFor({
         workspaceId,
         workspaceName: workspace.slug,
