@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { inputMessagesOf } from '../../web/runs/input.ts';
 import { formatDuration, shortError, statusOf } from '../../web/runs/shapes.ts';
 import { type TimelineEvent, timelineOf } from '../../web/runs/timeline.ts';
 
-// The run page draws agent-core's RunEvents as a timeline, live now and from stored events in phase 7.
+// The run page draws agent-core's RunEvents as a timeline: live ones as they come, and stored ones, which are folded.
 
 /**
  * Builds an event with every field a watcher receives.
@@ -27,6 +28,30 @@ describe('timelineOf', () => {
     expect(entries.map((entry) => entry.type)).toEqual(['turn', 'thinking', 'output']);
     expect(entries[1]).toMatchObject({ text: 'Let me look.', key: 2 });
     expect(entries[2]).toMatchObject({ text: 'Hello there.', key: 4 });
+  });
+
+  it('draws stored events, each stretch folded under its last seq, as it draws the deltas', () => {
+    const deltas = [
+      event(1, { kind: 'turn', text: 'turn 1' }),
+      event(2, { kind: 'thinking', text: 'Let me ' }),
+      event(3, { kind: 'thinking', text: 'look.' }),
+      event(4, { kind: 'output', text: 'Hello ' }),
+      event(5, { kind: 'output', text: 'there.' }),
+      event(6, { kind: 'done', ok: true }),
+    ];
+    const folded = [
+      event(1, { kind: 'turn', text: 'turn 1' }),
+      event(3, { kind: 'thinking', text: 'Let me look.' }),
+      event(5, { kind: 'output', text: 'Hello there.' }),
+      event(6, { kind: 'done', ok: true }),
+    ];
+    // A page that opens mid-stretch gets the stored part folded, then the rest live.
+    const joined = [event(4, { kind: 'output', text: 'Hello ' }), event(5, { kind: 'output', text: 'there.' })];
+    const mixed = [...folded.slice(0, 2), ...joined, folded[3] ?? event(6, { kind: 'done' })];
+    const shown = (events: TimelineEvent[]) =>
+      timelineOf(events).map((entry) => [entry.type, 'text' in entry ? entry.text : '']);
+    expect(shown(folded)).toEqual(shown(deltas));
+    expect(shown(mixed)).toEqual(shown(deltas));
   });
 
   it('joins each tool call to its result and log lines by the call id', () => {
@@ -109,5 +134,23 @@ describe('run shapes', () => {
   it('reads only the statuses the filter offers from the address bar', () => {
     expect(statusOf('failed')).toBe('failed');
     expect(statusOf('nonsense')).toBeUndefined();
+  });
+});
+
+describe('run input', () => {
+  it("reads a run's input messages, and leaves out anything that is not one", () => {
+    const messages = inputMessagesOf([
+      { role: 'system', content: 'You are in task_server.' },
+      { role: 'user', content: 'And this receipt?', images: 1 },
+      { role: 'tool', content: 'blue', toolCallId: 'abc' },
+      { role: 'assistant', content: 'not input' },
+      'nonsense',
+    ]);
+    expect(messages).toEqual([
+      { role: 'system', content: 'You are in task_server.', toolCallId: null, images: 0 },
+      { role: 'user', content: 'And this receipt?', toolCallId: null, images: 1 },
+      { role: 'tool', content: 'blue', toolCallId: 'abc', images: 0 },
+    ]);
+    expect(inputMessagesOf(null)).toEqual([]);
   });
 });

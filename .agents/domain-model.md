@@ -144,7 +144,7 @@ received --resolve--> running --model answers--> completed
     that answers anything else. A late answer to an expired run gets 409 `run_expired`.
   - **The run timeout** counts the time a run runs, from its start or a resume; waiting doesn't
     count. Waiting past `RUN_DEFAULTS.waitTimeoutHours` expires it.
-- **Recording:** a run is recorded from `running` on, with the revision it ran, and the end it came
+- **Recording:** a run is recorded from `running` on, with the revision it ran, what its requests added, and the end it came
   to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
   retention period. A run the router was running when it stopped is marked failed at the next boot.
 - **Repeating:** a request with an `Idempotency-Key` its workspace already used never starts a
@@ -264,7 +264,7 @@ created (shown once) --> in use --revoke--> deleted
 | A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own, each with `runId` set to the router's run id. agent-core has no encoder for them, so they are written as JSON, as they are | `agents/completion`, `agents/run-records`, `agents/run-bus` |
-| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
+| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. The bus numbers a run's events from 1 with no gap and never again, across a restart too, and a follower gets every one. Stored, each stretch of streamed thinking or output is one row under its last event's `seq`, so stored `seq`s only increase, and a reader from inside a stretch gets only the rest of it | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
 | A conversation has at most one run running or waiting. A request that overlaps one gets 409 `conversation_busy`, unless it answers that waiting run's calls | `agents/run` `begin`, `uq_runs_conversation_id_going` |
 | A conversation belongs to one workspace and one agent. Its history is changed only by a completed run of it, and a request with history of its own (assistant or tool messages) is refused once it has some | `agents/conversation` |
 | An idle conversation is deleted after `CONVERSATION_DEFAULTS.idleHours`, never while a run of it is running or waiting. Its runs stay | `agents/conversation` `pruneConversations`, `runs.conversation_id` set null |
@@ -309,7 +309,7 @@ Everything about the code comes after `Owner:`.
   model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
-  `agents/run-records`; `/runs/<id>` (agent, revision, status, timings, usage and error) and
+  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
   `/runs/<id>/events` (JSON, or a live event stream with `Accept: text/event-stream`, which a
   client rejoins with `Last-Event-ID`), with workspace keys only and `{ error, code }` refusals.
 
@@ -450,7 +450,13 @@ Everything about the code comes after `Owner:`.
   (the workspace's slug and the agent's name kept beside their ids, which are set to null on
   delete), the `X-Run-Id` header; wraps `agent-core` `runAgentLoop`, in an agent-core runtime of
   its own. The limits are `RUN_DEFAULTS`. GraphQL serves the table read-only, without
-  `request_hash`.
+  `request_hash` and `resume`.
+- **Run input:** what the requests of a run added, in order: the system, developer and user
+  messages of the request that started it (its leading system messages and its new turn; for a
+  conversation, only what it sent), then the app's answers each resume sent. Kept as text, an
+  image as a count. It is not a run event, since the app already shows its own input. Owner:
+  `agents/request` (`RunRequest.input`), `agents/run`; `runs.input`, appended to by each resume;
+  `Run.input` and `/runs/<id>` `input`; shown first on the run page.
 - **Answer:** what a run last said: the text of every turn since its start or resume, a blank
   line between turns, as the stream sent it, why its last turn ended, and the calls it handed
   back if it waits. Kept on the run, so a repeated
@@ -461,16 +467,20 @@ Everything about the code comes after `Owner:`.
   `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`).
   Any other key is refused.
 - **Run events:** a run's exchanges, turns, reasoning, tool calls and results, side tasks and
-  usage, in order, numbered from 1 with no gaps. They are agent-core 6's `RunEvent`, which names an
+  usage, in order, numbered from 1 with no gaps. Stored, each stretch of streamed thinking or
+  output is folded into one, under the `seq` of its last event. They are agent-core 6's `RunEvent`, which names an
   exchange where 4.x said step; stored ones were renamed by a migration. An answer carries them
   through agent-core's own `progressChunk` and `withProgress`, the encoders its decoder reads. The router's own pages and the app that started the run can
   follow them live or read them afterwards, and a follower gets the stored ones first, then the
   live ones, with no gap and no repeat. Owner: `agents/run-bus`, which numbers each event itself,
   carrying on after the last stored one, holds it in memory until it is written to the
-  `run_events` table (every `RUN_DEFAULTS.eventFlushMs`, and whenever the run ends or waits), and
-  wakes the run's followers; the `runEvents` subscription and `Run.events` (`agents/run-resolvers`,
+  `run_events` table (every `RUN_DEFAULTS.eventFlushMs`, and whenever the run ends or waits), folded
+  by agent-core's `fold`: a stretch still going waits until it ends, or for `streamHoldMs` and is
+  stored in parts, and `run_events.text_ends` says where each of a row's events ended, for a reader
+  that had part of it live. Rows stored before folding stay one per event. It
+  wakes the run's followers, who get every event from memory; the `runEvents` subscription and `Run.events` (`agents/run-resolvers`,
   type `LiveRunEvent`), for people, and `/runs/<id>/events` for apps. Each one is an `agent-core`
-  `RunEvent`, stored as it was sent in `run_events.event`, and deleted with its run. The router
+  `RunEvent`, stored as it was sent or as `fold` joined it in `run_events.event`, and deleted with its run. The router
   adds a `notice` for each server left out and the closing `done`, which a run a restart cut short
   is given at the next boot.
 - **Progress events:** run events sent to an app that asks for them, inside the answer itself:

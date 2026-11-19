@@ -152,6 +152,25 @@ describe('reading a request against the override policy', () => {
     expect(goneOn.answers).toEqual([]);
   });
 
+  it('keeps as input the system messages and the new turn, or for a resume only the answers', () => {
+    const host = { role: 'system', content: 'You are in task_server.' };
+    const said = { role: 'assistant', content: 'About 40.' };
+    const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } };
+    const next = { role: 'user', content: [{ type: 'text', text: 'And this receipt?' }, image] };
+    const request = readRunRequest({ model: 'x', messages: [host, QUESTION, said, next] }, DEFAULT_POLICY_RULES);
+    expect(request.input).toEqual([
+      { role: 'system', content: 'You are in task_server.' },
+      { role: 'user', content: 'And this receipt?', images: 1 },
+    ]);
+    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, DEFAULT_POLICY_RULES);
+    expect(first.input).toEqual([host, QUESTION]);
+    const call = { id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } };
+    const handedBack = { role: 'assistant', content: null, tool_calls: [call] };
+    const answer = { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: 'done' }] };
+    const resume = readRunRequest({ model: 'x', messages: [host, QUESTION, handedBack, answer] }, DEFAULT_POLICY_RULES);
+    expect(resume.input).toEqual([{ role: 'tool', content: 'done', toolCallId: 'c1' }]);
+  });
+
   it('follows the policy on response_format, and passes parallel_tool_calls and user through', () => {
     const body = {
       model: 'x',

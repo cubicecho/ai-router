@@ -49,6 +49,10 @@ describe('conversations', () => {
     // A run names its conversation, and a conversation its runs.
     const record = await (await h.get(`${base}/runs/${secondRunId}`)).json();
     expect(record.conversation).toBe('chat-1');
+    // Each run keeps what its own request added, never the history the router put in front of it.
+    expect(record.input).toEqual([{ role: 'user', content: 'two' }]);
+    const firstRecord = await (await h.get(`${base}/runs/${first.headers.get('x-run-id')}`)).json();
+    expect(firstRecord.input).toEqual([host, { role: 'user', content: 'one' }]);
     const { conversations: listed } = await h.asUser.expectOk('{ conversations { key runs { id } } }');
     expect(listed).toEqual([{ key: 'chat-1', runs: expect.arrayContaining([{ id: secondRunId }]) }]);
     expect(listed[0].runs).toHaveLength(2);

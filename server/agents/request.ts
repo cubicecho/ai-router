@@ -2,6 +2,7 @@ import { type AgentLoopOptions, CALL_TOOL, LOAD_TOOLS, RECORD_ARTIFACT } from '@
 import { z } from 'zod';
 import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
+import type { InputMessage } from '../db/tables/runs.ts';
 import type { OverridePolicyRules } from './policy.ts';
 
 /** One message of a conversation, as the loop takes it. */
@@ -142,6 +143,11 @@ export interface RunRequest {
   messages: ChatMessage[];
   /** The `tool` messages the conversation ends with: the app's answers to calls a run handed back. */
   answers: ToolAnswer[];
+  /**
+   * What this request adds to its run, kept on the run: the app's answers for a resume; otherwise its system and
+   * developer messages and the messages after its last assistant one.
+   */
+  input: InputMessage[];
   /** The app's own tools, from `tools`. */
   appTools: AppTool[];
   /** The leading system and developer messages' text, for the host part. Null when there were none. */
@@ -271,6 +277,46 @@ function trailingAnswers(messages: ParsedMessage[]): ToolAnswer[] {
     answers.unshift({ callId: message.tool_call_id, content: textOf(message.content) });
   }
   return answers;
+}
+
+/**
+ * Keeps one message a request adds, as text.
+ *
+ * @param message - A checked message other than an assistant's.
+ * @returns The message as the run keeps it.
+ */
+function inputMessageOf(message: Exclude<ParsedMessage, { role: 'assistant' }>): InputMessage {
+  if (message.role === 'tool') {
+    return { role: message.role, content: textOf(message.content), toolCallId: message.tool_call_id };
+  }
+  if (message.role !== 'user') {
+    return { role: message.role, content: textOf(message.content) };
+  }
+  const { content } = message;
+  if (typeof content === 'string') {
+    return { role: message.role, content };
+  }
+  const texts = content.flatMap((part) => (part.type === 'text' ? [part.text] : []));
+  const images = content.length - texts.length;
+  return { role: message.role, content: texts.join(''), ...(images > 0 ? { images } : {}) };
+}
+
+/**
+ * Picks out what a request adds to its run.
+ *
+ * @param messages - The checked messages.
+ * @param answers - The app's answers the messages end with.
+ * @returns The answers, for a resume. Otherwise the leading system and developer messages, which the request sends
+ * every time, and the messages after the last assistant one, which are its new turn.
+ */
+function addedInput(messages: ParsedMessage[], answers: ToolAnswer[]): InputMessage[] {
+  const isResume = answers.length > 0;
+  const lastAssistant = messages.findLastIndex((message) => message.role === 'assistant');
+  const lead = messages.findIndex((message) => isHostMessage(message) === false);
+  const added = isResume
+    ? messages.slice(messages.length - answers.length)
+    : [...messages.slice(0, lead), ...messages.slice(Math.max(lead, lastAssistant + 1))];
+  return added.flatMap((message) => (message.role === 'assistant' ? [] : [inputMessageOf(message)]));
 }
 
 /**
@@ -408,9 +454,11 @@ export function readRunRequest(
     'stream_options',
   );
   const user = parseField(z.string().max(RUN_DEFAULTS.maxUserLength).nullish(), body.user, 'user') ?? null;
+  const answers = trailingAnswers(messages);
   return {
     messages: rest,
-    answers: trailingAnswers(messages),
+    answers,
+    input: addedInput(messages, answers),
     appTools,
     hostText,
     taskText: options.task ?? null,

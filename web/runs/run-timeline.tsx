@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { CollapsibleRow } from '@/components/collapsible-row';
 import { List, ListRow } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,8 @@ import {
   UserRound,
   Zap,
 } from '@/components/ui/icons';
+import { useOpenRows } from '@/lib/use-open-rows';
+import { PROSE_CLASS } from './prose';
 import { formatCount, formatDuration } from './shapes';
 import { type TimelineEntry, type TimelineEvent, timelineOf } from './timeline';
 
@@ -31,11 +34,19 @@ export interface RunTimelineProps {
   isLive: boolean;
 }
 
+/** One entry drawn as a row: what its summary line shows, and what it opens onto. */
+interface TimelineRow {
+  icon: ReactElement;
+  title: ReactNode;
+  /** A short fact under the title, shown whether the row is open or not. */
+  description?: string | undefined;
+  /** The detail the row opens onto: the text, a call's arguments and result, a log line. */
+  body?: ReactElement | undefined;
+  badge?: ReactElement | undefined;
+}
+
 /** How many spaces a call's arguments are indented by. */
 const JSON_INDENT = 2;
-
-/** The classes of a block of streamed prose: the model's own words, kept as it wrote them. */
-const PROSE_CLASS = 'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-foreground/5 p-2 text-sm';
 
 /**
  * Shows JSON indented, and anything else as it is.
@@ -82,7 +93,7 @@ function callBadge(entry: Extract<TimelineEntry, { type: 'tool' }>, isLive: bool
 /** One call: its arguments, its server's log lines and what it answered. */
 function ToolBody({ entry }: { entry: Extract<TimelineEntry, { type: 'tool' }> }) {
   return (
-    <div className="grid gap-2 pt-1">
+    <div className="grid gap-2">
       {entry.args === '' ? null : <CodeBlock title="Arguments" content={prettyOf(entry.args)} wrap maxHeight="sm" />}
       {entry.logs.length === 0 ? null : (
         <CodeBlock
@@ -111,22 +122,13 @@ function ToolBody({ entry }: { entry: Extract<TimelineEntry, { type: 'tool' }> }
  * @param isLive - Whether the run may still say more.
  * @returns The row's parts.
  */
-function rowOf(
-  entry: TimelineEntry,
-  isLive: boolean,
-): {
-  icon: ReactElement;
-  title: string;
-  titleClassName?: string;
-  description?: ReactElement | string;
-  badge?: ReactElement;
-} {
+function rowOf(entry: TimelineEntry, isLive: boolean): TimelineRow {
   switch (entry.type) {
     case 'exchange':
       return {
         icon: <ListChecks />,
         title: entry.name === '' ? 'Exchange' : `Exchange ${entry.name}`,
-        description: entry.text,
+        body: entry.text === '' ? undefined : <p className={PROSE_CLASS}>{entry.text}</p>,
       };
     case 'decision':
       return { icon: <GitBranch />, title: `Chose ${entry.text}` };
@@ -136,24 +138,27 @@ function rowOf(
       return {
         icon: <Sparkles />,
         title: 'Thought',
-        description: <p className={`${PROSE_CLASS} text-foreground/70`}>{entry.text}</p>,
+        body: <p className={`${PROSE_CLASS} text-foreground/70`}>{entry.text}</p>,
       };
     case 'output':
-      return { icon: <Bot />, title: 'Wrote', description: <p className={PROSE_CLASS}>{entry.text}</p> };
+      return { icon: <Bot />, title: 'Wrote', body: <p className={PROSE_CLASS}>{entry.text}</p> };
     case 'tool':
       return {
         icon: <Zap />,
-        title: entry.name,
-        titleClassName: 'font-mono',
-        description: <ToolBody entry={entry} />,
+        title: <span className="font-mono">{entry.name}</span>,
+        body: <ToolBody entry={entry} />,
         badge: callBadge(entry, isLive),
       };
     case 'input':
-      return { icon: <UserRound />, title: 'Input handed in', description: entry.text };
+      return { icon: <UserRound />, title: 'Input handed in', body: <p className={PROSE_CLASS}>{entry.text}</p> };
     case 'artifact':
       return { icon: <File />, title: entry.text, description: entry.uri ?? undefined };
     case 'log':
-      return { icon: <FileText />, title: `${entry.name} logged`, description: `${entry.level}: ${entry.text}` };
+      return {
+        icon: <FileText />,
+        title: `${entry.name} logged`,
+        body: <p className={PROSE_CLASS}>{`${entry.level}: ${entry.text}`}</p>,
+      };
     case 'usage': {
       const { usage } = entry;
       const total = `${formatCount(usage.promptTokens)} in · ${formatCount(usage.completionTokens)} out so far`;
@@ -181,9 +186,11 @@ function rowOf(
 
 /**
  * A run's events as a readable timeline: its exchanges, each turn, what it thought and wrote, every tool call with its
- * result, the notes of its side tasks, and its usage after each turn.
+ * result, the notes of its side tasks, and its usage after each turn. A row with detail opens onto it, and starts
+ * closed; a row with none is a plain row.
  */
 export function RunTimeline({ events, startedAt, isLive }: RunTimelineProps) {
+  const rows = useOpenRows<number>();
   const entries = timelineOf(events);
   return (
     <List
@@ -191,20 +198,39 @@ export function RunTimeline({ events, startedAt, isLive }: RunTimelineProps) {
       contentSlot={entries.map((entry) => {
         const row = rowOf(entry, isLive);
         const since = formatDuration(Math.max(0, entry.at - startedAt));
+        const icon = <span className="flex size-4 shrink-0 text-foreground/60 [&>svg]:size-4">{row.icon}</span>;
+        const meta = (
+          <span className="flex items-center gap-2">
+            {row.badge}
+            <span className="text-foreground/60 text-xs tabular-nums">+{since}</span>
+          </span>
+        );
         return (
           <ListRow key={entry.key} depth={entry.exchange === '' || entry.type === 'exchange' ? 0 : 1}>
-            <ListItem
-              leadingSlot={<span className="flex size-4 text-foreground/60 [&>svg]:size-4">{row.icon}</span>}
-              title={row.title}
-              titleClassName={row.titleClassName}
-              description={row.description}
-              meta={
-                <span className="flex items-center gap-2">
-                  {row.badge}
-                  <span className="text-foreground/60 text-xs tabular-nums">+{since}</span>
-                </span>
-              }
-            />
+            {row.body === undefined ? (
+              <ListItem
+                // Where an opening row has its chevron, so the icons line up down the list.
+                leadingSlot={
+                  <span className="flex items-center gap-2">
+                    <span aria-hidden className="size-4 shrink-0" />
+                    {icon}
+                  </span>
+                }
+                title={row.title}
+                description={row.description}
+                meta={meta}
+              />
+            ) : (
+              <CollapsibleRow
+                open={rows.isOpen(entry.key)}
+                onOpenChange={(isOpen) => rows.setOpen(entry.key, isOpen)}
+                badgesSlot={icon}
+                title={row.title}
+                description={row.description}
+                meta={meta}
+                contentSlot={row.body}
+              />
+            )}
           </ListRow>
         );
       })}

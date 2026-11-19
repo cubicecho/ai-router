@@ -1,4 +1,4 @@
-import type { RunEvent } from '@cubicecho/agent-core';
+import { fold, type RunEvent } from '@cubicecho/agent-core';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { createRunService } from '../../server/agents/run.ts';
@@ -6,7 +6,7 @@ import { HttpStatus } from '../../server/core/wire.ts';
 import { runEvents } from '../../server/db/tables/run-events.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
 import { createSessionToken, createTestAuth, createWorkspaceWithKey } from '../helpers.ts';
-import { dataLines, ECHO, lastMessage, QUESTION, until, useRunHarness } from './run-harness.ts';
+import { dataLines, ECHO, expectInOrder, lastMessage, QUESTION, until, useRunHarness } from './run-harness.ts';
 
 // A run's record and its events, stored in order and read back by the key that ran it: as JSON, as a live event
 // stream, and in GraphQL.
@@ -18,13 +18,13 @@ const SLOW_SCRIPT = (body: Record<string, unknown>) =>
   lastMessage(body).role === 'tool' ? { content: 'awake' } : { call: { name: 'fix_ture__sleep', args: { ms: 300 } } };
 
 /**
- * Checks that events are one run's, in order, from 1, with no gap and no repeat, ending in its `done`.
+ * Checks that events are one run's, in order with no repeat, ending in its `done`.
  *
  * @param events - The events.
  * @param runId - The run.
  */
 function expectWhole(events: RunEvent[], runId: string): void {
-  expect(events.map((event) => event.seq)).toEqual(events.map((_event, index) => index + 1));
+  expectInOrder(events);
   expect(events.every((event) => event.runId === runId)).toBe(true);
   expect(events.at(-1)).toMatchObject({ kind: 'done', ok: true });
 }
@@ -46,6 +46,7 @@ describe('GET /runs/<id>', () => {
       revisionId: h.revisionId,
       workspace: 'task-server',
       status: RunStatus.Completed,
+      input: [QUESTION],
       user: 'household-a',
       startedAt: expect.any(String),
       finishedAt: expect.any(String),
@@ -95,7 +96,8 @@ describe('GET /runs/<id>/events', () => {
     expect(stored.map((row) => row.event)).toEqual(events);
     expect(stored.map((row) => row.kind)).toEqual(events.map((event) => event.kind));
     const later = await (await h.get(`${base}/runs/${runId}/events?after=3`)).json();
-    expect(later.events.map((event: RunEvent) => event.seq)).toEqual(events.slice(3).map((event) => event.seq));
+    const after3 = events.filter((event) => event.seq > 3);
+    expect(later.events.map((event: RunEvent) => event.seq)).toEqual(after3.map((event) => event.seq));
     expect((await h.get(`${base}/runs/${runId}/events?after=-1`)).status).toBe(HttpStatus.BadRequest);
   });
 
@@ -116,11 +118,14 @@ describe('GET /runs/<id>/events', () => {
       .filter((line) => line.startsWith('data: '))
       .map((line) => JSON.parse(line.slice('data: '.length)) as RunEvent);
     expectWhole(events, runId);
+    // Stored events came folded and live ones one by one, and together they tell the run as it is stored.
+    const stored = (await (await h.get(`${base}/runs/${runId}/events`)).json()).events;
+    expect(fold(events)).toEqual(stored);
     expect(streamed).toContain(`id: ${events.at(-1)?.seq}\n`);
     // A client that reconnects says where it was, and gets only what came after.
     const resumed = await h.get(`${base}/runs/${runId}/events`, {
       accept: 'text/event-stream',
-      'last-event-id': String(events.length - 1),
+      'last-event-id': String(events.at(-2)?.seq),
     });
     const rest = await dataLines(resumed);
     expect(rest).toEqual([events.at(-1)]);

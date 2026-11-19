@@ -6,7 +6,7 @@ import { ReadableStream } from 'node:stream/web';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '@cubicecho/agent-core';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest';
 import { createRunService, type RunService } from '../../server/agents/run.ts';
 import { fixedAuthHost } from '../../server/auth/auth-host.ts';
 import type { UserCaller } from '../../server/core/context.ts';
@@ -170,6 +170,18 @@ export async function dataLines(response: Response): Promise<unknown[]> {
     .filter((line) => line.startsWith('data: '))
     .map((line) => line.slice('data: '.length))
     .map((data) => (data === '[DONE]' ? data : JSON.parse(data)));
+}
+
+/**
+ * Checks that events are in order with no repeat: their `seq`s only increase. Stored events have gaps where a stretch
+ * of streamed text was folded into one, under its last event's `seq`.
+ *
+ * @param events - The events.
+ */
+export function expectInOrder(events: readonly { seq: number }[]): void {
+  const seqs = events.map((event) => event.seq);
+  const isIncreasing = seqs.every((seq, index) => index === 0 || seq > (seqs[index - 1] ?? seq));
+  expect(isIncreasing).toBe(true);
 }
 
 /**

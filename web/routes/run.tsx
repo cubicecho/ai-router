@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { RunDocument, type RunQuery } from '@/__generated__/graphql';
 import { displayNameOf } from '@/agents/shapes';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState } from '@/components/load-state';
 import { PageLayout, titleColumn } from '@/components/page-layout';
@@ -17,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
 import { openTab } from '@/lib/tab-search';
 import { cn } from '@/lib/utils';
+import { inputMessagesOf } from '@/runs/input';
+import { RunInput } from '@/runs/run-input';
 import { RunStatusBadge } from '@/runs/run-status-badge';
 import { RunTimeline } from '@/runs/run-timeline';
 import { RUN_TAB_LABELS, RUN_TABS } from '@/runs/search';
@@ -264,9 +267,11 @@ export function RunRoute() {
         contentSlot={
           <>
             <TabsContent value="timeline" className={PANEL_CLASS}>
+              <RunInput messages={inputMessagesOf(record.input)} />
               <EndedAlert run={record} />
               {answer === null ? null : (
-                <Section
+                <CardLayout
+                  level={2}
                   title="Answer"
                   description={
                     answer.finishReason === FINISH_LENGTH
@@ -285,9 +290,10 @@ export function RunRoute() {
                   }
                 />
               )}
-              <Section
+              <CardLayout
+                level={2}
                 title="Timeline"
-                description="Its exchanges, turns, tool calls and results, side tasks and usage, as they happened."
+                description="Its exchanges, turns, tool calls and results, side tasks and usage, as they happened. Open a row for its detail."
                 actionSlot={
                   isFollowing && live.events.length > 0 && isRunning ? (
                     <span className="flex items-center gap-2 text-foreground/60 text-sm">

@@ -454,7 +454,12 @@ export interface RunSettings {
   maxErrorLength: number;
   /** How long a run's events wait in memory before they are written to `run_events` together. */
   eventFlushMs: number;
-  /** Events written in one insert. */
+  /**
+   * How long a stretch of streamed thinking or output still going may wait in memory, so it is stored as one row. A
+   * longer one is stored in parts, which readers join again.
+   */
+  streamHoldMs: number;
+  /** Rows written in one insert. */
   eventBatchSize: number;
   /** Events `Run.events` answers with when the query gives no limit. */
   eventPageSize: number;
@@ -480,6 +485,7 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxUserLength: 256,
   maxErrorLength: 2_000,
   eventFlushMs: 250,
+  streamHoldMs: 10_000,
   eventBatchSize: 500,
   eventPageSize: 500,
   maxEventPageSize: 5_000,
