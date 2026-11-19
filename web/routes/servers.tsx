@@ -29,7 +29,7 @@ export function ServersRoute() {
 
   return (
     <PageLayout
-      width="prose"
+      width="full"
       title="MCP Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
       actionSlot={installed.length > 0 ? add : undefined}
@@ -54,9 +54,15 @@ export function ServersRoute() {
               <ListItem
                 key={server.id}
                 title={server.displayName ?? server.name}
-                description={`${describeTransport(transportOf(server.transport))} · ${describeSource(sourceOf(server.source))}`}
+                description={[
+                  server.displayName === null ? undefined : server.name,
+                  describeTransport(transportOf(server.transport)),
+                  describeSource(sourceOf(server.source)),
+                ]
+                  .filter((part) => part !== undefined)
+                  .join(' · ')}
                 meta={
-                  <span className="flex gap-1">
+                  <span className="flex items-center gap-1">
                     {isBuiltin(server.transport) ? <Badge variant="secondary">Built in</Badge> : null}
                     {server.enabled ? null : <Badge variant="outline">Off</Badge>}
                     <LoginBadge login={server.login} />

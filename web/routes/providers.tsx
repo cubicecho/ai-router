@@ -24,7 +24,7 @@ export function ProvidersRoute() {
 
   return (
     <PageLayout
-      width="prose"
+      width="full"
       title="Providers"
       description="The model servers agents call. An agent names a model as <provider>/<model>."
       actionSlot={rows.length > 0 ? add : undefined}
@@ -49,9 +49,11 @@ export function ProvidersRoute() {
               <ListItem
                 key={provider.id}
                 title={provider.displayName ?? provider.name}
-                description={provider.baseUrl}
+                description={
+                  provider.displayName === null ? provider.baseUrl : `${provider.name} · ${provider.baseUrl}`
+                }
                 meta={
-                  <span className="flex gap-1">
+                  <span className="flex items-center gap-1">
                     {provider.enabled ? null : <Badge variant="outline">Off</Badge>}
                     {provider.apiKeySet ? <Badge variant="outline">Key set</Badge> : null}
                   </span>
