@@ -1,51 +1,63 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
-import {
-  DeleteProviderDocument,
-  MeDocument,
-  ProviderDocument,
-  ProviderModelsDocument,
-  UsageByProviderDocument,
-} from '@/__generated__/graphql';
+import { DeleteProviderDocument, MeDocument, ProviderDocument, UsageByProviderDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
-import { List } from '@/components/list';
-import { ListItem } from '@/components/list-item';
-import { LoadError, LoadState } from '@/components/load-state';
-import { PageLayout } from '@/components/page-layout';
+import { LoadError, LoadState, RowSkeleton } from '@/components/load-state';
+import { PageLayout, titleColumn } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, KeyRound, Pencil, RefreshCw } from '@/components/ui/icons';
+import { CopyButton } from '@/components/ui/copy-button';
+import { ArrowLeft, KeyRound, Pencil } from '@/components/ui/icons';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
+import { openTab } from '@/lib/tab-search';
+import { cn } from '@/lib/utils';
 import { ApiKeyDialog } from '@/models/api-key-dialog';
 import { headersOf } from '@/models/headers';
+import { ModelsSection } from '@/models/models-section';
 import { ProviderDialog } from '@/models/provider-dialog';
+import { PROVIDER_TABS, type ProviderTab, validateProviderSearch } from '@/models/tabs';
 import { UsageSection } from '@/models/usage-section';
 
-/** One provider: where it is, its key, what it serves now, and what it has been used for. */
+/** What each tab is called. */
+const TAB_LABELS = {
+  overview: 'Overview',
+  models: 'Models',
+  usage: 'Usage',
+} as const satisfies Record<ProviderTab, string>;
+
+/** What one provider has been used for, by model and by day. Asked for only once its tab is open. */
+function ProviderUsage({ providerId }: { providerId: string }) {
+  const usage = useQuery({
+    queryKey: ['usage', 'provider', providerId],
+    queryFn: () => request(UsageByProviderDocument, { providerId }),
+  });
+  if (usage.isError) {
+    return <LoadError error={usage.error} onRetry={usage.refetch} what="its usage" />;
+  }
+  if (usage.isPending) {
+    return <RowSkeleton rows={3} />;
+  }
+  return <UsageSection rows={usage.data.usageCounts} groupBy={(row) => row.model} groupLabel="Model" />;
+}
+
+/** One provider, in tabs: where it is and its key, what it serves now, and what it has been used for. */
 export function ProviderRoute() {
   const { providerId } = useParams({ from: '/app/providers/$providerId' });
-  const navigate = useNavigate();
+  const search = useSearch({ from: '/app/providers/$providerId' });
+  const navigate = useNavigate({ from: '/providers/$providerId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [isSettingKey, setIsSettingKey] = useState(false);
-  const [refresh, setRefresh] = useState(false);
   const me = useQuery({ queryKey: ['me'], queryFn: () => request(MeDocument) });
   const provider = useQuery({
     queryKey: ['providers', providerId],
     queryFn: () => request(ProviderDocument, { id: providerId }),
-  });
-  const models = useQuery({
-    queryKey: ['providers', providerId, 'models'],
-    queryFn: () => request(ProviderModelsDocument, { id: providerId, refresh }),
-    meta: { quiet: true },
-  });
-  const usage = useQuery({
-    queryKey: ['usage', 'provider', providerId],
-    queryFn: () => request(UsageByProviderDocument, { providerId }),
   });
   const remove = useMutation({
     mutationFn: () => request(DeleteProviderDocument, { id: providerId }),
@@ -71,6 +83,7 @@ export function ProviderRoute() {
       <PageLayout
         title="Provider"
         backSlot={back}
+        width="full"
         loading={provider.isPending}
         contentSlot={
           <LoadState
@@ -86,96 +99,123 @@ export function ProviderRoute() {
   }
 
   const headers = Object.entries(headersOf(record.headers));
-  const modelRows = models.data?.providerModels ?? [];
   return (
-    <PageLayout
-      title={record.displayName ?? record.name}
-      description={record.description === '' ? undefined : record.description}
-      backSlot={back}
-      width="prose"
-      actionSlot={
-        <>
-          <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
-          <ConfirmButton
-            title={`Delete ${record.name}?`}
-            description="Agents naming its models stop finding them, and it leaves every pool. Its usage is kept."
-            requireText={record.name}
-            onConfirm={() => remove.mutate()}
-            content="Delete"
-          />
-        </>
-      }
-      contentSlot={
-        <>
-          <PropertyList
-            contentSlot={
-              <>
-                <PropertyRow
-                  label="Name"
-                  value={record.name}
-                  valueClassName="font-mono"
-                  hint="Agents name its models as name/model."
-                />
-                <PropertyRow label="Base URL" value={record.baseUrl} valueClassName="font-mono" />
-                <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
-                <PropertyRow
-                  label="API key"
-                  value={record.apiKeySet ? 'Set' : 'None'}
-                  hint={isAdmin ? undefined : 'Only an admin can set it.'}
-                  actionSlot={
-                    isAdmin ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        iconSlot={<KeyRound />}
-                        onClick={() => setIsSettingKey(true)}
-                        content={record.apiKeySet ? 'Change' : 'Set'}
-                      />
-                    ) : undefined
-                  }
-                />
-                {headers.map(([name, value]) => (
-                  <PropertyRow key={name} label={name} value={value} valueClassName="font-mono" hint="Extra header" />
-                ))}
-              </>
-            }
-          />
-          <Section
-            title="Models"
-            description="What it serves now, from its own model list."
-            actionSlot={
-              <Button
-                variant="outline"
-                size="sm"
-                iconSlot={<RefreshCw />}
-                loading={models.isFetching}
-                onClick={() => {
-                  setRefresh(true);
-                  void models.refetch();
-                }}
-                content="Refresh"
+    <Tabs
+      value={openTab(PROVIDER_TABS, search)}
+      onValueChange={(tab) => void navigate({ search: validateProviderSearch({ tab }), replace: true })}
+      className="h-full"
+    >
+      <PageLayout
+        title={
+          <span className="flex items-center gap-2">
+            {record.displayName ?? record.name}
+            {record.enabled ? null : <Badge variant="outline">Off</Badge>}
+          </span>
+        }
+        description={record.description === '' ? undefined : record.description}
+        backSlot={back}
+        width="full"
+        actionSlot={
+          <>
+            <Button variant="outline" iconSlot={<Pencil />} onClick={() => setIsEditing(true)} content="Edit" />
+            <ConfirmButton
+              title={`Delete ${record.name}?`}
+              description="Agents naming its models stop finding them, and it leaves every pool. Its usage is kept."
+              requireText={record.name}
+              onConfirm={() => remove.mutate()}
+              content="Delete"
+            />
+          </>
+        }
+        headerBarSlot={
+          <div className={cn(titleColumn('full'), 'pb-3')}>
+            <TabsList aria-label="Provider">
+              {PROVIDER_TABS.map((tab) => (
+                <TabsTrigger key={tab} value={tab}>
+                  {TAB_LABELS[tab]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+        }
+        contentSlot={
+          <>
+            <TabsContent value="overview" className="flex flex-col gap-4">
+              <PropertyList
+                contentSlot={
+                  <>
+                    <PropertyRow
+                      label="Name"
+                      value={record.name}
+                      valueClassName="font-mono"
+                      hint="Agents name its models as name/model."
+                      actionSlot={<CopyButton value={record.name} label="Copy name" />}
+                    />
+                    <PropertyRow
+                      label="Base URL"
+                      value={record.baseUrl}
+                      valueClassName="font-mono break-all"
+                      actionSlot={<CopyButton value={record.baseUrl} label="Copy base URL" />}
+                    />
+                    <PropertyRow label="Takes calls" value={record.enabled ? 'Yes' : 'No'} />
+                    <PropertyRow
+                      label="API key"
+                      value={
+                        record.apiKeySet ? (
+                          <Badge variant="positive-soft">Set</Badge>
+                        ) : (
+                          <Badge variant="outline">None</Badge>
+                        )
+                      }
+                      hint={isAdmin ? 'Kept by the router and never shown again.' : 'Only an admin can set it.'}
+                      actionSlot={
+                        isAdmin ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            iconSlot={<KeyRound />}
+                            onClick={() => setIsSettingKey(true)}
+                            content={record.apiKeySet ? 'Change' : 'Set'}
+                          />
+                        ) : undefined
+                      }
+                    />
+                  </>
+                }
               />
-            }
-            contentSlot={
-              models.isError ? (
-                <LoadError error={models.error} onRetry={models.refetch} what="its models" compact />
-              ) : modelRows.length === 0 && models.isPending === false ? (
-                <EmptyState compact title="It lists no models." />
-              ) : (
-                <List
-                  label="Models"
-                  contentSlot={modelRows.map((model) => (
-                    <ListItem key={model.id} title={`${record.name}/${model.id}`} meta={model.ownedBy ?? undefined} />
-                  ))}
-                />
-              )
-            }
-          />
-          <UsageSection rows={usage.data?.usageCounts ?? []} groupBy={(row) => row.model} groupLabel="Model" />
-          <ProviderDialog open={isEditing} onOpenChange={setIsEditing} provider={record} />
-          {isAdmin ? <ApiKeyDialog open={isSettingKey} onOpenChange={setIsSettingKey} provider={record} /> : null}
-        </>
-      }
-    />
+              <Section
+                title="Headers"
+                description="Sent with every call to it, beside the key."
+                contentSlot={
+                  headers.length === 0 ? (
+                    <EmptyState compact title="No extra headers." />
+                  ) : (
+                    <PropertyList
+                      contentSlot={headers.map(([name, value]) => (
+                        <PropertyRow
+                          key={name}
+                          label={name}
+                          labelClassName="font-mono"
+                          value={value}
+                          valueClassName="font-mono break-all"
+                        />
+                      ))}
+                    />
+                  )
+                }
+              />
+            </TabsContent>
+            <TabsContent value="models">
+              <ModelsSection providerId={record.id} providerName={record.name} />
+            </TabsContent>
+            <TabsContent value="usage">
+              <ProviderUsage providerId={record.id} />
+            </TabsContent>
+            <ProviderDialog open={isEditing} onOpenChange={setIsEditing} provider={record} />
+            {isAdmin ? <ApiKeyDialog open={isSettingKey} onOpenChange={setIsSettingKey} provider={record} /> : null}
+          </>
+        }
+      />
+    </Tabs>
   );
 }

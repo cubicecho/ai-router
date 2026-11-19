@@ -12,7 +12,10 @@ const RECENT_CALLS = 50;
 
 const NUMBER = new Intl.NumberFormat();
 
-/** The latest tool calls made through one server: when, which tool, how long, and whether it failed. */
+/**
+ * The latest tool calls made through one server: when, which tool, how long, and whether it failed. Untitled: its
+ * tab names it.
+ */
 export function ActivitySection({ serverId }: { serverId: string }) {
   const activity = useQuery({
     queryKey: ['servers', serverId, 'activity'],
@@ -69,7 +72,6 @@ export function ActivitySection({ serverId }: { serverId: string }) {
 
   return (
     <Section
-      title="Activity"
       description={`The latest ${RECENT_CALLS} calls through it, kept for 30 days. Never what was sent or answered.`}
       contentSlot={body()}
     />

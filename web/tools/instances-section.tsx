@@ -24,7 +24,10 @@ const STATES: Readonly<
   failed: { label: 'Failed', variant: 'destructive-soft' },
 };
 
-/** A server's running connections: its own, and one per workspace that overrides its settings. */
+/**
+ * A server's running connections: its own, and one per workspace that overrides its settings. Untitled: its tab
+ * names it.
+ */
 export function InstancesSection({ serverId }: { serverId: string }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -47,7 +50,6 @@ export function InstancesSection({ serverId }: { serverId: string }) {
 
   return (
     <Section
-      title="Instances"
       description="Started on the first call and stopped once idle. A workspace that overrides its settings gets its own."
       contentSlot={
         instances.isError ? (

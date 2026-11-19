@@ -37,7 +37,7 @@ export function PoolsRoute() {
 
   return (
     <PageLayout
-      width="prose"
+      width="full"
       title="Pools"
       description="One model name served by several targets. An agent names a pool as its model."
       actionSlot={rows.length > 0 ? create : undefined}
@@ -62,11 +62,16 @@ export function PoolsRoute() {
               <ListItem
                 key={pool.id}
                 title={pool.displayName ?? pool.name}
-                description={STRATEGIES.find((strategy) => strategy.value === pool.strategy)?.label}
+                description={[
+                  pool.displayName === null ? undefined : pool.name,
+                  STRATEGIES.find((strategy) => strategy.value === pool.strategy)?.label,
+                ]
+                  .filter((part) => part !== undefined)
+                  .join(' · ')}
                 meta={
                   <span className="flex items-center gap-2">
                     {pool.enabled ? null : <Badge variant="outline">Off</Badge>}
-                    <span className="text-foreground/60 text-xs">{targetCount(pool.targets.length)}</span>
+                    <span className="text-foreground/60 text-xs tabular-nums">{targetCount(pool.targets.length)}</span>
                   </span>
                 }
                 linkSlot={<Link to="/pools/$poolId" params={{ poolId: pool.id }} />}
