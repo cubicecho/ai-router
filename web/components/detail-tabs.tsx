@@ -117,7 +117,8 @@ export function DetailTabBar<TTab extends string>({
   return (
     <div className={cn(titleColumn('page'), 'flex flex-col gap-3 pb-3')}>
       {leadSlot}
-      <TabsList aria-label={label}>
+      {/* Its own width, at the start of the title's column: the column would stretch it across the page. */}
+      <TabsList aria-label={label} className="self-start">
         {tabs.map((value) => (
           <TabsTrigger key={value} value={value} trailingSlot={trailing?.[value]}>
             {labels[value]}
