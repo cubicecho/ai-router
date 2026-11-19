@@ -21,7 +21,7 @@ export interface ToolsSectionProps {
   canTry: boolean;
 }
 
-/** What a server offers now, asked of it, with a way to try each tool. */
+/** What a server offers now, asked of it, with a way to try each tool. Untitled: its tab names it. */
 export function ToolsSection({ serverId, serverName, enabled, canTry }: ToolsSectionProps) {
   const [trying, setTrying] = useState<ServerTool | null>(null);
   const tools = useQuery({
@@ -67,7 +67,6 @@ export function ToolsSection({ serverId, serverName, enabled, canTry }: ToolsSec
 
   return (
     <Section
-      title="Tools"
       description={
         canTry
           ? `What it offers now. A run sees each as ${serverName}__<tool>. Listing them starts it if it isn't running.`

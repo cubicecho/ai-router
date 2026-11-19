@@ -5,12 +5,12 @@ import { LoadError, RowSkeleton } from '@/components/load-state';
 import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons';
-import { RunsTable } from './runs-table';
+import { RunsList } from './runs-list';
 import type { RunsSearch } from './search';
 import { isOpen } from './shapes';
 import { useNow, useRuns } from './use-runs';
 
-/** How many runs the section shows. */
+/** How many runs the section shows, unless told otherwise. */
 const RECENT_RUNS = 5;
 
 /** What the section is given. */
@@ -19,13 +19,15 @@ export interface RecentRunsSectionProps {
   where: RunFilters;
   /** The same filter on the Runs page, which "All runs" opens. */
   search: RunsSearch;
-  /** The column the page is already about, left out of the table. */
+  /** What the page is already about, left out of each row. */
   hide: 'agent' | 'workspace';
+  /** How many to show. */
+  limit?: number | undefined;
 }
 
 /** The latest few runs of one agent or one workspace, with the way to all of them. */
-export function RecentRunsSection({ where, search, hide }: RecentRunsSectionProps) {
-  const runs = useRuns({ where, limit: RECENT_RUNS, offset: 0 });
+export function RecentRunsSection({ where, search, hide, limit = RECENT_RUNS }: RecentRunsSectionProps) {
+  const runs = useRuns({ where, limit, offset: 0 });
   const rows = runs.data?.runs ?? [];
   const now = useNow(rows.some((run) => isOpen(run.status)));
 
@@ -40,10 +42,10 @@ export function RecentRunsSection({ where, search, hide }: RecentRunsSectionProp
       return <EmptyState compact title="No runs yet." />;
     }
     return (
-      <RunsTable
+      <RunsList
         rows={rows}
         now={now}
-        caption="Recent runs"
+        label="Recent runs"
         hideAgent={hide === 'agent'}
         hideWorkspace={hide === 'workspace'}
       />
@@ -53,7 +55,7 @@ export function RecentRunsSection({ where, search, hide }: RecentRunsSectionProp
   return (
     <Section
       title="Recent runs"
-      description={`The latest ${RECENT_RUNS}, newest first.`}
+      description={`The latest ${limit}, newest first.`}
       actionSlot={
         rows.length === 0 ? undefined : (
           <Button

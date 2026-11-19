@@ -36,7 +36,15 @@ query Agents {
     liveRevisionId
     liveRevision {
       id
+      number
       document
+    }
+    revisions {
+      id
+      promotedAt
+    }
+    workspaces {
+      id
     }
   }
 }
@@ -60,6 +68,21 @@ query Agent($id: UUID!) {
         name
       }
     }
+  }
+}
+
+# The workspaces an agent can be offered in, from its page.
+query AgentWorkspaceChoices {
+  workspaces(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    slug
+  }
+}
+
+query UsageByAgent($agentId: UUID!) {
+  usageCounts(where: { agentId: { eq: $agentId } }, orderBy: { day: { direction: desc, priority: 1 } }, limit: 500) {
+    ...UsageFields
   }
 }
 

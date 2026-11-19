@@ -6,11 +6,11 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError } from '@/components/load-state';
+import { LoadState } from '@/components/load-state';
 import { Section } from '@/components/section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Plus } from '@/components/ui/icons';
+import { Bot, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { displayNameOf } from './shapes';
 import { WorkspaceAgentDialog } from './workspace-agent-dialog';
@@ -31,7 +31,8 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
   const remove = useMutation({
     mutationFn: (id: string) => request(DeleteWorkspaceAgentDocument, { id }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workspaces', workspaceId] });
+      // The whole prefix: the workspaces list counts each one's agents too.
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
   });
@@ -57,51 +58,58 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
         <>
-          {entries.isError ? (
-            <LoadError error={entries.error} onRetry={entries.refetch} what="its agents" compact />
-          ) : rows.length === 0 && entries.isPending === false ? (
-            <EmptyState
-              compact
-              title={
-                choices.length === 0
-                  ? 'No agents yet. Add one on the Agents page, then offer it here.'
-                  : 'No agents yet, so apps here have nothing to run.'
-              }
-              actionSlot={choices.length === 0 ? undefined : add}
-            />
-          ) : (
-            <List
-              label="Agents"
-              contentSlot={rows.map((entry) => {
-                const name = entry.agent === null ? 'A deleted agent' : displayNameOf(entry.agent);
-                return (
-                  <ListItem
-                    key={entry.id}
-                    title={name}
-                    description={
-                      entry.agent === null || entry.agent.name === name ? undefined : (
-                        <span className="font-mono text-foreground/60 text-xs">{entry.agent.name}</span>
-                      )
-                    }
-                    meta={
-                      entry.agent?.liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : undefined
-                    }
-                    linkSlot={<Link to="/agents/$agentId" params={{ agentId: entry.agentId }} />}
-                    actionSlot={
-                      <ConfirmButton
-                        size="sm"
-                        title={`Stop offering ${name} here?`}
-                        description="Apps with this workspace's keys are refused it from their next request. The agent itself is kept."
-                        confirmLabel="Remove"
-                        onConfirm={() => remove.mutate(entry.id)}
-                        content="Remove"
-                      />
-                    }
-                  />
-                );
-              })}
-            />
-          )}
+          <LoadState
+            query={entries}
+            what="its agents"
+            count={rows.length}
+            emptySlot={
+              <EmptyState
+                iconSlot={<Bot />}
+                title="No agents yet"
+                description={
+                  choices.length === 0
+                    ? 'Add one on the Agents page, then offer it here.'
+                    : 'Apps here have nothing to run until an agent is offered.'
+                }
+                actionSlot={choices.length === 0 ? undefined : add}
+              />
+            }
+          />
+          <List
+            label="Agents"
+            contentSlot={rows.map((entry) => {
+              const name = entry.agent === null ? 'A deleted agent' : displayNameOf(entry.agent);
+              return (
+                <ListItem
+                  key={entry.id}
+                  title={name}
+                  description={
+                    entry.agent === null || entry.agent.name === name ? undefined : (
+                      <span className="font-mono text-foreground/60 text-xs">{entry.agent.name}</span>
+                    )
+                  }
+                  meta={
+                    entry.agent?.liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : undefined
+                  }
+                  linkSlot={
+                    entry.agent === null ? undefined : (
+                      <Link to="/agents/$agentId" params={{ agentId: entry.agentId }} />
+                    )
+                  }
+                  actionSlot={
+                    <ConfirmButton
+                      size="sm"
+                      title={`Stop offering ${name} here?`}
+                      description="Apps with this workspace's keys are refused it from their next request. The agent itself is kept."
+                      confirmLabel="Remove"
+                      onConfirm={() => remove.mutate(entry.id)}
+                      content="Remove"
+                    />
+                  }
+                />
+              );
+            })}
+          />
           {isAdding ? (
             <WorkspaceAgentDialog open onOpenChange={setIsAdding} workspaceId={workspaceId} choices={choices} />
           ) : null}

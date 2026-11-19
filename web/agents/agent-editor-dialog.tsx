@@ -1,19 +1,46 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument } from '@/__generated__/graphql';
-import { InputField, TextareaField, useAppForm } from '@/components/app-form';
+import { useState } from 'react';
+import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument, ServersDocument } from '@/__generated__/graphql';
+import { ComboboxField, InputField, NumberField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
+import { FieldRow } from '@/components/field-row';
+import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
-import { ScanSearch } from '@/components/ui/icons';
+import { FilePen, Plus, ScanSearch, Trash2 } from '@/components/ui/icons';
+import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { useToast } from '@/components/ui/toast';
 import { request } from '@/lib/gql';
+import { NAME_HINT, NAME_PATTERN } from '@/models/names';
+import { BUILTIN, transportOf } from '@/tools/shapes';
+import {
+  type AgentFormValues,
+  documentFrom,
+  formValuesOf,
+  isPromptEditable,
+  type PromptPartValues,
+  ServerReach,
+} from './agent-form';
 import { Findings } from './findings';
 import { documentText, parseDocument, refusalOf, STARTER_DOCUMENT, stringsOf } from './shapes';
 
-/** How tall the document box is, in lines. */
+/** How tall the JSON box is, in lines. */
 const DOCUMENT_ROWS = 18;
+/** How tall a prompt part's box is, in lines. */
+const PART_ROWS = 4;
+
+/** The editor's two views of one document. */
+const EditorView = { Form: 'form', Json: 'json' } as const;
+type EditorView = (typeof EditorView)[keyof typeof EditorView];
+
+/** The MCP Servers choices, as people read them. */
+const REACH_OPTIONS = [
+  { value: ServerReach.Every, label: 'Every MCP server, now and later' },
+  { value: ServerReach.None, label: 'None' },
+  { value: ServerReach.Chosen, label: 'Only the ones chosen' },
+];
 
 /** The agent a new revision is for. */
 export interface EditedAgent {
@@ -38,18 +65,21 @@ interface Saved {
   warnings: string[];
 }
 
+/** What the form holds: the document's fields, the JSON view's text, and the revision's message. */
+interface EditorValues extends AgentFormValues {
+  json: string;
+  message: string;
+}
+
 /**
- * Reads the document typed, for a request: the form's validator has already refused anything else.
+ * Reads the document the editor starts from.
  *
- * @param text - The text in the box.
- * @returns The document.
+ * @param agent - The agent, or null for a new one.
+ * @returns Its document, or the starter.
  */
-function documentOf(text: string): Record<string, unknown> {
-  const parsed = parseDocument(text);
-  if ('error' in parsed) {
-    throw new Error(parsed.error);
-  }
-  return parsed.document;
+function startingDocument(agent: EditedAgent | null): Record<string, unknown> {
+  const parsed = parseDocument(documentText(agent?.document ?? STARTER_DOCUMENT));
+  return 'error' in parsed ? { ...STARTER_DOCUMENT } : parsed.document;
 }
 
 /**
@@ -63,14 +93,39 @@ function warningCount(count: number): string {
 }
 
 /**
- * Adds an agent, or saves a new revision of one, from a `cubicecho.agent/1` document typed as JSON.
- * Check asks the server what it thinks without saving; a refused save lists every reason at once.
+ * Finds what is wrong with the prompt's part ids.
+ *
+ * @param parts - The parts.
+ * @returns The first problem, or undefined.
+ */
+function partIdError(parts: readonly PromptPartValues[]): string | undefined {
+  const ids = parts.map((part) => part.id.trim());
+  if (ids.some((id) => id === '')) {
+    return 'Every part needs an id.';
+  }
+  return new Set(ids).size === ids.length ? undefined : 'Two parts have the same id.';
+}
+
+/**
+ * Adds an agent, or saves a new revision of one. The form sets what agents usually need; the JSON view holds the
+ * whole document, and a document pasted there fills the form. Check asks the server what it thinks without saving.
  */
 export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDialogProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
   const isNew = agent === null;
+  const [view, setView] = useState<EditorView>(EditorView.Form);
+  const [initial] = useState(() => startingDocument(agent));
+  // What the form doesn't show is kept from here: the document it was last filled from.
+  const [base, setBase] = useState<Record<string, unknown>>(initial);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const servers = useQuery({ queryKey: ['servers'], queryFn: () => request(ServersDocument), enabled: open });
+  const serverOptions = (servers.data?.servers ?? []).map((server) => ({
+    value: server.name,
+    label: transportOf(server.transport).type === BUILTIN ? `${server.name} (the admin server)` : server.name,
+  }));
+
   const check = useMutation({
     mutationFn: async (document: Record<string, unknown>) =>
       (await request(CheckAgentDocument, { document, id: agent?.id ?? null })).checkAgent,
@@ -103,23 +158,307 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
         void navigate({ to: '/agents/$agentId', params: { agentId: saved.agentId } });
       }
     },
-    // The dialog lists what went wrong, under the document.
+    // The dialog lists what went wrong, under the form.
     meta: { quiet: true },
   });
+
   const form = useAppForm({
-    defaultValues: { document: documentText(agent?.document ?? STARTER_DOCUMENT), message: '' },
+    defaultValues: { ...formValuesOf(initial), json: documentText(initial), message: '' } satisfies EditorValues,
     onSubmit: ({ value }) => {
-      const parsed = parseDocument(value.document);
-      // The field's validator has already said what is wrong with it.
-      if ('error' in parsed) {
+      const document = currentDocument(value);
+      if (document === null) {
         return undefined;
       }
-      return save
-        .mutateAsync({ document: parsed.document, message: value.message.trim() || null })
-        .catch(() => undefined);
+      return save.mutateAsync({ document, message: value.message.trim() || null }).catch(() => undefined);
+    },
+    listeners: {
+      // What the server said was about the document before this edit.
+      onChange: () => {
+        check.reset();
+        save.reset();
+      },
     },
   });
+
+  /**
+   * Reads the document the dialog would save now: the JSON view's text there, the form over its base here.
+   *
+   * @param values - The form's values.
+   * @returns The document, or null when the JSON isn't one (and says so).
+   */
+  function currentDocument(values: EditorValues): Record<string, unknown> | null {
+    if (view === EditorView.Form) {
+      return documentFrom(base, values);
+    }
+    const parsed = parseDocument(values.json);
+    if ('error' in parsed) {
+      setJsonError(parsed.error);
+      return null;
+    }
+    return parsed.document;
+  }
+
+  /**
+   * Fills the form from a document, which becomes what the form keeps everything else from.
+   *
+   * @param document - The document.
+   */
+  function fillForm(document: Record<string, unknown>): void {
+    setBase(document);
+    const { json, message } = form.state.values;
+    // The defaults stay the agent's own document, so a save still knows whether anything changed.
+    form.reset({ ...formValuesOf(document), json, message }, { keepDefaultValues: true });
+  }
+
+  /**
+   * Switches between the form and the JSON. Leaving the JSON fills the form from it, so a pasted document lands in
+   * the fields; JSON that isn't a document keeps the JSON view open, saying why.
+   *
+   * @param next - The view to show.
+   */
+  function switchView(next: EditorView): void {
+    if (next === view) {
+      return;
+    }
+    if (next === EditorView.Json) {
+      form.setFieldValue('json', documentText(documentFrom(base, form.state.values)));
+      setJsonError(null);
+      setView(next);
+      return;
+    }
+    const parsed = parseDocument(form.state.values.json);
+    if ('error' in parsed) {
+      setJsonError(parsed.error);
+      return;
+    }
+    fillForm(parsed.document);
+    setJsonError(null);
+    setView(next);
+  }
+
   const refusal = save.isError ? refusalOf(save.error) : null;
+  const promptEditable = isPromptEditable(base);
+
+  const formView = (
+    <div className="grid gap-6">
+      <Section
+        title="About it"
+        contentSlot={
+          <div className="grid gap-4">
+            <FieldRow
+              contentSlot={
+                <>
+                  <InputField
+                    form={form}
+                    name="id"
+                    label="Id"
+                    description={
+                      isNew
+                        ? `What an app sends as its model to run it. ${NAME_HINT}`
+                        : `An agent's id never changes: it stays ${agent.name}.`
+                    }
+                    disabled={isNew === false}
+                    required
+                    validators={{
+                      onChange: ({ value }) => (NAME_PATTERN.test(value.trim()) ? undefined : NAME_HINT),
+                    }}
+                  />
+                  <InputField form={form} name="name" label="Name" description="Left blank, the id is its name." />
+                </>
+              }
+            />
+            <InputField
+              form={form}
+              name="description"
+              label="Description"
+              description="One line for whoever picks between agents. The model never sees it."
+            />
+          </div>
+        }
+      />
+      <Section
+        title="Model"
+        contentSlot={
+          <div className="grid gap-4">
+            <InputField
+              form={form}
+              name="model"
+              label="Model"
+              placeholder="ollama/qwen3:32b"
+              description="A provider's model as <provider>/<model>, or a pool's name."
+              required
+              validators={{ onChange: ({ value }) => (value.trim() === '' ? 'Name a model.' : undefined) }}
+            />
+            <FieldRow
+              perRow={3}
+              contentSlot={
+                <>
+                  <NumberField
+                    form={form}
+                    name="temperature"
+                    label="Temperature"
+                    description="0 to 2. Blank leaves it to the model."
+                    min={0}
+                    max={2}
+                    step={0.1}
+                  />
+                  <NumberField
+                    form={form}
+                    name="maxTokens"
+                    label="Max tokens"
+                    description="The reply's ceiling. Blank leaves it to the model."
+                    integer
+                    min={0}
+                  />
+                  <InputField
+                    form={form}
+                    name="reasoningEffort"
+                    label="Reasoning effort"
+                    placeholder="low, medium, high"
+                    description="Blank sends none."
+                  />
+                </>
+              }
+            />
+          </div>
+        }
+      />
+      <Section
+        title="Prompt"
+        description="Its parts, in order, joined with blank lines. An app's own instructions come after them."
+        actionSlot={
+          promptEditable ? (
+            <Button
+              variant="positive"
+              size="sm"
+              iconSlot={<Plus />}
+              onClick={() => form.pushFieldValue('prompt', { id: '', text: '' })}
+              content="Add part"
+            />
+          ) : undefined
+        }
+        contentSlot={
+          promptEditable ? (
+            <form.Subscribe selector={(state) => state.values.prompt}>
+              {(parts) => (
+                <div className="grid gap-4">
+                  {parts.map((_part, index) => (
+                    // A part has no key of its own until its id is typed, and its place is what the fields bind to.
+                    // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
+                    <div key={index} className="grid gap-2">
+                      <div className="flex items-end gap-2">
+                        <InputField
+                          form={form}
+                          name={`prompt[${index}].id`}
+                          label="Part id"
+                          placeholder="identity"
+                          className="flex-1"
+                          required
+                        />
+                        <Button
+                          variant="destructive-outline"
+                          size="icon"
+                          aria-label={`Remove part ${index + 1}`}
+                          iconSlot={<Trash2 />}
+                          onClick={() => form.removeFieldValue('prompt', index)}
+                        />
+                      </div>
+                      <TextareaField form={form} name={`prompt[${index}].text`} label="Text" rows={PART_ROWS} />
+                    </div>
+                  ))}
+                  {parts.length === 0 ? <p className="text-foreground/60 text-sm">No prompt yet.</p> : null}
+                  {partIdError(parts) === undefined || parts.length === 0 ? null : (
+                    <Alert variant="warning" title="Check the part ids" description={partIdError(parts)} />
+                  )}
+                </div>
+              )}
+            </form.Subscribe>
+          ) : (
+            <Alert
+              variant="info"
+              title="Its prompt is edited in the JSON"
+              description="A part points at a file or a URL, which the form can't show. The form keeps the prompt as it is."
+            />
+          )
+        }
+      />
+      <Section
+        title="MCP Servers"
+        description="Which MCP servers it may use tools from. The admin server is never one of every server: choose it by name."
+        contentSlot={
+          <div className="grid gap-4">
+            <SelectField form={form} name="serverReach" label="Reaches" options={REACH_OPTIONS} />
+            <form.Subscribe selector={(state) => state.values.serverReach}>
+              {(reach) =>
+                reach === ServerReach.Chosen ? (
+                  <ComboboxField
+                    form={form}
+                    name="servers"
+                    label="MCP Servers"
+                    multiple
+                    options={serverOptions}
+                    placeholder="Choose MCP servers"
+                  />
+                ) : null
+              }
+            </form.Subscribe>
+            <NumberField
+              form={form}
+              name="maxIterations"
+              label="Most tool rounds"
+              description="Where a tool loop stops. Blank leaves it to the router's default."
+              integer
+              min={1}
+            />
+          </div>
+        }
+      />
+      <InputField
+        form={form}
+        name="message"
+        label="What changed"
+        description="Optional. Kept with the revision, in the history."
+      />
+      <p className="text-foreground/60 text-sm">
+        Anything else in the document, such as its endpoint, side tasks or hooks, is kept as it is. Edit it in the JSON.
+      </p>
+    </div>
+  );
+
+  const jsonView = (
+    <div className="grid gap-4">
+      <TextareaField
+        form={form}
+        name="json"
+        label="Document"
+        description="The whole cubicecho.agent/1 document. Paste one here, then fill the form from it."
+        rows={DOCUMENT_ROWS}
+        // The field's `className` is its root's, label included, so the box alone is reached past it.
+        className="[&_textarea]:font-mono [&_textarea]:text-xs"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        listeners={{ onChange: () => setJsonError(null) }}
+      />
+      {jsonError === null ? null : (
+        <Alert variant="destructive" title="That isn't a document" description={jsonError} />
+      )}
+      <div>
+        <Button
+          variant="positive-outline"
+          iconSlot={<FilePen />}
+          onClick={() => switchView(EditorView.Form)}
+          content="Fill the form from this"
+        />
+      </div>
+      <InputField
+        form={form}
+        name="message"
+        label="What changed"
+        description="Optional. Kept with the revision, in the history."
+      />
+    </div>
+  );
 
   return (
     <DialogLayout
@@ -128,7 +467,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
       title={isNew ? 'New agent' : `New revision of ${agent.name}`}
       description={
         isNew
-          ? "A cubicecho.agent/1 document, as JSON. Its id becomes the agent's name, and its first revision goes live at once."
+          ? 'Its first revision goes live at once. Fill in the form, or paste a cubicecho.agent/1 document as JSON.'
           : 'Saving makes a new revision and puts it live at once. Every earlier revision stays in the history.'
       }
       size="xl"
@@ -142,42 +481,11 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
       )}
       contentSlot={
         <div className="grid gap-4">
-          <TextareaField
-            form={form}
-            name="document"
-            label="Document"
-            description={
-              isNew
-                ? 'Its id is what an app sends as its model to run it.'
-                : `Its id stays ${agent.name}: an agent's name never changes.`
-            }
-            rows={DOCUMENT_ROWS}
-            // The field's `className` is its root's, label included, so the box alone is reached past it.
-            className="[&_textarea]:font-mono [&_textarea]:text-xs"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            required
-            validators={{
-              onChange: ({ value }) => {
-                const parsed = parseDocument(value);
-                return 'error' in parsed ? parsed.error : undefined;
-              },
-            }}
-            // What the server said was about the text before this edit.
-            listeners={{
-              onChange: () => {
-                check.reset();
-                save.reset();
-              },
-            }}
-          />
-          <InputField
-            form={form}
-            name="message"
-            label="What changed"
-            description="Optional. Kept with the revision, in the history."
-          />
+          <SegmentedGroup aria-label="How to edit it" value={view} onValueChange={switchView}>
+            <SegmentedButton value={EditorView.Form}>Form</SegmentedButton>
+            <SegmentedButton value={EditorView.Json}>JSON</SegmentedButton>
+          </SegmentedGroup>
+          {view === EditorView.Form ? formView : jsonView}
           {check.data === undefined ? null : <Findings findings={check.data} showClean />}
           {check.isError ? (
             <Alert variant="destructive" title="The check failed" description={check.error.message} />
@@ -191,19 +499,19 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
       footerActionsSlot={(close) => (
         <>
           <Button variant="outline" onClick={close} content="Cancel" />
-          <form.Subscribe selector={(state) => state.values.document}>
-            {(text) => (
-              <Button
-                variant="outline"
-                iconSlot={<ScanSearch />}
-                loading={check.isPending}
-                disabled={'error' in parseDocument(text)}
-                hint="Asks the router what it makes of the document, without saving it."
-                onClick={() => check.mutate(documentOf(text))}
-                content="Check"
-              />
-            )}
-          </form.Subscribe>
+          <Button
+            variant="outline"
+            iconSlot={<ScanSearch />}
+            loading={check.isPending}
+            hint="Asks the router what it makes of the document, without saving it."
+            onClick={() => {
+              const document = currentDocument(form.state.values);
+              if (document !== null) {
+                check.mutate(document);
+              }
+            }}
+            content="Check"
+          />
           <form.SubmitButton
             requireChanges={isNew === false}
             loadingLabel="Saving…"

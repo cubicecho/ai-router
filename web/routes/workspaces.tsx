@@ -1,31 +1,50 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { WorkspacesDocument } from '@/__generated__/graphql';
+import { WorkspacesDocument, type WorkspacesQuery } from '@/__generated__/graphql';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Layers, Plus } from '@/components/ui/icons';
+import { KeyRound, Plus } from '@/components/ui/icons';
+import { countOf } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { WorkspaceDialog } from '@/workspaces/workspace-dialog';
 
+/** One row of the workspaces list, as its query answers it. */
+type WorkspaceRow = WorkspacesQuery['workspaces'][number];
+
 /**
- * Says how many keys a workspace has.
+ * What a workspace holds, in a line: its agents, its MCP Servers entries and its runs, then a badge
+ * for what stops its apps calling at all.
  *
- * @param count - The number of keys.
- * @returns "No keys", "1 key" or "3 keys".
+ * @param workspace - The row.
+ * @returns The row's far end.
  */
-function keyCount(count: number): string {
-  if (count === 0) {
-    return 'No keys';
-  }
-  return count === 1 ? '1 key' : `${count} keys`;
+function metaOf(workspace: WorkspaceRow) {
+  const keys = workspace.keysAggregate.count;
+  return (
+    <span className="flex items-center gap-2 text-foreground/60 text-xs">
+      <span>
+        {[
+          countOf(workspace.agentsAggregate.count, 'agent', 'agents'),
+          countOf(workspace.serversAggregate.count, 'MCP Server', 'MCP Servers'),
+          countOf(workspace.runsAggregate.count, 'run', 'runs'),
+        ].join(' · ')}
+      </span>
+      {keys === 0 ? (
+        <Badge variant="warning-soft">No keys</Badge>
+      ) : (
+        <Badge variant="secondary">{countOf(keys, 'key', 'keys')}</Badge>
+      )}
+    </span>
+  );
 }
 
-/** Every workspace, each opening onto its keys. */
+/** Every workspace, each opening onto its agents, keys, MCP Servers and usage. */
 export function WorkspacesRoute() {
   const [isCreating, setIsCreating] = useState(false);
   const workspaces = useQuery({ queryKey: ['workspaces'], queryFn: () => request(WorkspacesDocument) });
@@ -36,7 +55,7 @@ export function WorkspacesRoute() {
 
   return (
     <PageLayout
-      width="prose"
+      width="full"
       title="Workspaces"
       description="What each app sees: the agents, models and servers it may use, and the keys it calls with."
       actionSlot={rows.length > 0 ? create : undefined}
@@ -48,7 +67,7 @@ export function WorkspacesRoute() {
             count={rows.length}
             emptySlot={
               <EmptyState
-                iconSlot={<Layers />}
+                iconSlot={<KeyRound />}
                 title="No workspaces yet"
                 description="Make one for each app that will use the router, then give it a key."
                 actionSlot={create}
@@ -62,7 +81,7 @@ export function WorkspacesRoute() {
                 key={workspace.id}
                 title={workspace.name}
                 description={workspace.description === '' ? workspace.slug : workspace.description}
-                meta={keyCount(workspace.keysAggregate.count)}
+                meta={metaOf(workspace)}
                 linkSlot={<Link to="/workspaces/$workspaceId" params={{ workspaceId: workspace.id }} />}
               />
             ))}

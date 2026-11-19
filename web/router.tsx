@@ -6,9 +6,14 @@ import {
   Outlet,
   redirect,
 } from '@tanstack/react-router';
+import { AGENT_TABS } from '@/agents/search';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
-import { validateRunsSearch } from '@/runs/search';
+import { tabSearch } from '@/lib/tab-search';
+import { validatePoolSearch, validateProviderSearch } from '@/models/tabs';
+import { RUN_TABS, validateRunsSearch } from '@/runs/search';
+import { validateServerSearch } from '@/tools/server-tabs';
+import { WORKSPACE_TABS } from '@/workspaces/tabs';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -63,6 +68,7 @@ const agentsRoute = createRoute({
 const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents/$agentId',
+  validateSearch: tabSearch(AGENT_TABS),
   component: lazyRouteComponent(() => import('@/routes/agent'), 'AgentRoute'),
 });
 
@@ -77,6 +83,7 @@ const runsRoute = createRoute({
 const runRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agent-runs/$runId',
+  validateSearch: tabSearch(RUN_TABS),
   component: lazyRouteComponent(() => import('@/routes/run'), 'RunRoute'),
 });
 
@@ -89,6 +96,7 @@ const workspacesRoute = createRoute({
 const workspaceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/workspaces/$workspaceId',
+  validateSearch: tabSearch(WORKSPACE_TABS),
   component: lazyRouteComponent(() => import('@/routes/workspace'), 'WorkspaceRoute'),
 });
 
@@ -101,6 +109,7 @@ const providersRoute = createRoute({
 const providerRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/providers/$providerId',
+  validateSearch: validateProviderSearch,
   component: lazyRouteComponent(() => import('@/routes/provider'), 'ProviderRoute'),
 });
 
@@ -113,18 +122,20 @@ const poolsRoute = createRoute({
 const poolRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/pools/$poolId',
+  validateSearch: validatePoolSearch,
   component: lazyRouteComponent(() => import('@/routes/pool'), 'PoolRoute'),
 });
 
 const serversRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/servers',
+  path: '/mcp-servers',
   component: lazyRouteComponent(() => import('@/routes/servers'), 'ServersRoute'),
 });
 
 const serverRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/servers/$serverId',
+  path: '/mcp-servers/$serverId',
+  validateSearch: validateServerSearch,
   component: lazyRouteComponent(() => import('@/routes/server'), 'ServerRoute'),
 });
 

@@ -29,8 +29,8 @@ export function ServersRoute() {
 
   return (
     <PageLayout
-      width="prose"
-      title="Servers"
+      width="full"
+      title="MCP Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
       actionSlot={installed.length > 0 ? add : undefined}
       contentSlot={
@@ -42,27 +42,33 @@ export function ServersRoute() {
             emptySlot={
               <EmptyState
                 iconSlot={<Plug />}
-                title="No servers yet"
+                title="No MCP servers yet"
                 description="Install one from a registry, npm or PyPI, or add one by its command or address."
                 actionSlot={add}
               />
             }
           />
           <List
-            label="Servers"
+            label="MCP servers"
             contentSlot={rows.map((server) => (
               <ListItem
                 key={server.id}
                 title={server.displayName ?? server.name}
-                description={`${describeTransport(transportOf(server.transport))} · ${describeSource(sourceOf(server.source))}`}
+                description={[
+                  server.displayName === null ? undefined : server.name,
+                  describeTransport(transportOf(server.transport)),
+                  describeSource(sourceOf(server.source)),
+                ]
+                  .filter((part) => part !== undefined)
+                  .join(' · ')}
                 meta={
-                  <span className="flex gap-1">
+                  <span className="flex items-center gap-1">
                     {isBuiltin(server.transport) ? <Badge variant="secondary">Built in</Badge> : null}
                     {server.enabled ? null : <Badge variant="outline">Off</Badge>}
                     <LoginBadge login={server.login} />
                   </span>
                 }
-                linkSlot={<Link to="/servers/$serverId" params={{ serverId: server.id }} />}
+                linkSlot={<Link to="/mcp-servers/$serverId" params={{ serverId: server.id }} />}
               />
             ))}
           />

@@ -96,11 +96,11 @@ export function factsOf(document: unknown): DocumentFacts {
  * Says which servers an agent may use tools from.
  *
  * @param servers - `tools.servers`, as {@link factsOf} reads it.
- * @returns "Every server", "None" or the names.
+ * @returns "Every MCP server", "None" or the names.
  */
 export function describeServers(servers: readonly string[] | null): string {
   if (servers === null) {
-    return 'Every server';
+    return 'Every MCP server';
   }
   return servers.length === 0 ? 'None' : servers.join(', ');
 }
