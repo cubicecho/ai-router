@@ -16,12 +16,13 @@ import {
 } from './registry.ts';
 import {
   type EnvVarMeta,
+  HTTP_TRANSPORTS,
+  httpTransportType,
   type InstallSource,
   type ServerTransport,
   SourceType,
   serverNameSchema,
   TRANSPORT_STDIO,
-  TRANSPORT_STREAMABLE_HTTP,
 } from './shapes.ts';
 
 /**
@@ -220,7 +221,7 @@ function headersFromRegistry(headers: RegistryKeyValueInput[] | undefined): Reco
  *
  * @param entry - The entry.
  * @param selector - `<index>` into its packages or `remote:<index>`. When undefined: the first npm package,
- * else the first PyPI one, else the first remote.
+ * else the first PyPI one, else the first streamable-HTTP remote, else the first SSE one, else the first remote.
  * @returns The chosen package or remote.
  * @throws BAD_USER_INPUT for a malformed selector, one that matches nothing, or an entry with nothing to install.
  */
@@ -255,7 +256,10 @@ export function selectFromEntry(
   if (supported !== undefined) {
     return { package: supported };
   }
-  const remote = remotes[0];
+  const reachable = HTTP_TRANSPORTS.map((type) => remotes.find((candidate) => candidate.type === type)).find(
+    (candidate) => candidate !== undefined,
+  );
+  const remote = reachable ?? remotes[0];
   if (remote !== undefined) {
     return { remote };
   }
@@ -397,8 +401,8 @@ const NOTHING_DECLARED = { headers: {}, env: {}, envMeta: {} };
  * @param source - Names the registry, the entry, and a version that wins over the entry's.
  * @param deps - Reaches the registry and runs npm.
  * @returns The parts.
- * @throws NOT_FOUND for an unknown registry or entry. BAD_USER_INPUT for a remote that isn't streamable HTTP or
- * has no valid URL, or a package that is neither npm nor PyPI. Anything an install throws.
+ * @throws NOT_FOUND for an unknown registry or entry. BAD_USER_INPUT for a remote that is neither streamable HTTP nor
+ * SSE or has no valid URL, or a package that is neither npm nor PyPI. Anything an install throws.
  */
 async function registryParts(
   request: InstallRequest,
@@ -415,8 +419,9 @@ async function registryParts(
   const described = { displayName: entry.server.title, description: entry.server.description };
   if ('remote' in selection) {
     const { remote } = selection;
-    if (remote.type !== TRANSPORT_STREAMABLE_HTTP) {
-      throw badInput(`Remote transport "${remote.type}" is not supported; only ${TRANSPORT_STREAMABLE_HTTP} is.`);
+    const type = httpTransportType(remote.type);
+    if (type === undefined) {
+      throw badInput(`Remote transport "${remote.type}" is not supported; only ${HTTP_TRANSPORTS.join(' and ')} are.`);
     }
     const isUrl = z.url().safeParse(remote.url).success;
     if (isUrl === false) {
@@ -425,7 +430,7 @@ async function registryParts(
     return {
       ...described,
       ...NOTHING_DECLARED,
-      transport: { type: TRANSPORT_STREAMABLE_HTTP, url: remote.url },
+      transport: { type, url: remote.url },
       headers: headersFromRegistry(remote.headers),
     };
   }
@@ -456,7 +461,7 @@ async function registryParts(
  * CONFLICT when child processes are refused.
  *
  * @remarks
- * A server reached over HTTP needs no folder: when `transport` is streamable HTTP, the caller removes the one
+ * A server reached over HTTP needs no folder: when `transport` is streamable HTTP or SSE, the caller removes the one
  * it made.
  */
 export async function installServer(request: InstallRequest, deps: InstallDeps): Promise<InstallResult> {

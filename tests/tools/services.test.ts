@@ -9,6 +9,8 @@ import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost, type SnapshotHost } from '../../server/db/snapshot.ts';
 import { activity } from '../../server/db/tables/activity.ts';
 import { registries } from '../../server/db/tables/registries.ts';
+import { serverSecrets } from '../../server/db/tables/server-secrets.ts';
+import { servers } from '../../server/db/tables/servers.ts';
 import { Role } from '../../server/db/tables/users.ts';
 import { workspaceServers } from '../../server/db/tables/workspace-servers.ts';
 import { ChildMode } from '../../server/tools/child-users.ts';
@@ -26,7 +28,13 @@ import {
   type TestClient,
   type TestDb,
 } from '../helpers.ts';
-import { type HttpFixture, startHttpFixture } from './fixtures/http-server.ts';
+import {
+  FIXTURE_HEADER,
+  type HttpFixture,
+  type SseFixture,
+  startHttpFixture,
+  startSseFixture,
+} from './fixtures/http-server.ts';
 
 /** The stdio fixture, run with this process's node. */
 const FIXTURE = fileURLToPath(new URL('./fixtures/stdio-server.ts', import.meta.url));
@@ -51,6 +59,13 @@ const DELETE_WORKSPACE = 'mutation ($id: UUID!) { deleteWorkspace(where: { id: {
 const SET_GROUPS = `mutation ($id: UUID!, $extraGroups: [Int!]!) {
   updateServer(where: { id: { eq: $id } }, set: { extraGroups: $extraGroups }) { id }
 }`;
+/** Everything a person can read about servers and their secrets, to scan for a planted value. */
+const EVERYTHING = `{
+  servers { id name source transport env envMeta installDir login { signedIn } secrets { kind name workspaceId } }
+  serverSecrets { id kind name }
+}`;
+/** A header value planted to be looked for in every answer. */
+const SECRET = 'planted-header-value';
 /** The mode bits a test compares. */
 const MODE_BITS = 0o7777;
 const BROWSE = `query ($registryId: UUID!, $search: String) {
@@ -62,10 +77,12 @@ const BROWSE = `query ($registryId: UUID!, $search: String) {
 let db: TestDb;
 let root: string;
 let http: HttpFixture;
+let sse: SseFixture;
 let snapshot: SnapshotHost;
 let tools: ToolServiceParts;
 let user: UserCaller;
 let asUser: TestClient;
+let asAdmin: TestClient;
 
 /**
  * Adds the stdio fixture by hand, as a person would.
@@ -88,10 +105,12 @@ beforeAll(async () => {
   db = await createTestDb();
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'ai-router-services-')));
   http = await startHttpFixture();
+  sse = await startSseFixture();
 });
 
 afterAll(async () => {
   await http.close();
+  await sse.close();
   await rm(root, { recursive: true, force: true });
   await closeTestDb(db);
 });
@@ -100,24 +119,36 @@ beforeEach(async () => {
   await resetTestDb(db);
   user = await createUser(db, 'user@example.com', Role.User);
   snapshot = await createSnapshotHost(db);
-  const registryFetch = async (url: URL) =>
-    Response.json({
-      servers: [
+  const gitEntry = {
+    server: {
+      name: 'io.example/git',
+      title: 'Git',
+      version: '1.2.0',
+      packages: [
+        { registryType: 'npm', identifier: '@example/git-mcp', version: '1.2.0' },
+        { registryType: 'oci', identifier: 'example/git' },
+      ],
+      remotes: [
+        { type: 'streamable-http', url: 'https://git.example/mcp' },
         {
-          server: {
-            name: 'io.example/git',
-            title: 'Git',
-            version: '1.2.0',
-            packages: [
-              { registryType: 'npm', identifier: '@example/git-mcp', version: '1.2.0' },
-              { registryType: 'oci', identifier: 'example/git' },
-            ],
-            remotes: [{ type: 'streamable-http', url: 'https://git.example/mcp' }],
-          },
+          type: 'sse',
+          url: 'https://git.example/sse',
+          headers: [
+            { name: 'Authorization', value: 'declared' },
+            { name: 'X-Fixed', value: 'yes' },
+          ],
         },
       ],
-      metadata: { nextCursor: url.searchParams.get('search') === 'git' ? 'next' : undefined },
-    });
+    },
+  };
+  // The one entry, by name, or a search that finds it.
+  const registryFetch = async (url: URL) =>
+    url.pathname.endsWith('/versions/latest')
+      ? Response.json(gitEntry)
+      : Response.json({
+          servers: [gitEntry],
+          metadata: { nextCursor: url.searchParams.get('search') === 'git' ? 'next' : undefined },
+        });
   tools = createToolServices({
     db,
     snapshot,
@@ -126,6 +157,7 @@ beforeEach(async () => {
     folders: { root },
   });
   asUser = createClient(db, user, { snapshot, tools });
+  asAdmin = createClient(db, await createUser(db, 'admin@example.com', Role.Admin), { snapshot, tools });
 });
 
 afterEach(async () => {
@@ -315,10 +347,7 @@ describe('a workspace instance', () => {
     const { server, workspaceId } = await addEntry();
     await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
     const [before] = tools.instances.list(server.id);
-    await createClient(db, await createUser(db, 'admin@example.com', Role.Admin), { snapshot, tools }).expectOk(
-      SET_GROUPS,
-      { id: server.id, extraGroups: freeGroups(1) },
-    );
+    await asAdmin.expectOk(SET_GROUPS, { id: server.id, extraGroups: freeGroups(1) });
     await asUser.expectOk(TRY_IN, { id: server.id, workspaceId, tool: 'cwd' });
     const [after] = tools.instances.list(server.id);
     expect(after).not.toBe(before);
@@ -353,10 +382,138 @@ describe('a registry', () => {
           choices: [
             { selector: '0', kind: 'npm', identifier: '@example/git-mcp', version: '1.2.0' },
             { selector: 'remote:0', kind: 'streamable-http', identifier: 'https://git.example/mcp', version: null },
+            { selector: 'remote:1', kind: 'sse', identifier: 'https://git.example/sse', version: null },
           ],
         },
       ],
       nextCursor: 'next',
     });
+  });
+});
+
+/**
+ * Reads the secret headers stored for a server.
+ *
+ * @param serverId - The server.
+ * @returns Each header's name and value, by name.
+ */
+async function storedHeaders(serverId: string) {
+  const rows = await db
+    .select({ kind: serverSecrets.kind, name: serverSecrets.name, value: serverSecrets.value })
+    .from(serverSecrets)
+    .where(eq(serverSecrets.serverId, serverId));
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+describe('headers a server is added with', () => {
+  it('are kept as its secrets, sent to it, and never served', async () => {
+    const { installServer } = await asAdmin.expectOk(INSTALL, {
+      input: {
+        name: 'remote',
+        source: { type: 'manual' },
+        transport: { type: 'streamable-http', url: http.url },
+        headers: [{ name: FIXTURE_HEADER, value: SECRET }],
+      },
+    });
+    expect(await storedHeaders(installServer.id)).toEqual([{ kind: 'header', name: FIXTURE_HEADER, value: SECRET }]);
+    const { tryServerTool } = await asAdmin.expectOk(TRY, { id: installServer.id, tool: 'header' });
+    expect(tryServerTool).toMatchObject({ content: [{ type: 'text', text: SECRET }] });
+    const everything = await asAdmin.expectOk(EVERYTHING);
+    expect(everything.servers.find((server: { id: string }) => server.id === installServer.id).secrets).toEqual([
+      { kind: 'header', name: FIXTURE_HEADER, workspaceId: null },
+    ]);
+    expect(JSON.stringify([installServer, everything])).not.toContain(SECRET);
+  });
+
+  it('are refused to a user who is not an admin, and nothing is added', async () => {
+    const { code } = await asUser.expectError(INSTALL, {
+      input: {
+        name: 'remote',
+        source: { type: 'manual' },
+        transport: { type: 'streamable-http', url: http.url },
+        headers: [{ name: 'Authorization', value: SECRET }],
+      },
+    });
+    expect(code).toBe(ErrorCode.Forbidden);
+    expect(await db.select().from(servers).where(eq(servers.name, 'remote'))).toEqual([]);
+  });
+
+  it('are refused for a program, whose folder is removed again', async () => {
+    const before = await readdir(root);
+    const { code } = await asAdmin.expectError(INSTALL, {
+      input: {
+        name: 'fixture',
+        source: { type: 'manual' },
+        transport: { type: 'stdio', command: process.execPath, args: [FIXTURE] },
+        headers: [{ name: 'Authorization', value: SECRET }],
+      },
+    });
+    expect(code).toBe(ErrorCode.BadUserInput);
+    expect(await db.select().from(servers).where(eq(servers.name, 'fixture'))).toEqual([]);
+    expect(await readdir(root)).toEqual(before);
+  });
+
+  it.each([
+    ['a bad name', [{ name: 'x y', value: SECRET }]],
+    ['a value with a line break', [{ name: 'X-Token', value: 'a\r\nb: c' }]],
+    ['an empty value', [{ name: 'X-Token', value: '' }]],
+    [
+      'a name given twice in another case',
+      [
+        { name: 'Authorization', value: SECRET },
+        { name: 'authorization', value: SECRET },
+      ],
+    ],
+  ])('refuses %s', async (_label, headers) => {
+    const { code } = await asAdmin.expectError(INSTALL, {
+      input: {
+        name: 'remote',
+        source: { type: 'manual' },
+        transport: { type: 'streamable-http', url: http.url },
+        headers,
+      },
+    });
+    expect(code).toBe(ErrorCode.BadUserInput);
+  });
+});
+
+describe('an SSE server', () => {
+  it('is added by hand with its headers, has no folder but a login, and runs its tools', async () => {
+    const { installServer } = await asAdmin.expectOk(INSTALL, {
+      input: {
+        name: 'legacy',
+        source: { type: 'manual' },
+        transport: { type: 'sse', url: sse.url },
+        headers: [{ name: FIXTURE_HEADER, value: 'over-sse' }],
+      },
+    });
+    expect(installServer).toMatchObject({
+      transport: { type: 'sse', url: sse.url },
+      installDir: null,
+      login: { signedIn: false },
+    });
+    expect((await readdir(root)).filter((name) => name.startsWith(`${installServer.childUid}-`))).toEqual([]);
+    const { serverTools } = await asAdmin.expectOk(TOOLS, { id: installServer.id });
+    expect(serverTools.map((tool: { name: string }) => tool.name)).toEqual(['header']);
+    const { tryServerTool } = await asAdmin.expectOk(TRY, { id: installServer.id, tool: 'header' });
+    expect(tryServerTool).toMatchObject({ content: [{ type: 'text', text: 'over-sse' }] });
+    expect(sse.streamHeader()).toBe('over-sse');
+  });
+
+  it('is installed from a registry remote, with the headers it declares under the ones it is given', async () => {
+    await db.insert(registries).values({ name: 'home', url: 'https://registry.home.arpa' });
+    const { installServer } = await asAdmin.expectOk(INSTALL, {
+      input: {
+        source: { type: 'registry', registry: 'home', serverName: 'io.example/git' },
+        packageSelector: 'remote:1',
+        headers: [{ name: 'authorization', value: SECRET }],
+      },
+    });
+    expect(installServer).toMatchObject({ name: 'git', transport: { type: 'sse', url: 'https://git.example/sse' } });
+    expect(installServer.installDir).toBeNull();
+    expect(await storedHeaders(installServer.id)).toEqual([
+      { kind: 'header', name: 'authorization', value: SECRET },
+      { kind: 'header', name: 'X-Fixed', value: 'yes' },
+    ]);
   });
 });

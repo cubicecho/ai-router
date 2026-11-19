@@ -150,17 +150,24 @@ export const workspaceServerInput = z
   .partial()
   .strict();
 
+/** What a bad header name is told. */
+const HEADER_NAME_RULE = 'A header name holds letters, digits and - only.';
+/** What a header value with a line break is told. */
+const HEADER_VALUE_RULE = 'A header value cannot hold a line break.';
+
+/** A secret's value, of either kind. */
+const secretValue = z
+  .string()
+  .max(maxSecretLength, 'That secret is too long.')
+  .refine((value) => value.includes(NUL) === false, { error: 'A secret cannot hold a NUL.' });
+
 /** What `setServerSecret` takes. */
 export const secretInput = z
   .object({
     kind: z.enum([SecretKind.Env, SecretKind.Header]),
     name: z.string().min(1, 'Name the env var or header.'),
     /** Null or empty clears it. */
-    value: z
-      .string()
-      .max(maxSecretLength, 'That secret is too long.')
-      .refine((value) => value.includes(NUL) === false, { error: 'A secret cannot hold a NUL.' })
-      .nullable(),
+    value: secretValue.nullable(),
   })
   .superRefine((secret, issues) => {
     const isEnv = secret.kind === SecretKind.Env;
@@ -170,12 +177,30 @@ export const secretInput = z
         code: 'custom',
         message: isEnv
           ? 'An env var name holds letters, digits and _, and does not start with a digit.'
-          : 'A header name holds letters, digits and - only.',
+          : HEADER_NAME_RULE,
       });
     }
     if (isEnv === false && secret.value !== null && LINE_BREAK.test(secret.value)) {
-      issues.addIssue({ code: 'custom', message: 'A header value cannot hold a line break.' });
+      issues.addIssue({ code: 'custom', message: HEADER_VALUE_RULE });
     }
+  });
+
+/**
+ * The secret headers a server is added with, checked as `setServerSecret` checks a header. Each needs a value, and a
+ * name is given once, whatever its case, since HTTP reads `Authorization` and `authorization` as one header.
+ */
+export const secretHeadersInput = z
+  .array(
+    z.object({
+      name: z.string().regex(HEADER_NAME, HEADER_NAME_RULE),
+      value: secretValue
+        .min(1, 'Give the header a value.')
+        .refine((value) => LINE_BREAK.test(value) === false, { error: HEADER_VALUE_RULE }),
+    }),
+  )
+  .max(maxHeaders, `At most ${maxHeaders} headers.`)
+  .refine((headers) => new Set(headers.map((header) => header.name.toLowerCase())).size === headers.length, {
+    error: 'A header is listed twice.',
   });
 
 /** How many secrets of one kind a server, or one workspace's entry for it, may hold. */

@@ -1,11 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 /** The header the `header` tool reports. */
 export const FIXTURE_HEADER = 'x-fixture';
+
+/** Where the SSE fixture streams its events. */
+const SSE_PATH = '/sse';
+/** Where the SSE fixture takes messages, as it tells the client once the stream is open. */
+const MESSAGES_PATH = '/messages';
+
+/** A handler a loopback fixture answers each request with. */
+type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+
+/** A fixture listening on loopback. */
+interface Listening {
+  /** Its origin, such as `http://127.0.0.1:41234`. */
+  origin: string;
+  /** Closes it and every connection still open, event streams included. */
+  close: () => Promise<void>;
+}
 
 /** A streamable-HTTP MCP server on loopback, for the instance tests. */
 export interface HttpFixture {
@@ -44,6 +61,33 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
   const raw = Buffer.concat(chunks).toString();
   return raw === '' ? undefined : JSON.parse(raw);
+}
+
+/**
+ * Listens on a free loopback port, answering a handler's failure with a 500.
+ *
+ * @param handle - What answers each request.
+ * @returns Where it listens, and how to close it.
+ */
+async function listenOnLoopback(handle: Handler): Promise<Listening> {
+  const http = createServer((req, res) => {
+    handle(req, res).catch((error: unknown) => {
+      res.writeHead(500).end(String(error));
+    });
+  });
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+  const address = http.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('the fixture is not listening on a port');
+  }
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise((resolve) => {
+        http.closeAllConnections();
+        http.close(() => resolve());
+      }),
+  };
 }
 
 /**
@@ -90,25 +134,58 @@ export async function startHttpFixture(): Promise<HttpFixture> {
     res.writeHead(400).end('no session');
   }
 
-  const http = createServer((req, res) => {
-    handle(req, res).catch((error: unknown) => {
-      res.writeHead(500).end(String(error));
-    });
-  });
-  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
-  const address = http.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('the fixture is not listening on a port');
-  }
-  const { port } = address;
+  const { origin, close } = await listenOnLoopback(handle);
   return {
-    url: `http://127.0.0.1:${port}/mcp`,
+    url: `${origin}/mcp`,
     sessionsOpened: () => opened,
     dropSessions: () => sessions.clear(),
-    close: () =>
-      new Promise((resolve) => {
-        http.closeAllConnections();
-        http.close(() => resolve());
-      }),
+    close,
   };
+}
+
+/** An MCP server on loopback that speaks the older HTTP+SSE transport, for the instance and services tests. */
+export interface SseFixture {
+  /** Its event stream's address. */
+  url: string;
+  /** The `x-fixture` header the last event stream was opened with, which the `header` tool can't see. */
+  streamHeader: () => string;
+  close: () => Promise<void>;
+}
+
+/**
+ * Starts the SSE fixture on a free loopback port: a stream per session at `/sse`, and its messages posted to
+ * `/messages?sessionId=…`.
+ *
+ * @returns The fixture.
+ */
+export async function startSseFixture(): Promise<SseFixture> {
+  const sessions = new Map<string, SSEServerTransport>();
+  let streamHeader = '';
+
+  /**
+   * Answers one request: a new session on a stream, its session's transport for a message, and 404 otherwise.
+   *
+   * @param req - The request.
+   * @param res - The response.
+   */
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://fixture');
+    if (req.method === 'GET' && url.pathname === SSE_PATH) {
+      streamHeader = String(req.headers[FIXTURE_HEADER] ?? '');
+      const transport = new SSEServerTransport(MESSAGES_PATH, res);
+      sessions.set(transport.sessionId, transport);
+      res.on('close', () => sessions.delete(transport.sessionId));
+      await fixtureServer().connect(transport);
+      return;
+    }
+    const transport = sessions.get(url.searchParams.get('sessionId') ?? '');
+    if (req.method === 'POST' && url.pathname === MESSAGES_PATH && transport !== undefined) {
+      await transport.handlePostMessage(req, res, await readBody(req));
+      return;
+    }
+    res.writeHead(404).end('unknown session');
+  }
+
+  const { origin, close } = await listenOnLoopback(handle);
+  return { url: `${origin}${SSE_PATH}`, streamHeader: () => streamHeader, close };
 }

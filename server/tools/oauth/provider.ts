@@ -19,7 +19,7 @@ export const SERVER_LOGIN_METADATA_PATH = '/oauth/client-metadata.json';
 /** A remote server as server login reads it. */
 export interface StoredServerLogin {
   name: string;
-  /** The server's streamable-HTTP address. */
+  /** The server's address, streamable HTTP or SSE. */
   url: string;
   /** Its login as stored, null when it has none. */
   oauth: ServerOAuth | null;
@@ -33,7 +33,7 @@ export interface ServerLoginStore {
    * Reads one server's login.
    *
    * @param serverId - The server.
-   * @returns null for an unknown server, or one not reached over streamable HTTP.
+   * @returns null for an unknown server, or one not reached over HTTP.
    */
   load(serverId: string): Promise<StoredServerLogin | null>;
   /**

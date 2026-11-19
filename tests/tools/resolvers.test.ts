@@ -8,7 +8,7 @@ import { servers } from '../../server/db/tables/servers.ts';
 import { Role } from '../../server/db/tables/users.ts';
 import { workspaceServers } from '../../server/db/tables/workspace-servers.ts';
 import { resolveServer } from '../../server/tools/resolve.ts';
-import { SourceType, TRANSPORT_STDIO, TRANSPORT_STREAMABLE_HTTP } from '../../server/tools/shapes.ts';
+import { SourceType, TRANSPORT_SSE, TRANSPORT_STDIO, TRANSPORT_STREAMABLE_HTTP } from '../../server/tools/shapes.ts';
 import {
   closeTestDb,
   createClient,
@@ -258,6 +258,75 @@ describe('server secrets', () => {
     expect(answers).toContain('"signedIn":true');
     expect((await asAdmin.expectError('{ serverSecrets { value } }')).message).toContain('Cannot query field "value"');
     expect((await asAdmin.expectError('{ servers { oauth } }')).message).toContain('Cannot query field "oauth"');
+  });
+});
+
+describe('an SSE server', () => {
+  /** Where the SSE server streams its events. */
+  const SSE_URL = 'http://legacy.example/sse';
+
+  /**
+   * Adds an SSE server straight to the table, signed in.
+   *
+   * @returns Its row.
+   */
+  async function addSseServer() {
+    const [row] = await db
+      .insert(servers)
+      .values({
+        name: 'legacy',
+        source: { type: SourceType.Manual },
+        transport: { type: TRANSPORT_SSE, url: SSE_URL },
+        oauth: { tokens: { access_token: `${SECRET}-token` } },
+      })
+      .returning();
+    if (row === undefined) {
+      throw new Error('no row');
+    }
+    return row;
+  }
+
+  it('has a login, and drops it when its address moves to another origin', async () => {
+    const { id } = await addSseServer();
+    const LOGIN = 'query ($id: UUID!) { server(where: { id: { eq: $id } }) { id login { signedIn } } }';
+    expect((await asAdmin.expectOk(LOGIN, { id })).server.login).toEqual({ signedIn: true });
+    await asUser.expectOk(UPDATE_SERVER, {
+      id,
+      set: { transport: { type: TRANSPORT_SSE, url: 'http://elsewhere.example/sse' } },
+    });
+    expect((await asAdmin.expectOk(LOGIN, { id })).server.login).toEqual({ signedIn: false });
+  });
+
+  it('resolves with its headers, and a workspace entry’s address over its own', async () => {
+    const { id } = await addSseServer();
+    const { workspaceId } = await createWorkspaceWithKey(db, 'household-a');
+    await asAdmin.expectOk(SET_SECRET, { serverId: id, kind: 'header', name: 'Authorization', value: 'Bearer x' });
+    await asUser.expectOk(CREATE_ENTRY, {
+      values: { workspaceId, serverId: id, url: 'http://legacy.example/a/sse' },
+    });
+    const server = (await createSnapshotHost(db)).current().servers.get('legacy');
+    if (server === undefined) {
+      throw new Error('not in the snapshot');
+    }
+    expect(resolveServer(server, null, TIMEOUTS)).toMatchObject({
+      transport: { type: TRANSPORT_SSE, url: SSE_URL, headers: { Authorization: 'Bearer x' } },
+      runAs: null,
+      installDir: null,
+    });
+    expect(resolveServer(server, workspaceId, TIMEOUTS).transport).toEqual({
+      type: TRANSPORT_SSE,
+      url: 'http://legacy.example/a/sse',
+      headers: { Authorization: 'Bearer x' },
+    });
+  });
+
+  it('is refused an address that is not http or https', async () => {
+    const { id } = await addSseServer();
+    const { code } = await asUser.expectError(UPDATE_SERVER, {
+      id,
+      set: { transport: { type: TRANSPORT_SSE, url: 'file:///etc/passwd' } },
+    });
+    expect(code).toBe(ErrorCode.BadUserInput);
   });
 });
 

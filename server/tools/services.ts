@@ -23,7 +23,7 @@ import type {
 } from './api.ts';
 import { BUILTIN_ONLY, isBuiltin, refuseIfBuiltin, runMeta } from './builtin.ts';
 import { type ChildIsolation, serverChildUser } from './child-users.ts';
-import { envInput, transportInput } from './input.ts';
+import { envInput, secretHeadersInput, transportInput } from './input.ts';
 import { createInstallFolder, FolderKind, type FolderOptions, removeInstallFolder } from './install-folder.ts';
 import { deriveServerName, installServer } from './installer.ts';
 import { InstanceError } from './instance.ts';
@@ -33,14 +33,15 @@ import { ServerLoginService } from './oauth/service.ts';
 import { RegistryClient, type RegistryFetch, type RegistryServerEntry } from './registry.ts';
 import { resolveServer, workspaceInstanceEntry } from './resolve.ts';
 import {
+  httpTransportType,
   type InstallSource,
   installSourceSchema,
+  isHttpTransport,
   type ResolvedServer,
   SourceType,
   serverNameSchema,
   TRANSPORT_BUILTIN,
   TRANSPORT_STDIO,
-  TRANSPORT_STREAMABLE_HTTP,
 } from './shapes.ts';
 
 /** Characters of a failure kept on an instance's status. */
@@ -80,7 +81,8 @@ function asUpstream(error: unknown): unknown {
  * Lists what a registry entry can be installed as.
  *
  * @param entry - The entry.
- * @returns One choice per npm or PyPI package, and per streamable-HTTP remote, by the selector installServer takes.
+ * @returns One choice per npm or PyPI package, and per streamable-HTTP or SSE remote, by the selector installServer
+ * takes.
  */
 function choicesOf(entry: RegistryServerEntry): ServedRegistryPage['servers'][number]['choices'] {
   const packages = (entry.server.packages ?? []).flatMap((pkg, index) =>
@@ -89,11 +91,34 @@ function choicesOf(entry: RegistryServerEntry): ServedRegistryPage['servers'][nu
       : [],
   );
   const remotes = (entry.server.remotes ?? []).flatMap((remote, index) =>
-    remote.type === TRANSPORT_STREAMABLE_HTTP
+    httpTransportType(remote.type) !== undefined
       ? [{ selector: `remote:${index}`, kind: remote.type, identifier: remote.url, version: null }]
       : [],
   );
   return [...packages, ...remotes];
+}
+
+/** What a server given headers that is not reached over HTTP is told. */
+const HEADERS_NEED_HTTP =
+  'Headers are for a server reached over HTTP. A program takes its secrets as env values, under Secrets once it is added.';
+
+/**
+ * Lists the secret headers a new server is stored with: the ones its registry remote declares, and the ones it was
+ * added with, which win over a declared header of the same name in any case.
+ *
+ * @param declared - What the registry remote declares, by name.
+ * @param given - What the install was given.
+ * @returns Each header's name and value, once.
+ */
+function secretHeadersOf(
+  declared: Readonly<Record<string, string>>,
+  given: readonly { name: string; value: string }[],
+): { name: string; value: string }[] {
+  const givenNames = new Set(given.map((header) => header.name.toLowerCase()));
+  const kept = Object.entries(declared)
+    .filter(([name]) => givenNames.has(name.toLowerCase()) === false)
+    .map(([name, value]) => ({ name, value }));
+  return [...kept, ...given];
 }
 
 /**
@@ -138,9 +163,7 @@ export function createToolServices({
   const instances = new InstanceManager({
     isolation,
     authProviderFor: (resolved) =>
-      resolved.transport.type === TRANSPORT_STREAMABLE_HTTP
-        ? logins.providerFor(resolved.id, resolved.transport.url)
-        : undefined,
+      isHttpTransport(resolved.transport) ? logins.providerFor(resolved.id, resolved.transport.url) : undefined,
   });
 
   const serverById = (id: string): SnapshotServer => {
@@ -264,6 +287,7 @@ export function createToolServices({
               : { url: request.transport.url }),
           });
     const env = parseOrThrow(envInput, request.env ?? {});
+    const givenHeaders = parseOrThrow(secretHeadersInput, request.headers ?? []);
     const requestedName = request.name?.trim() ?? '';
     if (requestedName === '' && source.type === SourceType.Manual) {
       throw badInput('Name a server added by hand.');
@@ -274,7 +298,7 @@ export function createToolServices({
       throw badInput('A server with that name already exists.');
     }
     const childUid = await nextChildUid(db);
-    const needsFolder = transport?.type !== TRANSPORT_STREAMABLE_HTTP;
+    const needsFolder = transport === undefined || isHttpTransport(transport) === false;
     const folder = needsFolder ? await createInstallFolder(isolation, serverChildUser(childUid), folders) : null;
     try {
       const result = await installServer(
@@ -287,7 +311,11 @@ export function createToolServices({
         },
         { isolation, childUid, installDir: folder?.path ?? '', getRegistry, registryClient, ...folders },
       );
-      const keepsFolder = folder !== null && result.transport.type !== TRANSPORT_STREAMABLE_HTTP;
+      const isHttp = isHttpTransport(result.transport);
+      if (givenHeaders.length > 0 && isHttp === false) {
+        throw badInput(HEADERS_NEED_HTTP);
+      }
+      const keepsFolder = folder !== null && isHttp === false;
       if (folder !== null && keepsFolder === false) {
         await discardFolder(childUid, folder.name);
       }
@@ -310,10 +338,10 @@ export function createToolServices({
         if (inserted === undefined) {
           throw new Error('The server insert returned no row.');
         }
-        const headers = Object.entries(result.headers);
+        const headers = secretHeadersOf(result.headers, givenHeaders);
         if (headers.length > 0) {
           await tx.insert(serverSecrets).values(
-            headers.map(([header, value]) => ({
+            headers.map(({ name: header, value }) => ({
               serverId: inserted.id,
               workspaceId: null,
               kind: SecretKind.Header,

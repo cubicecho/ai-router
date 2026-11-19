@@ -183,7 +183,7 @@ export class ServerLoginService {
   }
 
   /**
-   * The provider an instance's `StreamableHTTPClientTransport` signs its requests with (`authProvider`).
+   * The provider an instance's HTTP transport, streamable or SSE, signs its requests with (`authProvider`).
    *
    * @param serverId - The server. A workspace instance passes its server's id.
    * @param instanceUrl - The address the instance connects to. At another origin than the server's, no token is sent.

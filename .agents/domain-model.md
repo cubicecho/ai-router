@@ -67,7 +67,7 @@ Dependencies point one way:
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
-| MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
+| MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
 
 ## Lifecycles
@@ -213,7 +213,7 @@ created (shown once) --> in use --revoke--> deleted
 | Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
 | A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1` or `/runs` | `auth/caller` |
 | `/v1` reads only workspace keys. A session token sent there is refused, never tried as a person | `auth/caller` `readWorkspaceCaller`, `agents/routes` |
-| Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code | `graphql/permissions`; `checkServerUpdate` in `tools/hooks` |
+| Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code. Headers a server is added with are secrets too, so `installServer` takes them only from an admin | `graphql/permissions`; `checkServerUpdate` in `tools/hooks`; `installServer` in `tools/resolvers` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
@@ -343,13 +343,17 @@ Everything about the code comes after `Owner:`.
   `tools/registry`; the `registries` table.
 - **Server (MCP server):** one tool provider the router installed or connects to: how to start or
   reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
-  values and every header value are in `server_secrets`, written by `setServerSecret` and served
-  only by name.
+  values and every header value are in `server_secrets`, written by `setServerSecret`, or by
+  `installServer` for the headers a server is added with, in the same transaction as its row, and
+  served only by name. Headers go only to a server reached over HTTP.
 - **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
   router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
 - **Transport:** how the router reaches a server: a program it starts, an address it connects to,
-  or, for the admin server, inside the router itself. Owner: `servers.transport`; stdio, streamable
-  HTTP, or built in (`builtin`, only `ai-router`'s), connected in process.
+  or, for the admin server, inside the router itself. An address is reached over streamable HTTP,
+  or over SSE, the older transport that streams events from one address and takes messages posted
+  to another. Both take headers and a login, and are never stopped for being idle. Owner:
+  `servers.transport`; `stdio`, `streamable-http`, `sse`, or `builtin` (only `ai-router`'s),
+  connected in process. `tools/shapes` `isHttpTransport` is true for the two HTTP ones.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
