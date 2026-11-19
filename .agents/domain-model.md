@@ -572,7 +572,10 @@ Everything about the code comes after `Owner:`.
   it changes nothing about a run, a resume keeps the run's, and a run sent with neither is in
   none. Owner: `agents/session` (`readSessionKey`), `agents/run-sessions`; `runs.session_key`;
   people list sessions with `runSessions`, and an app lists one session's runs with
-  `GET /runs?session=`. The runs screen's Sessions tab groups by it.
+  `GET /runs?session=`. The runs screen's Sessions tab groups by it. Everything a session says
+  about itself is read from its runs, nothing stored: its title is its first user message with
+  text, cut to `RUN_DEFAULTS.sessionTitleLength`, and it counts its failed (or expired) and
+  cancelled runs, names its latest status and failure, and adds up its runs' time.
 
 ### Administration
 

@@ -510,6 +510,8 @@ export interface RunSettings {
   runPageSize: number;
   /** The most runs `GET /runs`, or sessions `runSessions`, answer with at once. */
   maxRunPageSize: number;
+  /** The most characters of a session's first message `runSessions` answers as its title. */
+  sessionTitleLength: number;
   /**
    * How long a run waits for the app to answer the tool calls it handed back before it expires. Generous, since an
    * app's tool may be a person answering a question.
@@ -536,6 +538,7 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxEventPageSize: 5_000,
   runPageSize: 25,
   maxRunPageSize: 100,
+  sessionTitleLength: 80,
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
 });
