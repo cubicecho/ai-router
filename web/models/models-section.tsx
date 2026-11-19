@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef } from 'react';
 import { ProviderModelsDocument } from '@/__generated__/graphql';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
@@ -23,10 +23,11 @@ export interface ModelsSectionProps {
  * tab's whole pane, and the tab names it.
  */
 export function ModelsSection({ providerId, providerName }: ModelsSectionProps) {
-  const [refresh, setRefresh] = useState(false);
+  // A ref, not state: Refresh refetches in the same click, before a render could hand the query a new function.
+  const refresh = useRef(false);
   const models = useQuery({
     queryKey: ['providers', providerId, 'models'],
-    queryFn: () => request(ProviderModelsDocument, { id: providerId, refresh }),
+    queryFn: () => request(ProviderModelsDocument, { id: providerId, refresh: refresh.current }),
     meta: { quiet: true },
   });
   const rows = models.data?.providerModels ?? [];
@@ -70,7 +71,7 @@ export function ModelsSection({ providerId, providerName }: ModelsSectionProps) 
           iconSlot={<RefreshCw />}
           loading={models.isFetching}
           onClick={() => {
-            setRefresh(true);
+            refresh.current = true;
             void models.refetch();
           }}
           content="Refresh"
