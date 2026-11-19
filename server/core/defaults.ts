@@ -467,8 +467,6 @@ export interface RunSettings {
   waitTimeoutHours: number;
   /** How often waiting runs are checked for that timeout. */
   expireEveryMinutes: number;
-  /** App tools one request may send. */
-  maxAppTools: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -487,7 +485,29 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxEventPageSize: 5_000,
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
+});
+
+/**
+ * The router's settings: what an admin changes from the Settings page while the router runs. The `settings` row
+ * overrides these member by member, and a member nobody has set keeps its value here.
+ */
+export interface RouterSettings {
+  /** The most tools an app may send with one request on `/v1`. OpenAI's own limit is 128. */
+  maxAppTools: number;
+}
+
+export const ROUTER_DEFAULTS: Readonly<RouterSettings> = Object.freeze({
   maxAppTools: 128,
+});
+
+/** What an admin may set the router's settings to. */
+export interface RouterConfigSettings {
+  /** The highest `maxAppTools` an admin may set. Every app tool's schema goes to the model on every call. */
+  maxAppToolsLimit: number;
+}
+
+export const ROUTER_CONFIG_DEFAULTS: Readonly<RouterConfigSettings> = Object.freeze({
+  maxAppToolsLimit: 1_024,
 });
 
 /** Conversations an app names with `X-Conversation-Id`, whose history the router keeps. */

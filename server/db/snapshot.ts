@@ -1,6 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import type { OverridePolicyRules } from '../agents/policy.ts';
 import type { AdminRole } from '../core/admin-roles.ts';
+import { ROUTER_DEFAULTS, type RouterSettings } from '../core/defaults.ts';
+import { routerSettingsFrom, savedSettingsFrom } from '../core/settings.ts';
 import type { ServerOAuth, ServerTransport } from '../tools/shapes.ts';
 import type { DB } from './client.ts';
 import { agentRevisions } from './tables/agent-revisions.ts';
@@ -11,6 +13,7 @@ import { type PoolAffinity, type PoolStrategy, pools } from './tables/pools.ts';
 import { providers } from './tables/providers.ts';
 import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
+import { settings } from './tables/settings.ts';
 import { workspaceAgents } from './tables/workspace-agents.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
 import { workspaceServers } from './tables/workspace-servers.ts';
@@ -139,6 +142,8 @@ export interface Snapshot {
   servers: ReadonlyMap<string, SnapshotServer>;
   /** By name, as an app picks one for its model. */
   agents: ReadonlyMap<string, SnapshotAgent>;
+  /** The router's settings in force: the defaults, with what an admin saved over them. */
+  settings: Readonly<RouterSettings>;
 }
 
 /** A snapshot with nothing in it. */
@@ -149,6 +154,7 @@ export const EMPTY_SNAPSHOT: Snapshot = Object.freeze({
   pools: new Map(),
   servers: new Map(),
   agents: new Map(),
+  settings: ROUTER_DEFAULTS,
 });
 
 /** Holds the current snapshot, and builds a new one after a write. */
@@ -242,6 +248,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     agentRows,
     policyRows,
     grantRows,
+    [settingsRow],
   ] = await Promise.all([
     db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
     db
@@ -280,6 +287,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
       .leftJoin(agentRevisions, eq(agentRevisions.id, agents.liveRevisionId)),
     db.select({ id: overridePolicies.id, rules: overridePolicies.rules }).from(overridePolicies),
     db.select({ workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId }).from(workspaceAgents),
+    db.select({ values: settings.values }).from(settings),
   ]);
   const policies = new Map(policyRows.map((row) => [row.id, row.rules]));
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
@@ -289,6 +297,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     targetsByPool.set(poolId, [...(targetsByPool.get(poolId) ?? []), { providerId, providerName, model }]);
   }
   return {
+    settings: routerSettingsFrom(savedSettingsFrom(settingsRow?.values)),
     servers: serversFrom(serverRows, secretRows, entryRows),
     agents: new Map(
       agentRows.flatMap((row) => {

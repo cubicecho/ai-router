@@ -1,0 +1,23 @@
+query RouterSettings {
+  routerSettings {
+    maxAppTools {
+      value
+      saved
+      default
+      min
+      max
+    }
+  }
+}
+
+mutation UpdateRouterSettings($input: RouterSettingsInput!) {
+  updateRouterSettings(input: $input) {
+    maxAppTools {
+      value
+      saved
+      default
+      min
+      max
+    }
+  }
+}

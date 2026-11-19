@@ -145,6 +145,12 @@ const usersRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/users'), 'UsersRoute'),
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings',
+  component: lazyRouteComponent(() => import('@/routes/settings'), 'SettingsRoute'),
+});
+
 export const router = createRouter({
   routeTree: rootRoute.addChildren([
     loginRoute,
@@ -164,6 +170,7 @@ export const router = createRouter({
       serversRoute,
       serverRoute,
       usersRoute,
+      settingsRoute,
     ]),
   ]),
   defaultPreload: 'intent',
