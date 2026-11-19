@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Activity, ChevronLeft, ChevronRight, X } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { menuValueOf, storedValueOf, withEmptyOption, withOrphanOptions } from '@/lib/select-options';
-import { RunsTable } from '@/runs/runs-table';
+import { RunsList } from '@/runs/runs-list';
 import { RUNS_PER_PAGE, type RunsSearch } from '@/runs/search';
 import { formatCount, isOpen, RUN_STATUS_CHOICES, statusOf } from '@/runs/shapes';
 import { useNow, useRuns } from '@/runs/use-runs';
@@ -72,6 +72,7 @@ export function RunsRoute() {
   return (
     <PageLayout
       title="Runs"
+      width="full"
       description="Every time an app ran an agent: what it ran, for whom, how long it took and how it ended."
       headerContentSlot={
         <div className="grid w-full max-w-3xl gap-2 sm:grid-cols-3">
@@ -153,7 +154,7 @@ export function RunsRoute() {
               )
             }
           />
-          {rows.length === 0 ? null : <RunsTable rows={rows} now={now} caption="Runs" />}
+          <RunsList rows={rows} now={now} label="Runs" />
         </>
       }
     />

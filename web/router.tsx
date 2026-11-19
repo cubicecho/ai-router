@@ -6,11 +6,12 @@ import {
   Outlet,
   redirect,
 } from '@tanstack/react-router';
+import { AGENT_TABS } from '@/agents/search';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
 import { tabSearch } from '@/lib/tab-search';
 import { validatePoolSearch, validateProviderSearch } from '@/models/tabs';
-import { validateRunsSearch } from '@/runs/search';
+import { RUN_TABS, validateRunsSearch } from '@/runs/search';
 import { validateServerSearch } from '@/tools/server-tabs';
 import { WORKSPACE_TABS } from '@/workspaces/tabs';
 
@@ -67,6 +68,7 @@ const agentsRoute = createRoute({
 const agentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agents/$agentId',
+  validateSearch: tabSearch(AGENT_TABS),
   component: lazyRouteComponent(() => import('@/routes/agent'), 'AgentRoute'),
 });
 
@@ -81,6 +83,7 @@ const runsRoute = createRoute({
 const runRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/agent-runs/$runId',
+  validateSearch: tabSearch(RUN_TABS),
   component: lazyRouteComponent(() => import('@/routes/run'), 'RunRoute'),
 });
 

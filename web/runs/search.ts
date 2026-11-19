@@ -3,6 +3,17 @@ import { type RunStatus, statusOf } from './shapes';
 /** How many runs a page shows. */
 export const RUNS_PER_PAGE = 25;
 
+/** The run page's tabs, the default first, as the address bar names them: `?tab=details`. */
+export const RUN_TABS = ['timeline', 'details', 'events'] as const;
+export type RunTab = (typeof RUN_TABS)[number];
+
+/** What each of the run page's tabs is called. */
+export const RUN_TAB_LABELS: Readonly<Record<RunTab, string>> = {
+  timeline: 'Timeline',
+  details: 'Details',
+  events: 'Raw events',
+};
+
 /** The filters and the page, as the address bar holds them. */
 export interface RunsSearch {
   /** The agent's name, which never changes and outlives the agent. */
