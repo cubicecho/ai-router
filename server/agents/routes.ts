@@ -68,9 +68,6 @@ interface Delivery {
   events?: RunEvent[] | null;
 }
 
-/** An agent with a live revision, which a request may run. */
-type RunnableAgent = SnapshotAgent & { document: Readonly<Record<string, unknown>> };
-
 /** A request that got past the key check: who it is from. */
 interface AppLocals {
   caller: WorkspaceCaller;
