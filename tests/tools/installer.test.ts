@@ -182,6 +182,16 @@ describe('selectFromEntry', () => {
     expect(selectFromEntry(remoteOnly, undefined)).toEqual({ remote: entry.server.remotes?.[0] });
   });
 
+  it('picks a streamable-HTTP remote over an SSE one, and an SSE one over one it cannot reach', () => {
+    const ws = { type: 'websocket', url: 'wss://example.com/ws' };
+    const sse = { type: 'sse', url: 'https://example.com/sse' };
+    const streamable = { type: 'streamable-http', url: 'https://example.com/mcp' };
+    expect(selectFromEntry({ server: { name: 'x', remotes: [ws, sse, streamable] } }, undefined)).toEqual({
+      remote: streamable,
+    });
+    expect(selectFromEntry({ server: { name: 'x', remotes: [ws, sse] } }, undefined)).toEqual({ remote: sse });
+  });
+
   it('follows a package or remote selector', () => {
     expect(selectFromEntry(entry, '0')).toEqual({ package: entry.server.packages?.[0] });
     expect(selectFromEntry(entry, 'remote:0')).toEqual({ remote: entry.server.remotes?.[0] });
@@ -323,13 +333,29 @@ describe('installServer', () => {
     expect(result.headers).toEqual({ 'X-Fixed': 'yes' });
   });
 
-  it('refuses a remote that is not streamable HTTP', async () => {
+  it('installs an SSE remote, with its header values apart from its transport', async () => {
     const registryClient = registryOf({
-      server: { name: 'x/sse', remotes: [{ type: 'sse', url: 'https://mcp.example.com/sse' }] },
+      server: {
+        name: 'x/sse',
+        remotes: [{ type: 'sse', url: 'https://mcp.example.com/sse', headers: [{ name: 'X-Fixed', value: 'yes' }] }],
+      },
+    });
+    const result = await installServer(
+      { source: { type: 'registry', registry: 'official', serverName: 'x/sse' } },
+      deps({ registryClient }),
+    );
+    expect(calls).toEqual([]);
+    expect(result.transport).toEqual({ type: 'sse', url: 'https://mcp.example.com/sse' });
+    expect(result.headers).toEqual({ 'X-Fixed': 'yes' });
+  });
+
+  it('refuses a remote that is neither streamable HTTP nor SSE', async () => {
+    const registryClient = registryOf({
+      server: { name: 'x/ws', remotes: [{ type: 'websocket', url: 'wss://mcp.example.com/ws' }] },
     });
     await expect(
       installServer(
-        { source: { type: 'registry', registry: 'official', serverName: 'x/sse' } },
+        { source: { type: 'registry', registry: 'official', serverName: 'x/ws' } },
         deps({ registryClient }),
       ),
     ).rejects.toMatchObject({ extensions: { code: ErrorCode.BadUserInput } });
@@ -345,6 +371,8 @@ describe('installServer', () => {
     const transport = { type: 'streamable-http' as const, url: 'https://r.example/mcp' };
     const result = await installServer({ source: { type: 'manual' }, transport }, deps());
     expect(result).toEqual({ source: { type: 'manual' }, transport, headers: {}, env: {}, envMeta: {} });
+    const sse = { type: 'sse' as const, url: 'https://r.example/sse' };
+    expect((await installServer({ source: { type: 'manual' }, transport: sse }, deps())).transport).toEqual(sse);
     await expect(installServer({ source: { type: 'manual' } }, deps())).rejects.toThrow(/command or an address/);
   });
 

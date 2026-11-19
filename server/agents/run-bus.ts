@@ -1,21 +1,114 @@
-import { type RunEvent, type RunEventInput, RunEventKind } from '@cubicecho/agent-core';
+import { fold, type RunEvent, type RunEventInput, RunEventKind } from '@cubicecho/agent-core';
 import { and, asc, eq, gt, inArray, max } from 'drizzle-orm';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import type { DB } from '../db/client.ts';
-import { runEvents } from '../db/tables/run-events.ts';
+import { type NewRunEventRow, type RunEventRow, runEvents } from '../db/tables/run-events.ts';
 import { RunStatus, runs } from '../db/tables/runs.ts';
 
 /** The statuses of a run that may still say something. */
 const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
+/** The kinds whose stretches `fold` joins: streamed text, one event per delta. */
+const STREAMED: ReadonlySet<string> = new Set([RunEventKind.Thinking, RunEventKind.Output]);
+
+/** A row to store, and how many events it holds. */
+interface StoredRow {
+  row: NewRunEventRow;
+  count: number;
+}
+
+/**
+ * Where each event's text ends once the texts are joined.
+ *
+ * @param events - The events of one stretch.
+ * @returns One offset per event, in UTF-16 code units, as JavaScript slices.
+ */
+function textEndsOf(events: RunEvent[]): number[] {
+  const ends: number[] = [];
+  for (const event of events) {
+    ends.push((ends.at(-1) ?? 0) + event.text.length);
+  }
+  return ends;
+}
+
+/**
+ * Joins events into the rows that store them, with agent-core's `fold`.
+ *
+ * @param runId - The run.
+ * @param events - Events with no gap in their `seq`s, oldest first.
+ * @returns One row per block, each with how many of the events it holds.
+ */
+function rowsOf(runId: string, events: RunEvent[]): StoredRow[] {
+  let start = 0;
+  return fold(events).map((block) => {
+    const firstSeq = events[start]?.seq ?? block.seq;
+    const count = block.seq - firstSeq + 1;
+    const held = events.slice(start, start + count);
+    start += count;
+    const textEnds = count > 1 ? textEndsOf(held) : null;
+    return { count, row: { runId, seq: block.seq, kind: block.kind, event: block, textEnds } };
+  });
+}
+
+/**
+ * Whether two events are in one stretch that `fold` would join.
+ *
+ * @param event - An event.
+ * @param other - The event after it.
+ * @returns true when both are streamed text of the same kind, in the same exchange.
+ */
+function isSameStretch(event: RunEvent, other: RunEvent): boolean {
+  return STREAMED.has(event.kind) && event.kind === other.kind && event.exchange === other.exchange;
+}
+
+/**
+ * How many of a run's pending events may be stored now.
+ *
+ * @param pending - The events not yet stored, oldest first.
+ * @param holdMs - How long a stretch still going may wait.
+ * @param moment - Now, in epoch milliseconds.
+ * @returns All of them, except a stretch of streamed text they end with that has waited less than `holdMs`, which
+ * may go on and is stored whole once it ends.
+ */
+function settledCount(pending: RunEvent[], holdMs: number, moment: number): number {
+  const last = pending.at(-1);
+  const isStreaming = last !== undefined && STREAMED.has(last.kind);
+  if (isStreaming === false) {
+    return pending.length;
+  }
+  const start = pending.findLastIndex((event) => isSameStretch(event, last) === false) + 1;
+  const begunAt = pending[start]?.at ?? moment;
+  const isHeldTooLong = moment - begunAt >= holdMs;
+  return isHeldTooLong ? pending.length : start;
+}
+
+/**
+ * A stored row as a reader that has every event up to `afterSeq` should get it.
+ *
+ * @param row - The row.
+ * @param afterSeq - The last event the reader has.
+ * @returns The event. For a joined stretch the reader has part of, only the text after that part.
+ */
+function restOf({ event, textEnds }: Pick<RunEventRow, 'event' | 'textEnds'>, afterSeq: number): RunEvent {
+  const ends = textEnds ?? [];
+  const firstSeq = event.seq - ends.length + 1;
+  const had = afterSeq - firstSeq;
+  const isPartlyRead = had >= 0 && had < ends.length - 1;
+  if (isPartlyRead === false) {
+    return event;
+  }
+  return { ...event, text: event.text.slice(ends.at(had) ?? 0) };
+}
 
 /**
  * A run's events: numbered, stored in `run_events`, and handed to whoever follows the run. Each is agent-core's
- * `RunEvent`, unchanged.
+ * `RunEvent`, unchanged, except that the stored ones are folded.
  *
  * @remarks
  * The router numbers the events itself, carrying on from the last stored one, because a run that waits for an app
- * can outlive agent-core's in-memory bus, and the process too, and `seq` must never start again.
+ * can outlive agent-core's in-memory bus, and the process too, and `seq` must never start again. Followers get every
+ * event from memory. The table gets each stretch of streamed `thinking` or `output` as one row, under its last
+ * event's `seq`, so a streamed answer is a row and not one per token.
  */
 export interface RunBus {
   /**
@@ -40,10 +133,11 @@ export interface RunBus {
    */
   close(runId: string): Promise<void>;
   /**
-   * A run's events after a point, stored and not yet stored alike.
+   * A run's events after a point, stored and not yet stored alike: stored ones folded, the rest as they came.
    *
    * @param runId - The run.
-   * @param [afterSeq] - The last event the reader has. 0 reads from the start.
+   * @param [afterSeq] - The last event the reader has. 0 reads from the start. Inside a folded stretch, the reader
+   * gets the rest of its text.
    * @param [limit] - The most to read.
    * @returns Oldest first.
    */
@@ -79,29 +173,35 @@ interface OpenRun {
  * @returns The bus.
  */
 export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: () => number = Date.now): RunBus {
-  const { eventFlushMs, eventBatchSize } = { ...RUN_DEFAULTS, ...overrides };
+  const { eventFlushMs, streamHoldMs, eventBatchSize } = { ...RUN_DEFAULTS, ...overrides };
   const open = new Map<string, OpenRun>();
   const followers = new Map<string, Set<() => void>>();
   let timer: NodeJS.Timeout | null = null;
 
   /**
-   * Stores what a run has pending, after any write already going.
+   * Stores what a run has pending, folded, after any write already going.
    *
    * @param runId - The run.
    * @param held - Its state.
+   * @param isClosing - Whether the run has said all it will for now, so a stretch it ends with is over too.
    * @returns When the write is done. It never rejects: a failed write stays pending for the next.
    */
-  const write = (runId: string, held: OpenRun): Promise<void> => {
+  const write = (runId: string, held: OpenRun, isClosing: boolean): Promise<void> => {
     held.writing = held.writing.then(async () => {
-      const batch = held.pending.slice();
+      const settled = isClosing ? held.pending.length : settledCount(held.pending, streamHoldMs, now());
+      const rows = rowsOf(runId, held.pending.slice(0, settled));
       try {
-        for (let start = 0; start < batch.length; start += eventBatchSize) {
-          const rows = batch
-            .slice(start, start + eventBatchSize)
-            .map((event) => ({ runId, seq: event.seq, kind: event.kind, event }));
-          await db.insert(runEvents).values(rows).onConflictDoNothing();
+        for (let start = 0; start < rows.length; start += eventBatchSize) {
+          const batch = rows.slice(start, start + eventBatchSize);
+          await db
+            .insert(runEvents)
+            .values(batch.map(({ row }) => row))
+            .onConflictDoNothing();
+          held.pending.splice(
+            0,
+            batch.reduce((sum, { count }) => sum + count, 0),
+          );
         }
-        held.pending.splice(0, batch.length);
       } catch (error) {
         console.error(`[runs] could not store run ${runId}'s events: ${errorMessage(error)}`);
       }
@@ -112,7 +212,7 @@ export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: 
   const flushAll = async (): Promise<void> => {
     timer = null;
     const waiting = [...open].filter(([, held]) => held.pending.length > 0);
-    await Promise.all(waiting.map(([runId, held]) => write(runId, held)));
+    await Promise.all(waiting.map(([runId, held]) => write(runId, held, false)));
   };
 
   const schedule = (): void => {
@@ -131,11 +231,12 @@ export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: 
       return limit === undefined ? held : held.slice(0, limit);
     }
     const query = db
-      .select({ event: runEvents.event })
+      .select({ event: runEvents.event, textEnds: runEvents.textEnds })
       .from(runEvents)
       .where(and(eq(runEvents.runId, runId), gt(runEvents.seq, afterSeq)))
       .orderBy(asc(runEvents.seq));
-    const stored = (limit === undefined ? await query : await query.limit(limit)).map((row) => row.event);
+    // The first row may be a stretch the reader had part of, live, before it was stored.
+    const stored = (limit === undefined ? await query : await query.limit(limit)).map((row) => restOf(row, afterSeq));
     const lastStored = stored.at(-1)?.seq ?? afterSeq;
     const merged = [...stored, ...held.filter((event) => event.seq > lastStored)];
     return limit === undefined ? merged : merged.slice(0, limit);
@@ -157,7 +258,7 @@ export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: 
     if (held === undefined) {
       return;
     }
-    await write(runId, held);
+    await write(runId, held, true);
     if (held.pending.length > 0) {
       console.error(`[runs] run ${runId} loses ${held.pending.length} events that could not be stored.`);
     }

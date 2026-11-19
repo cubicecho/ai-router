@@ -3,9 +3,12 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
+import { Role } from '../../server/db/tables/users.ts';
+import { createClient, createUser } from '../helpers.ts';
 import {
   dataLines,
   ECHO,
+  expectInOrder,
   lastMessage,
   QUESTION,
   type Reply,
@@ -28,6 +31,9 @@ const ASK_USER = {
     parameters: { type: 'object', properties: { question: { type: 'string' } } },
   },
 };
+/** Sets the router's app-tool cap. */
+const SET_CAP =
+  'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { maxAppTools { value } } }';
 /** A second app tool. */
 const PICK_DATE = { type: 'function', function: { name: 'pick_date', parameters: { type: 'object' } } };
 
@@ -133,11 +139,42 @@ describe('app tools', () => {
 
     // The app's call is in the timeline like any other, under the id it was handed back with.
     const events = await eventsOf(base, runId);
-    expect(events.map((event) => event.seq)).toEqual(events.map((_event, index) => index + 1));
+    expectInOrder(events);
     expect(events).toContainEqual(expect.objectContaining({ kind: 'tool-call', name: 'ask_user', id: call?.id }));
     const results = events.filter((event) => event.kind === 'tool-result' && event.name === 'ask_user');
     expect(results).toEqual([expect.objectContaining({ id: call?.id, ok: true, text: 'blue' })]);
     expect(events.filter((event) => event.kind === 'done')).toEqual([expect.objectContaining({ ok: true })]);
+  });
+
+  it("keeps the run's input: its question, then each resume's answers in turn", async () => {
+    // Asks twice, so the run is resumed twice.
+    h.script = (body) => {
+      const answered = sentMessages(body).filter((message) => message.role === 'tool').length;
+      return answered < 2 ? { call: { name: 'ask_user', args: { question: 'Which?' } } } : { content: 'Thanks.' };
+    };
+    const { base } = await h.startRouter();
+    const first = await handBack(base);
+    const firstId = first.calls[0]?.id ?? '';
+    const resumed = await h.complete(base, answering(first.message, { [firstId]: 'blue' }));
+    const secondMessage = (await resumed.json()).choices[0].message;
+    const secondId = secondMessage.tool_calls[0].id;
+    const history = [QUESTION, first.message, { role: 'tool', tool_call_id: firstId, content: 'blue' }];
+    const last = await h.complete(base, {
+      model: 'helper',
+      messages: [...history, secondMessage, { role: 'tool', tool_call_id: secondId, content: 'green' }],
+      tools: [ASK_USER],
+    });
+    expect((await last.json()).choices[0].message.content).toBe('Thanks.');
+    const record = await (await h.get(`${base}/runs/${first.runId}`)).json();
+    expect(record.input).toEqual([
+      QUESTION,
+      { role: 'tool', content: 'blue', toolCallId: firstId },
+      { role: 'tool', content: 'green', toolCallId: secondId },
+    ]);
+    const { run } = await h.asUser.expectOk('query ($id: UUID!) { run(where: { id: { eq: $id } }) { input } }', {
+      id: first.runId,
+    });
+    expect(run.input).toEqual(record.input);
   });
 
   it('streams the hand-back as tool call chunks, ending with finish_reason tool_calls', async () => {
@@ -288,6 +325,20 @@ describe('app tools', () => {
     expect(await h.db.select().from(runs)).toEqual([]);
   });
 
+  it("refuses more tools than the router's settings allow, as soon as an admin lowers the cap", async () => {
+    const admin = await createUser(h.db, 'admin@example.com', Role.Admin);
+    const asAdmin = createClient(h.db, admin, { snapshot: h.snapshot, tools: h.tools, models: h.models });
+    const { base } = await h.startRouter();
+    await asAdmin.expectOk(SET_CAP, { input: { maxAppTools: 1 } });
+    const response = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [ASK_USER, PICK_DATE] });
+    expect(response.status).toBe(HttpStatus.BadRequest);
+    const { error } = await response.json();
+    expect(error).toMatchObject({ param: 'tools', message: 'tools: send at most 1 with one request.' });
+    expect(await h.db.select().from(runs)).toEqual([]);
+    const oneTool = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [ASK_USER] });
+    expect(oneTool.status).toBe(HttpStatus.Ok);
+  });
+
   it('answers a repeated Idempotency-Key with the hand-back while the run waits', async () => {
     h.script = ASK_SCRIPT;
     const { base } = await h.startRouter();
@@ -313,7 +364,7 @@ describe('app tools', () => {
     expect(resumed.headers.get('x-run-id')).toBe(runId);
     expect((await resumed.json()).choices[0].message.content).toBe('The app said: red');
     const events = await eventsOf(after.base, runId);
-    expect(events.map((event) => event.seq)).toEqual(events.map((_event, index) => index + 1));
+    expectInOrder(events);
     expect(events.at(-1)).toMatchObject({ kind: 'done', ok: true });
   });
 });

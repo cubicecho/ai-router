@@ -16,7 +16,7 @@ export interface InstanceManagerOptions {
   isolation: ChildIsolation;
   /** Hears of every tool call, on every instance. */
   onCall?: ToolCallHook;
-  /** Finds the login a streamable-HTTP server signs in with. Asked once per instance it starts. */
+  /** Finds the login a server reached over HTTP signs in with. Asked once per instance it starts. */
   authProviderFor?: (server: ResolvedServer) => OAuthClientProvider | undefined;
 }
 

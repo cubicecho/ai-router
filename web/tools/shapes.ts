@@ -1,4 +1,5 @@
-import { headersOf } from '@/models/headers';
+// Relative, so the node tests can import this module.
+import { headersOf } from '../models/headers';
 
 /**
  * A server's JSON columns, read into the shapes the server stores them in. The API serves them as
@@ -15,7 +16,7 @@ export type ServerSource =
 /** How the router reaches a server. */
 export type ServerTransport =
   | { type: 'stdio'; command: string; args: string[] }
-  | { type: 'streamable-http'; url: string }
+  | { type: HttpTransportType; url: string }
   | { type: 'builtin' };
 
 /** What the UI knows about one env var, from the registry's description of it. */
@@ -28,10 +29,30 @@ export interface EnvVarMeta {
 
 /** A program the router starts. */
 export const STDIO = 'stdio' as const;
-/** A server reached at an address. */
+/** A server reached at an address over streamable HTTP. */
 export const STREAMABLE_HTTP = 'streamable-http' as const;
+/** A server reached at an address over the older HTTP+SSE transport. */
+export const SSE = 'sse' as const;
 /** The router's own admin server, `ai-router`, served inside it. */
 export const BUILTIN = 'builtin' as const;
+
+/** The transports that reach a server at an address, newest first. */
+export const HTTP_TRANSPORTS = Object.freeze([STREAMABLE_HTTP, SSE] as const);
+/** A transport that reaches a server at an address. */
+export type HttpTransportType = (typeof HTTP_TRANSPORTS)[number];
+
+/** An HTTP header name: RFC 9110's token characters, as the router checks it. */
+export const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * Reads a transport's name as one of the HTTP transports.
+ *
+ * @param type - A transport's `type`.
+ * @returns It, when it is streamable HTTP or SSE; otherwise undefined.
+ */
+export function httpTransportType(type: unknown): HttpTransportType | undefined {
+  return HTTP_TRANSPORTS.find((candidate) => candidate === type);
+}
 
 /**
  * Reads a JSON value as an object.
@@ -94,8 +115,9 @@ export function sourceOf(value: unknown): ServerSource {
  */
 export function transportOf(value: unknown): ServerTransport {
   const transport = recordOf(value);
-  if (transport.type === STREAMABLE_HTTP) {
-    return { type: STREAMABLE_HTTP, url: textOf(transport.url) };
+  const httpType = httpTransportType(transport.type);
+  if (httpType !== undefined) {
+    return { type: httpType, url: textOf(transport.url) };
   }
   if (transport.type === BUILTIN) {
     return { type: BUILTIN };
@@ -172,15 +194,27 @@ export function describeSource(source: ServerSource): string {
 /** What each transport is called, in a few words. */
 const TRANSPORT_NAMES: Readonly<Record<ServerTransport['type'], string>> = Object.freeze({
   [STDIO]: 'Program',
-  [STREAMABLE_HTTP]: 'Address',
+  [STREAMABLE_HTTP]: 'Streamable HTTP',
+  [SSE]: 'SSE',
   [BUILTIN]: 'Inside the router',
+});
+
+/** Each HTTP transport, as a form offers it. */
+export const HTTP_TRANSPORT_OPTIONS = Object.freeze(
+  HTTP_TRANSPORTS.map((value) => ({ value, label: TRANSPORT_NAMES[value] })),
+);
+
+/** What a server's page says of each HTTP transport, under its URL. */
+export const HTTP_TRANSPORT_HINTS: Readonly<Record<HttpTransportType, string>> = Object.freeze({
+  [STREAMABLE_HTTP]: 'Reached over streamable HTTP.',
+  [SSE]: 'Reached over SSE, the older HTTP transport: an event stream at this URL, and messages posted back.',
 });
 
 /**
  * Says how a server is reached, in a few words.
  *
  * @param transport - Its transport.
- * @returns "Program", "Address" or "Inside the router".
+ * @returns "Program", "Streamable HTTP", "SSE" or "Inside the router".
  */
 export function describeTransport(transport: ServerTransport): string {
   return TRANSPORT_NAMES[transport.type];

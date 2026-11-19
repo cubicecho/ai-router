@@ -454,7 +454,12 @@ export interface RunSettings {
   maxErrorLength: number;
   /** How long a run's events wait in memory before they are written to `run_events` together. */
   eventFlushMs: number;
-  /** Events written in one insert. */
+  /**
+   * How long a stretch of streamed thinking or output still going may wait in memory, so it is stored as one row. A
+   * longer one is stored in parts, which readers join again.
+   */
+  streamHoldMs: number;
+  /** Rows written in one insert. */
   eventBatchSize: number;
   /** Events `Run.events` answers with when the query gives no limit. */
   eventPageSize: number;
@@ -467,8 +472,6 @@ export interface RunSettings {
   waitTimeoutHours: number;
   /** How often waiting runs are checked for that timeout. */
   expireEveryMinutes: number;
-  /** App tools one request may send. */
-  maxAppTools: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -482,12 +485,35 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   maxUserLength: 256,
   maxErrorLength: 2_000,
   eventFlushMs: 250,
+  streamHoldMs: 10_000,
   eventBatchSize: 500,
   eventPageSize: 500,
   maxEventPageSize: 5_000,
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
+});
+
+/**
+ * The router's settings: what an admin changes from the Settings page while the router runs. The `settings` row
+ * overrides these member by member, and a member nobody has set keeps its value here.
+ */
+export interface RouterSettings {
+  /** The most tools an app may send with one request on `/v1`. OpenAI's own limit is 128. */
+  maxAppTools: number;
+}
+
+export const ROUTER_DEFAULTS: Readonly<RouterSettings> = Object.freeze({
   maxAppTools: 128,
+});
+
+/** What an admin may set the router's settings to. */
+export interface RouterConfigSettings {
+  /** The highest `maxAppTools` an admin may set. Every app tool's schema goes to the model on every call. */
+  maxAppToolsLimit: number;
+}
+
+export const ROUTER_CONFIG_DEFAULTS: Readonly<RouterConfigSettings> = Object.freeze({
+  maxAppToolsLimit: 1_024,
 });
 
 /** Conversations an app names with `X-Conversation-Id`, whose history the router keeps. */

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type ServerFieldsFragment, UpdateServerDocument } from '@/__generated__/graphql';
-import { InputField, NumberField, SwitchField, TextareaField, useAppForm } from '@/components/app-form';
+import { InputField, NumberField, SelectField, SwitchField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { FieldRow } from '@/components/field-row';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,9 @@ import {
   envOf,
   envToText,
   groupsToText,
+  HTTP_TRANSPORT_OPTIONS,
+  type HttpTransportType,
+  httpTransportType,
   linesToText,
   MS_PER_SECOND,
   type ServerTransport,
@@ -88,6 +91,7 @@ function timeoutError(seconds: number | null): string | undefined {
 export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: ServerDialogProps) {
   const queryClient = useQueryClient();
   const transport = transportOf(server.transport);
+  const httpTransport: HttpTransportType = httpTransportType(transport.type) ?? STREAMABLE_HTTP;
   const isManual = sourceOf(server.source).type === 'manual';
   const envMeta = envMetaOf(server.envMeta);
   const save = useMutation({
@@ -121,7 +125,8 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
       extraGroups: groupsToText(server.extraGroups),
       command: transport.type === STDIO ? transport.command : '',
       args: transport.type === STDIO ? linesToText(transport.args) : '',
-      url: transport.type === STREAMABLE_HTTP ? transport.url : '',
+      httpTransport,
+      url: 'url' in transport ? transport.url : '',
     },
     onSubmit: ({ value }) => {
       const set: ServerUpdate = {
@@ -138,7 +143,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
         set.transport =
           transport.type === STDIO
             ? { type: STDIO, command: value.command.trim(), args: textToLines(value.args) }
-            : { type: transport.type, url: value.url.trim() };
+            : { type: value.httpTransport, url: value.url.trim() };
       }
       return save.mutateAsync(set);
     },
@@ -190,16 +195,25 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
             </>
           ) : null}
           {isManual && transport.type !== STDIO ? (
-            <InputField
-              form={form}
-              name="url"
-              label="Address"
-              description="Moving it to another site drops its sign-in."
-              required
-              validators={{
-                onChange: ({ value }) => (URL.canParse(value.trim()) ? undefined : 'Enter an http or https URL.'),
-              }}
-            />
+            <>
+              <SelectField
+                form={form}
+                name="httpTransport"
+                label="Transport"
+                description="Streamable HTTP, unless the server still speaks only SSE, the older transport."
+                options={[...HTTP_TRANSPORT_OPTIONS]}
+              />
+              <InputField
+                form={form}
+                name="url"
+                label="URL"
+                description="Moving it to another site drops its sign-in."
+                required
+                validators={{
+                  onChange: ({ value }) => (URL.canParse(value.trim()) ? undefined : 'Enter an http or https URL.'),
+                }}
+              />
+            </>
           ) : null}
           {transport.type === STDIO ? (
             <TextareaField

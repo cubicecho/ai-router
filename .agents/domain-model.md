@@ -51,7 +51,8 @@ is kept for agents offered as MCP tools, in a later phase.
 
 Dependencies point one way:
 - **General folders** (`core`, `db`, `auth`) know no area.
-- **`models` and `tools`** know only the general folders.
+- **`models`, `tools` and `settings`** know only the general folders. The snapshot reads the
+  settings through `core/settings`, so no area imports `settings`.
 - **`agents`** knows `models`, `tools` and the general folders.
 - **`workspaces`** knows all of the above.
 - **Assembly:** only `graphql/` and `http/` put the areas together.
@@ -67,7 +68,7 @@ Dependencies point one way:
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
-| MCP server | a program the router starts or connects to: untrusted code | stdio or streamable HTTP, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
+| MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
 
 ## Lifecycles
@@ -143,7 +144,7 @@ received --resolve--> running --model answers--> completed
     that answers anything else. A late answer to an expired run gets 409 `run_expired`.
   - **The run timeout** counts the time a run runs, from its start or a resume; waiting doesn't
     count. Waiting past `RUN_DEFAULTS.waitTimeoutHours` expires it.
-- **Recording:** a run is recorded from `running` on, with the revision it ran, and the end it came
+- **Recording:** a run is recorded from `running` on, with the revision it ran, what its requests added, and the end it came
   to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
   retention period. A run the router was running when it stopped is marked failed at the next boot.
 - **Repeating:** a request with an `Idempotency-Key` its workspace already used never starts a
@@ -213,8 +214,9 @@ created (shown once) --> in use --revoke--> deleted
 | Anyone the paired OIDC provider lets through may sign in. The router keeps no allow list of its own | `auth/` |
 | A trusted network changes only how people sign in: they are signed in automatically as the admin. It never lets a request without a key reach `/v1` or `/runs` | `auth/caller` |
 | `/v1` reads only workspace keys. A session token sent there is refused, never tried as a person | `auth/caller` `readWorkspaceCaller`, `agents/routes` |
-| Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code | `graphql/permissions`; `checkServerUpdate` in `tools/hooks` |
+| Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code. Headers a server is added with are secrets too, so `installServer` takes them only from an admin | `graphql/permissions`; `checkServerUpdate` in `tools/hooks`; `installServer` in `tools/resolvers` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
+| The router's settings are router-wide, one set for every app. Only an admin changes them, each within its range, and a change applies from the next request on. Every user reads them; a workspace key or an agent run reaches neither the read nor the change. A setting nobody set, or a saved value that no longer passes its rules, follows its default | `graphql/permissions` (`updateRouterSettings`: admin; not in `FIELD_GRANTS`), `core/settings`, `settings/resolvers` (rebuilds the snapshot before answering) |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
 | Each workspace instance runs as a user id of its own, never handed out twice, with its server's group, so it can read its server's install folder but not write it, and no other instance of that server, base or workspace, can read its environment, HOME or signal it | `workspace_servers.child_uid` from `child_uid_seq`; `tools/resolve`, `tools/install-folder`; `scripts/check-children.sh` |
@@ -245,7 +247,7 @@ created (shown once) --> in use --revoke--> deleted
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
+| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. A request with more tools than the router's settings allow is refused, before the run is recorded. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
 | Every app tool call is handed back under an id the router minted, in the answer, the events and the stored transcript alike. A repeated identical call is handed back too, never answered from the first | `agents/run` (`freshCallId`, `dedupeToolCalls`) |
 | A standard client's answer is the same with progress events as without: they come only when `ai_router.progress` asks, in chunks with empty `choices`, or beside `choices` as `ai_router.events`. A repeated `Idempotency-Key` answers without them, and the app reads them from `/runs/<id>/events` | `agents/completion`, `agents/routes` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
@@ -262,7 +264,7 @@ created (shown once) --> in use --revoke--> deleted
 | A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
 | Progress events and `/runs/<id>/events` carry `agent-core` `RunEvent`s unchanged, never a format of the router's own, each with `runId` set to the router's run id. agent-core has no encoder for them, so they are written as JSON, as they are | `agents/completion`, `agents/run-records`, `agents/run-bus` |
-| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. A run's events are numbered from 1 with no gap and never numbered again, across a restart too | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
+| A run's record and events are append-only. Once a run ends, nothing changes them, and only retention deletes them. The one change retention makes short of deleting is clearing a spent `Idempotency-Key` and its hash. The bus numbers a run's events from 1 with no gap and never again, across a restart too, and a follower gets every one. Stored, each stretch of streamed thinking or output is one row under its last event's `seq`, so stored `seq`s only increase, and a reader from inside a stretch gets only the rest of it | `agents/run` (`record` writes only a `running` row, `prune`), `agents/run-bus`, `run_events` keyed by run and `seq`, deleted with the run |
 | A conversation has at most one run running or waiting. A request that overlaps one gets 409 `conversation_busy`, unless it answers that waiting run's calls | `agents/run` `begin`, `uq_runs_conversation_id_going` |
 | A conversation belongs to one workspace and one agent. Its history is changed only by a completed run of it, and a request with history of its own (assistant or tool messages) is refused once it has some | `agents/conversation` |
 | An idle conversation is deleted after `CONVERSATION_DEFAULTS.idleHours`, never while a run of it is running or waiting. Its runs stay | `agents/conversation` `pruneConversations`, `runs.conversation_id` set null |
@@ -292,9 +294,14 @@ Everything about the code comes after `Owner:`.
 - **Trusted network:** a mode for a router on a private network. Anyone who opens the router's
   page is signed in as the admin, without a login. Apps still need a workspace key. Owner:
   `auth/`; the env var `SECURE_LOCAL_NET`.
-- **Settings:** the router's own options that can change while it runs: allowed origins, public
-  address, timeouts. Owner: `db/schema` `settings`, a single row. Boot options
-  (port, database, secret) are environment variables in `core/config.ts`.
+- **Settings:** the router's own options, which an admin changes on the Settings page while it
+  runs, for every app at once. Each has a default and a range; one nobody has set follows its
+  default. Today there is one: the most tools an app may send with one request (128 by default,
+  OpenAI's own limit). Every user may read them. Owner: `db/schema` `settings`, one row or none,
+  whose `values` holds only what was set; `core/settings` parses it and spreads it over
+  `ROUTER_DEFAULTS`, with the range from `ROUTER_CONFIG_DEFAULTS`; read into the snapshot as
+  `Snapshot.settings`; served by `settings/resolvers` (`routerSettings`, `updateRouterSettings`).
+  Boot options (port, database, secret) are environment variables in `core/config.ts`.
 
 ### Endpoints
 
@@ -302,7 +309,7 @@ Everything about the code comes after `Owner:`.
   model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
-  `agents/run-records`; `/runs/<id>` (agent, revision, status, timings, usage and error) and
+  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
   `/runs/<id>/events` (JSON, or a live event stream with `Accept: text/event-stream`, which a
   client rejoins with `Last-Event-ID`), with workspace keys only and `{ error, code }` refusals.
 
@@ -343,13 +350,17 @@ Everything about the code comes after `Owner:`.
   `tools/registry`; the `registries` table.
 - **Server (MCP server):** one tool provider the router installed or connects to: how to start or
   reach it, its environment and its timeouts. Owner: `tools/`; the `servers` table. Secret env
-  values and every header value are in `server_secrets`, written by `setServerSecret` and served
-  only by name.
+  values and every header value are in `server_secrets`, written by `setServerSecret`, or by
+  `installServer` for the headers a server is added with, in the same transaction as its row, and
+  served only by name. Headers go only to a server reached over HTTP.
 - **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
   router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
 - **Transport:** how the router reaches a server: a program it starts, an address it connects to,
-  or, for the admin server, inside the router itself. Owner: `servers.transport`; stdio, streamable
-  HTTP, or built in (`builtin`, only `ai-router`'s), connected in process.
+  or, for the admin server, inside the router itself. An address is reached over streamable HTTP,
+  or over SSE, the older transport that streams events from one address and takes messages posted
+  to another. Both take headers and a login, and are never stopped for being idle. Owner:
+  `servers.transport`; `stdio`, `streamable-http`, `sse`, or `builtin` (only `ai-router`'s),
+  connected in process. `tools/shapes` `isHttpTransport` is true for the two HTTP ones.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
@@ -443,7 +454,13 @@ Everything about the code comes after `Owner:`.
   (the workspace's slug and the agent's name kept beside their ids, which are set to null on
   delete), the `X-Run-Id` header; wraps `agent-core` `runAgentLoop`, in an agent-core runtime of
   its own. The limits are `RUN_DEFAULTS`. GraphQL serves the table read-only, without
-  `request_hash`.
+  `request_hash` and `resume`.
+- **Run input:** what the requests of a run added, in order: the system, developer and user
+  messages of the request that started it (its leading system messages and its new turn; for a
+  conversation, only what it sent), then the app's answers each resume sent. Kept as text, an
+  image as a count. It is not a run event, since the app already shows its own input. Owner:
+  `agents/request` (`RunRequest.input`), `agents/run`; `runs.input`, appended to by each resume;
+  `Run.input` and `/runs/<id>` `input`; shown first on the run page.
 - **Answer:** what a run last said: the text of every turn since its start or resume, a blank
   line between turns, as the stream sent it, why its last turn ended, and the calls it handed
   back if it waits. Kept on the run, so a repeated
@@ -454,16 +471,20 @@ Everything about the code comes after `Owner:`.
   `agents/request`; the `ai_router` field of the request body (`task`, `servers`, `progress`).
   Any other key is refused.
 - **Run events:** a run's exchanges, turns, reasoning, tool calls and results, side tasks and
-  usage, in order, numbered from 1 with no gaps. They are agent-core 6's `RunEvent`, which names an
+  usage, in order, numbered from 1 with no gaps. Stored, each stretch of streamed thinking or
+  output is folded into one, under the `seq` of its last event. They are agent-core 6's `RunEvent`, which names an
   exchange where 4.x said step; stored ones were renamed by a migration. An answer carries them
   through agent-core's own `progressChunk` and `withProgress`, the encoders its decoder reads. The router's own pages and the app that started the run can
   follow them live or read them afterwards, and a follower gets the stored ones first, then the
   live ones, with no gap and no repeat. Owner: `agents/run-bus`, which numbers each event itself,
   carrying on after the last stored one, holds it in memory until it is written to the
-  `run_events` table (every `RUN_DEFAULTS.eventFlushMs`, and whenever the run ends or waits), and
-  wakes the run's followers; the `runEvents` subscription and `Run.events` (`agents/run-resolvers`,
+  `run_events` table (every `RUN_DEFAULTS.eventFlushMs`, and whenever the run ends or waits), folded
+  by agent-core's `fold`: a stretch still going waits until it ends, or for `streamHoldMs` and is
+  stored in parts, and `run_events.text_ends` says where each of a row's events ended, for a reader
+  that had part of it live. Rows stored before folding stay one per event. It
+  wakes the run's followers, who get every event from memory; the `runEvents` subscription and `Run.events` (`agents/run-resolvers`,
   type `LiveRunEvent`), for people, and `/runs/<id>/events` for apps. Each one is an `agent-core`
-  `RunEvent`, stored as it was sent in `run_events.event`, and deleted with its run. The router
+  `RunEvent`, stored as it was sent or as `fold` joined it in `run_events.event`, and deleted with its run. The router
   adds a `notice` for each server left out and the closing `done`, which a run a restart cut short
   is given at the next boot.
 - **Progress events:** run events sent to an app that asks for them, inside the answer itself:

@@ -15,6 +15,7 @@ export * from './tables/runs.ts';
 export * from './tables/server-secrets.ts';
 export * from './tables/servers.ts';
 export * from './tables/sessions.ts';
+export * from './tables/settings.ts';
 export * from './tables/usage-counts.ts';
 export * from './tables/users.ts';
 export * from './tables/verifications.ts';

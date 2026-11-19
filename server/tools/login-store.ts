@@ -3,7 +3,7 @@ import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import { servers } from '../db/tables/servers.ts';
 import type { ServerLoginStore } from './oauth/provider.ts';
-import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
+import { isHttpTransport } from './shapes.ts';
 
 /**
  * Keeps server logins in `servers.oauth`, reading them from the snapshot.
@@ -16,7 +16,7 @@ export function createServerLoginStore(db: DB, snapshot: SnapshotHost): ServerLo
   return {
     async load(serverId) {
       const server = [...snapshot.current().servers.values()].find((candidate) => candidate.id === serverId);
-      if (server === undefined || server.transport.type !== TRANSPORT_STREAMABLE_HTTP) {
+      if (server === undefined || isHttpTransport(server.transport) === false) {
         return null;
       }
       return { name: server.name, url: server.transport.url, oauth: server.oauth, headers: server.headers };

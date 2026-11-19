@@ -21,6 +21,8 @@ export interface InstallServerRequest {
   /** For a server added by hand. */
   transport?: { type: string; command?: string | null; args?: string[] | null; url?: string | null } | null;
   env?: Record<string, string> | null;
+  /** Secret headers, for a server reached over HTTP: kept in `server_secrets` with the server, never served. */
+  headers?: { name: string; value: string }[] | null;
   enabled?: boolean | null;
 }
 

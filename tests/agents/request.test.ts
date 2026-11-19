@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveRun, withRouterFetch } from '../../server/agents/layers.ts';
 import { DEFAULT_POLICY_RULES, type OverridePolicyRules } from '../../server/agents/policy.ts';
 import { RequestRefusal, readRunRequest } from '../../server/agents/request.ts';
+import { ROUTER_DEFAULTS } from '../../server/core/defaults.ts';
 import { EMPTY_SNAPSHOT, type Snapshot, type SnapshotServer } from '../../server/db/snapshot.ts';
 import { MODELS_BASE_URL } from '../../server/models/forward.ts';
 import { TRANSPORT_STDIO } from '../../server/tools/shapes.ts';
@@ -63,7 +64,7 @@ const SNAPSHOT: Snapshot = {
  */
 function refusalOf(body: unknown, policy: OverridePolicyRules = DEFAULT_POLICY_RULES): RequestRefusal {
   try {
-    readRunRequest(body, policy);
+    readRunRequest(body, policy, ROUTER_DEFAULTS);
   } catch (error) {
     if (error instanceof RequestRefusal) {
       return error;
@@ -78,6 +79,7 @@ describe('reading a request against the override policy', () => {
     const request = readRunRequest(
       { model: 'x', messages: [QUESTION], temperature: 0.9, max_tokens: 400, top_p: 0.5, seed: 7, stop: ['END'] },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     expect(request.sampling).toEqual({
       temperature: 0.9,
@@ -96,7 +98,9 @@ describe('reading a request against the override policy', () => {
 
   it('refuses n above 1', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], n: 2 }).param).toBe('n');
-    expect(readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, DEFAULT_POLICY_RULES).stream).toBe(false);
+    expect(
+      readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS).stream,
+    ).toBe(false);
   });
 
   it("reads the app's tools, and refuses legacy functions, a forced tool_choice, a bad or repeated name", () => {
@@ -104,6 +108,7 @@ describe('reading a request against the override policy', () => {
     const request = readRunRequest(
       { model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     expect(request.appTools).toEqual([
       { type: 'function', function: { name: 'ask_user', parameters: { type: 'object' } } },
@@ -117,6 +122,15 @@ describe('reading a request against the override policy', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], tools: loops }).param).toBe('tools.0');
   });
 
+  it("refuses more app tools than the router's settings allow", () => {
+    const tools = ['a', 'b', 'c'].map((name) => ({ type: 'function', function: { name } }));
+    const body = { model: 'x', messages: [QUESTION], tools };
+    expect(readRunRequest(body, DEFAULT_POLICY_RULES, { maxAppTools: 3 }).appTools).toHaveLength(3);
+    expect(() => readRunRequest(body, DEFAULT_POLICY_RULES, { maxAppTools: 2 })).toThrow(
+      'tools: send at most 2 with one request.',
+    );
+  });
+
   it('keeps tool history, and reads the tool messages at the end as answers', () => {
     const history = [
       QUESTION,
@@ -127,11 +141,42 @@ describe('reading a request against the override policy', () => {
       },
       { role: 'tool', tool_call_id: 'c1', content: 'done' },
     ];
-    const answered = readRunRequest({ model: 'x', messages: history }, DEFAULT_POLICY_RULES);
+    const answered = readRunRequest({ model: 'x', messages: history }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     expect(answered.messages).toHaveLength(3);
     expect(answered.answers).toEqual([{ callId: 'c1', content: 'done' }]);
-    const goneOn = readRunRequest({ model: 'x', messages: [...history, QUESTION] }, DEFAULT_POLICY_RULES);
+    const goneOn = readRunRequest(
+      { model: 'x', messages: [...history, QUESTION] },
+      DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
+    );
     expect(goneOn.answers).toEqual([]);
+  });
+
+  it('keeps as input the system messages and the new turn, or for a resume only the answers', () => {
+    const host = { role: 'system', content: 'You are in task_server.' };
+    const said = { role: 'assistant', content: 'About 40.' };
+    const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } };
+    const next = { role: 'user', content: [{ type: 'text', text: 'And this receipt?' }, image] };
+    const request = readRunRequest(
+      { model: 'x', messages: [host, QUESTION, said, next] },
+      DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
+    );
+    expect(request.input).toEqual([
+      { role: 'system', content: 'You are in task_server.' },
+      { role: 'user', content: 'And this receipt?', images: 1 },
+    ]);
+    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    expect(first.input).toEqual([host, QUESTION]);
+    const call = { id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } };
+    const handedBack = { role: 'assistant', content: null, tool_calls: [call] };
+    const answer = { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: 'done' }] };
+    const resume = readRunRequest(
+      { model: 'x', messages: [host, QUESTION, handedBack, answer] },
+      DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
+    );
+    expect(resume.input).toEqual([{ role: 'tool', content: 'done', toolCallId: 'c1' }]);
   });
 
   it('follows the policy on response_format, and passes parallel_tool_calls and user through', () => {
@@ -142,7 +187,7 @@ describe('reading a request against the override policy', () => {
       parallel_tool_calls: false,
       user: 'household-a',
     };
-    const request = readRunRequest(body, DEFAULT_POLICY_RULES);
+    const request = readRunRequest(body, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     expect(request.sampling.extraBody).toEqual({
       response_format: { type: 'json_object' },
       parallel_tool_calls: false,
@@ -164,6 +209,7 @@ describe('reading a request against the override policy', () => {
         ai_router: { task: 'The Friday summary.', progress: true },
       },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     expect(request.hostText).toBe('You are in task_server.\n\nBe brief.');
     expect(request.taskText).toBe('The Friday summary.');
@@ -203,6 +249,7 @@ describe('stacking the layers', () => {
         min_p: 0.05,
       },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     const resolved = resolveRun(AGENT, request, SNAPSHOT);
     expect(resolved.baseUrl).toBe(MODELS_BASE_URL);
@@ -223,21 +270,23 @@ describe('stacking the layers', () => {
     const narrowed = readRunRequest(
       { model: 'x', messages: [QUESTION], ai_router: { servers: ['finance-docs', 'github'] } },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, narrowed, SNAPSHOT).servers).toEqual(['finance-docs']);
     const none = readRunRequest(
       { model: 'x', messages: [QUESTION], ai_router: { servers: ['github'] } },
       DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, none, SNAPSHOT).servers).toEqual([]);
     const everyServer = { ...AGENT, tools: {} };
     expect(resolveRun(everyServer, narrowed, SNAPSHOT).servers).toEqual(['finance-docs', 'github']);
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     expect(resolveRun(everyServer, plain, SNAPSHOT).servers).toBeUndefined();
   });
 
   it("gives the run's fetch to the router's endpoints only, and leaves an agent's own endpoint alone", () => {
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     const fetch: typeof globalThis.fetch = async () => new Response(null);
     const config = withRouterFetch(resolveRun(AGENT, plain, SNAPSHOT), fetch);
     expect(config.fetch).toBe(fetch);

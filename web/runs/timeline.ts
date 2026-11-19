@@ -1,6 +1,6 @@
 /**
- * One thing a run did: agent-core's `RunEvent`, as the `runEvents` subscription sends it live and as phase 7 will read
- * it back from `run_events`. Only the fields the timeline reads.
+ * One thing a run did: agent-core's `RunEvent`, as the `runEvents` subscription sends it live, or a stretch of them
+ * folded into one as `run_events` stores it. Only the fields the timeline reads.
  */
 export interface TimelineEvent {
   seq: number;

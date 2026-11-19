@@ -1,4 +1,4 @@
-import type { RunEvent } from '@cubicecho/agent-core';
+import { fold, type RunEvent } from '@cubicecho/agent-core';
 import { describe, expect, it } from 'vitest';
 import { dataLines, ECHO, QUESTION, useRunHarness } from './run-harness.ts';
 
@@ -47,9 +47,10 @@ describe('progress events', () => {
     expectWhole(events, runId);
     const text = chunks.flatMap((chunk) => chunk.choices.map((choice) => choice.delta.content ?? '')).join('');
     expect(text).toBe('The tool said: hello there');
-    // Every event is the one stored, unchanged.
+    // The app got every delta. What is stored is the same events, each stretch of streamed text folded into one.
     const stored = await (await h.get(`${base}/runs/${runId}/events`)).json();
-    expect(events).toEqual(stored.events);
+    expect(stored.events).toEqual(fold(events));
+    expect(stored.events.length).toBeLessThan(events.length);
   });
 
   it('puts the events beside choices in an answer that is not streamed', async () => {

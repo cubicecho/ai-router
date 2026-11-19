@@ -5,6 +5,7 @@ import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
+import { HEADER_NAME_PATTERN } from './shapes';
 
 /** What a secret is: an env var a program gets, or a header sent to an address. */
 export type SecretKind = 'env' | 'header';
@@ -17,8 +18,6 @@ const KINDS: { value: SecretKind; label: string }[] = [
 
 /** An env var's name, as a shell takes it. */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-/** A header's name: HTTP's token characters. */
-const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 /** The secret a dialog opens on: a name already set or described, or a new one of a kind. */
 export interface SecretTarget {
@@ -96,7 +95,7 @@ export function SecretDialog({ open, onOpenChange, serverId, serverName, workspa
                   onChangeListenTo: ['kind'],
                   onChange: ({ value, fieldApi }) => {
                     const isEnv = fieldApi.form.getFieldValue('kind') !== 'header';
-                    if ((isEnv ? ENV_NAME : HEADER_NAME).test(value.trim())) {
+                    if ((isEnv ? ENV_NAME : HEADER_NAME_PATTERN).test(value.trim())) {
                       return undefined;
                     }
                     return isEnv

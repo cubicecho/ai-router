@@ -13,6 +13,7 @@ import { forbidden } from '../core/errors.ts';
 import type { DB } from '../db/client.ts';
 import { modelWriteHooks } from '../models/hooks.ts';
 import { applyModelsExtension } from '../models/resolvers.ts';
+import { applySettingsExtension } from '../settings/resolvers.ts';
 import { applySsoExtension } from '../sso/resolvers.ts';
 import { toolWriteHooks } from '../tools/hooks.ts';
 import { applyToolsExtension } from '../tools/resolvers.ts';
@@ -24,8 +25,11 @@ import { permissions } from './permissions.ts';
 /** better-auth's tables, and the pairing's secrets. Never served: every read of them goes through the server. */
 const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 
-/** Tables served only through hand-written fields: a run's events are `Run.events`, in the subscription's shape. */
-const HAND_SERVED_TABLES = ['runEvents'];
+/**
+ * Tables served only through hand-written fields: a run's events are `Run.events`, in the subscription's shape, and
+ * the router's settings are `routerSettings`, with their defaults filled in.
+ */
+const HAND_SERVED_TABLES = ['runEvents', 'settings'];
 
 /**
  * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
@@ -133,8 +137,10 @@ export function createSchema(db: DB): GraphQLSchema {
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applyRunsExtension(
-    applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
+  const extended = applySettingsExtension(
+    applyRunsExtension(
+      applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
+    ),
   );
   return applyPermissions(extended, permissions, {
     // A refusal names the field, so a client can tell which call to stop making.

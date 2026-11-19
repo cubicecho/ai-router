@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { RunFilterChoicesDocument, type RunFilters } from '@/__generated__/graphql';
 import { displayNameOf } from '@/agents/shapes';
+import { CardLayout } from '@/components/card-layout';
 import { Combobox } from '@/components/combobox';
 import { EmptyState } from '@/components/empty-state';
 import { LoadState } from '@/components/load-state';
@@ -154,7 +155,13 @@ export function RunsRoute() {
               )
             }
           />
-          <RunsList rows={rows} now={now} label="Runs" />
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title={isFiltered ? 'Matching runs' : 'All runs'}
+              contentSlot={<RunsList rows={rows} now={now} label="Runs" />}
+            />
+          ) : null}
         </>
       }
     />

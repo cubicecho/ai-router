@@ -304,7 +304,7 @@ export function createAgentRoutes({
     let started: Awaited<ReturnType<RunService['begin']>>;
     let delivery: RunRequest;
     try {
-      const runRequest = readRunRequest(body, agent.policy);
+      const runRequest = readRunRequest(body, agent.policy, current.settings);
       delivery = runRequest;
       const fetch = forwarder.fetchFor({
         workspaceId,

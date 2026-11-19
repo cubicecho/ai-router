@@ -1,0 +1,81 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a7ce011f-9670-44af-a28d-9cda971bc158",
+  "prevIds": [
+    "0155b03d-f1e1-41e3-9c13-b7dc6623b20a"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "run_events",
+        "text_ends"
+      ],
+      "writes": [
+        "s|col|public.run_events.text_ends",
+        "n|col|public.run_events.text_ends",
+        "e|col|public.run_events.text_ends"
+      ],
+      "reads": [
+        "n|tbl|public.run_events",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "input"
+      ],
+      "writes": [
+        "s|col|public.runs.input",
+        "n|col|public.runs.input",
+        "e|col|public.runs.input"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "run_events",
+        "name": "text_ends",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 1,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "input",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'[]'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

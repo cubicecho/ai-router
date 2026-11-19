@@ -49,10 +49,11 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 
 | `server/` folder | Holds | May import |
 | --- | --- | --- |
-| `core/` | config, defaults, wire constants, errors, validation, name rules, preflight, context | nothing here, except types for `context.ts` |
+| `core/` | config, defaults, wire constants, errors, validation, name rules, the settings' rules, preflight, context | nothing here, except types for `context.ts` |
 | `db/` | the Postgres client, the advisory lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
 | `auth/` | better-auth, keys, the caller, roles, the trusted-network sign-in, rate limiting, and their GraphQL fields | `core`, `db`, `sso`, `graphql/object-type`, `http/sso` (for its path) |
 | `sso/` | pairing with an OIDC provider from the UI | `core`, `db`, `auth` |
+| `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
 | `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/runs` (phases 5–7) | the above and `models`, `tools` |
@@ -95,6 +96,10 @@ non-negotiables apply on top of these.
   decide.
 - **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
+- **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
+  `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
+  follows its default. Every user reads `routerSettings`; only an admin calls
+  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
@@ -112,6 +117,11 @@ non-negotiables apply on top of these.
   nothing deletes or renames the row or gives it env, args, secrets or a login (`tools/builtin`).
   That server is the only way to the management tools, and there is no `/admin/mcp`. Agent ids
   follow the same name rule as providers and servers.
+- **Two transports reach a server at an address:** `streamable-http` and `sse`, the older
+  HTTP+SSE one. Both take headers, a login and a workspace entry's URL, so switch on
+  `isHttpTransport` (`tools/shapes`), never on one of them.
+- **Header values are secrets.** They live in `server_secrets`, set by `setServerSecret` or by
+  `installServer`'s `headers`, and both take them only from an admin.
 - **Roles live on the admin server's entries only.** A workspace's entry for `ai-router` holds
   roles and nothing else; every other entry's roles stay empty.
 - **The admin server lists only what the roles reach, and the schema's permissions are the lock.**
@@ -135,8 +145,8 @@ non-negotiables apply on top of these.
   helper itself; node only repeats them for a friendly error. The helper's source is
   `docker/run-as-child.c`, and its checks are `scripts/check-children.sh`, which CI runs against
   the image.
-- **Requests route from the snapshot.** Keys, and later agents, providers and servers, are read
-  from it, never from the database per request. Every
+- **Requests route from the snapshot.** Keys, agents, providers, servers and the router's
+  settings are read from it, never from the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: a Postgres advisory lock taken at boot, so a second
   router refuses to start.
@@ -187,6 +197,14 @@ non-negotiables apply on top of these.
   `task_server` and telos already render, so progress chunks, `run_events` rows and
   `/runs/<id>/events` all carry it as it is. A progress chunk has empty `choices`, like OpenAI's
   usage chunk, so standard clients skip it. A key reads only its own workspace's runs.
+- **Followers get every delta; the table gets them folded.** `run-bus` stores each stretch of
+  `thinking` or `output` as one row with agent-core's `fold`, under its last event's `seq`, so
+  stored `seq`s increase with gaps. A stretch still going stays in memory until it ends (or
+  `RUN_DEFAULTS.streamHoldMs`), and `text_ends` lets a reader that had part of a stretch, live,
+  get only the rest. Never number stored rows yourself, and never assume `seq + 1` is stored.
+- **A run keeps its input, not as an event.** `runs.input` holds what each request added: the new
+  run's system, developer and user messages (for a conversation, only the new ones), then each
+  resume's tool answers. Apps already show their own input, so it isn't a progress event.
 - **Store the document as received.** `agent_revisions.document` is the `jsonb` that `parseSpec`
   accepted. Don't split it into columns, and don't rewrite unknown keys.
 - **The spec is agent-core's.** Parse, resolve and export with its functions. Never restate

@@ -13,7 +13,7 @@ import {
   ToolDiscovery,
   type ToolDispatch,
 } from '@cubicecho/agent-core';
-import { and, arrayOverlaps, eq, isNotNull, lt, notInArray } from 'drizzle-orm';
+import { and, arrayOverlaps, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -801,6 +801,7 @@ export function createRunService({
           agentName: agent.name,
           revisionId: agent.liveRevisionId,
           conversationId: conversation?.id ?? null,
+          input: request.input,
           user: request.user,
           stream: request.stream,
           idempotencyKey: idempotency?.key ?? null,
@@ -942,6 +943,8 @@ export function createRunService({
         status: RunStatus.Running,
         pendingCallIds: [],
         resume: null,
+        // Each resume's answers follow what the run was given before.
+        input: sql`${runs.input} || ${JSON.stringify(request.input)}::jsonb`,
         // The run answers to the key of its latest request, which is the one a retry repeats.
         idempotencyKey: idempotency?.key ?? null,
         requestHash: idempotency?.hash ?? null,
