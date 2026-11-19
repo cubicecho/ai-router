@@ -51,7 +51,8 @@ is kept for agents offered as MCP tools, in a later phase.
 
 Dependencies point one way:
 - **General folders** (`core`, `db`, `auth`) know no area.
-- **`models` and `tools`** know only the general folders.
+- **`models`, `tools` and `settings`** know only the general folders. The snapshot reads the
+  settings through `core/settings`, so no area imports `settings`.
 - **`agents`** knows `models`, `tools` and the general folders.
 - **`workspaces`** knows all of the above.
 - **Assembly:** only `graphql/` and `http/` put the areas together.
@@ -215,6 +216,7 @@ created (shown once) --> in use --revoke--> deleted
 | `/v1` reads only workspace keys. A session token sent there is refused, never tried as a person | `auth/caller` `readWorkspaceCaller`, `agents/routes` |
 | Only an admin sets secrets and settings, and grants or removes the admin role. A server's extra groups count as a setting: a group can open a host folder or socket to the server's code | `graphql/permissions`; `checkServerUpdate` in `tools/hooks` |
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
+| The router's settings are router-wide, one set for every app. Only an admin changes them, each within its range, and a change applies from the next request on. Every user reads them; a workspace key or an agent run reaches neither the read nor the change. A setting nobody set, or a saved value that no longer passes its rules, follows its default | `graphql/permissions` (`updateRouterSettings`: admin; not in `FIELD_GRANTS`), `core/settings`, `settings/resolvers` (rebuilds the snapshot before answering) |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
 | Each workspace instance runs as a user id of its own, never handed out twice, with its server's group, so it can read its server's install folder but not write it, and no other instance of that server, base or workspace, can read its environment, HOME or signal it | `workspace_servers.child_uid` from `child_uid_seq`; `tools/resolve`, `tools/install-folder`; `scripts/check-children.sh` |
@@ -245,7 +247,7 @@ created (shown once) --> in use --revoke--> deleted
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
+| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. A request with more tools than the router's settings allow is refused, before the run is recorded. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
 | Every app tool call is handed back under an id the router minted, in the answer, the events and the stored transcript alike. A repeated identical call is handed back too, never answered from the first | `agents/run` (`freshCallId`, `dedupeToolCalls`) |
 | A standard client's answer is the same with progress events as without: they come only when `ai_router.progress` asks, in chunks with empty `choices`, or beside `choices` as `ai_router.events`. A repeated `Idempotency-Key` answers without them, and the app reads them from `/runs/<id>/events` | `agents/completion`, `agents/routes` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
@@ -292,9 +294,14 @@ Everything about the code comes after `Owner:`.
 - **Trusted network:** a mode for a router on a private network. Anyone who opens the router's
   page is signed in as the admin, without a login. Apps still need a workspace key. Owner:
   `auth/`; the env var `SECURE_LOCAL_NET`.
-- **Settings:** the router's own options that can change while it runs: allowed origins, public
-  address, timeouts. Owner: `db/schema` `settings`, a single row. Boot options
-  (port, database, secret) are environment variables in `core/config.ts`.
+- **Settings:** the router's own options, which an admin changes on the Settings page while it
+  runs, for every app at once. Each has a default and a range; one nobody has set follows its
+  default. Today there is one: the most tools an app may send with one request (128 by default,
+  OpenAI's own limit). Every user may read them. Owner: `db/schema` `settings`, one row or none,
+  whose `values` holds only what was set; `core/settings` parses it and spreads it over
+  `ROUTER_DEFAULTS`, with the range from `ROUTER_CONFIG_DEFAULTS`; read into the snapshot as
+  `Snapshot.settings`; served by `settings/resolvers` (`routerSettings`, `updateRouterSettings`).
+  Boot options (port, database, secret) are environment variables in `core/config.ts`.
 
 ### Endpoints
 

@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
+import { Role } from '../../server/db/tables/users.ts';
+import { createClient, createUser } from '../helpers.ts';
 import {
   dataLines,
   ECHO,
@@ -28,6 +30,9 @@ const ASK_USER = {
     parameters: { type: 'object', properties: { question: { type: 'string' } } },
   },
 };
+/** Sets the router's app-tool cap. */
+const SET_CAP =
+  'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { maxAppTools { value } } }';
 /** A second app tool. */
 const PICK_DATE = { type: 'function', function: { name: 'pick_date', parameters: { type: 'object' } } };
 
@@ -286,6 +291,20 @@ describe('app tools', () => {
     expect(error.param).toBe('tools.0');
     expect(error.message).toContain('"echo" of server "fix.ture"');
     expect(await h.db.select().from(runs)).toEqual([]);
+  });
+
+  it("refuses more tools than the router's settings allow, as soon as an admin lowers the cap", async () => {
+    const admin = await createUser(h.db, 'admin@example.com', Role.Admin);
+    const asAdmin = createClient(h.db, admin, { snapshot: h.snapshot, tools: h.tools, models: h.models });
+    const { base } = await h.startRouter();
+    await asAdmin.expectOk(SET_CAP, { input: { maxAppTools: 1 } });
+    const response = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [ASK_USER, PICK_DATE] });
+    expect(response.status).toBe(HttpStatus.BadRequest);
+    const { error } = await response.json();
+    expect(error).toMatchObject({ param: 'tools', message: 'tools: send at most 1 with one request.' });
+    expect(await h.db.select().from(runs)).toEqual([]);
+    const oneTool = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [ASK_USER] });
+    expect(oneTool.status).toBe(HttpStatus.Ok);
   });
 
   it('answers a repeated Idempotency-Key with the hand-back while the run waits', async () => {

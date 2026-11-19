@@ -3,7 +3,18 @@ import { createLink, Outlet, useNavigate, useRouterState } from '@tanstack/react
 import { MeDocument, SignOutDocument } from '@/__generated__/graphql';
 import { AppBarItem, Sidebar, SidebarItem, SidebarSection } from '@/components/sidebar';
 import { SidebarLayout } from '@/components/split-layout';
-import { Activity, Bot, KeyRound, Layers, LogOut, Plug, Route, Server, UserRound } from '@/components/ui/icons';
+import {
+  Activity,
+  Bot,
+  KeyRound,
+  Layers,
+  LogOut,
+  Plug,
+  Route,
+  Server,
+  Settings,
+  UserRound,
+} from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { forgetSession } from '@/lib/session';
@@ -17,8 +28,11 @@ const PLACES = [
   { to: '/pools', label: 'Pools', icon: Layers },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Plug },
 ] as const;
-/** The places only an admin has. */
-const ADMIN_PLACES = [{ to: '/users', label: 'Users', icon: UserRound }] as const;
+/** The places only an admin has. Anyone else who opens Settings reads it, so it is not offered to them. */
+const ADMIN_PLACES = [
+  { to: '/users', label: 'Users', icon: UserRound },
+  { to: '/settings', label: 'Settings', icon: Settings },
+] as const;
 
 // The row and the bar's icon name no router; the router supplies the `href` and the click.
 const SidebarLink = createLink(SidebarItem);

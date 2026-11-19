@@ -49,10 +49,11 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 
 | `server/` folder | Holds | May import |
 | --- | --- | --- |
-| `core/` | config, defaults, wire constants, errors, validation, name rules, preflight, context | nothing here, except types for `context.ts` |
+| `core/` | config, defaults, wire constants, errors, validation, name rules, the settings' rules, preflight, context | nothing here, except types for `context.ts` |
 | `db/` | the Postgres client, the advisory lock, migrations, waiting for Postgres, the tables, the snapshot | `core` |
 | `auth/` | better-auth, keys, the caller, roles, the trusted-network sign-in, rate limiting, and their GraphQL fields | `core`, `db`, `sso`, `graphql/object-type`, `http/sso` (for its path) |
 | `sso/` | pairing with an OIDC provider from the UI | `core`, `db`, `auth` |
+| `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
 | `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/runs` (phases 5–7) | the above and `models`, `tools` |
@@ -95,6 +96,10 @@ non-negotiables apply on top of these.
   decide.
 - **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
+- **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
+  `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
+  follows its default. Every user reads `routerSettings`; only an admin calls
+  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
@@ -135,8 +140,8 @@ non-negotiables apply on top of these.
   helper itself; node only repeats them for a friendly error. The helper's source is
   `docker/run-as-child.c`, and its checks are `scripts/check-children.sh`, which CI runs against
   the image.
-- **Requests route from the snapshot.** Keys, and later agents, providers and servers, are read
-  from it, never from the database per request. Every
+- **Requests route from the snapshot.** Keys, agents, providers, servers and the router's
+  settings are read from it, never from the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: a Postgres advisory lock taken at boot, so a second
   router refuses to start.

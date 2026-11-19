@@ -1,6 +1,6 @@
 import { type AgentLoopOptions, CALL_TOOL, LOAD_TOOLS, RECORD_ARTIFACT } from '@cubicecho/agent-core';
 import { z } from 'zod';
-import { RUN_DEFAULTS } from '../core/defaults.ts';
+import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
 import type { OverridePolicyRules } from './policy.ts';
 
@@ -215,11 +215,12 @@ function textOf(content: z.infer<typeof textContent>): string {
  * Reads the app's tools.
  *
  * @param body - The parsed body.
+ * @param maxAppTools - The most tools it may send: the router's setting.
  * @returns The tools, each named as OpenAI allows and none twice.
  * @throws {@link RequestRefusal} For legacy `functions`, a `tool_choice` other than `auto`, too many tools, a name
  * used twice, or a name the loop keeps for its own tools.
  */
-function readAppTools(body: Record<string, unknown>): AppTool[] {
+function readAppTools(body: Record<string, unknown>, maxAppTools: number): AppTool[] {
   for (const field of ['functions', 'function_call']) {
     if (body[field] !== undefined && body[field] !== null) {
       throw new RequestRefusal(field, `${field}: send the app's tools as tools, not as the older functions.`);
@@ -233,8 +234,8 @@ function readAppTools(body: Record<string, unknown>): AppTool[] {
       'tool_choice: the agent decides when it calls a tool, so only "auto" is taken.',
     );
   }
-  const { maxAppTools } = RUN_DEFAULTS;
-  const tools = parseField(z.array(appToolSchema).max(maxAppTools).nullish(), body.tools, 'tools') ?? [];
+  const toolsSchema = z.array(appToolSchema).max(maxAppTools, `send at most ${maxAppTools} with one request.`);
+  const tools = parseField(toolsSchema.nullish(), body.tools, 'tools') ?? [];
   const names = new Set<string>();
   for (const [index, tool] of tools.entries()) {
     const { name } = tool.function;
@@ -338,6 +339,7 @@ function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules
  *
  * @param body - The parsed body. Its `model` is the agent, already found.
  * @param policy - The agent's override policy.
+ * @param settings - The router's settings, from the snapshot.
  * @returns What the run is built from.
  * @throws {@link RequestRefusal} For anything the router or the policy refuses, naming the field.
  *
@@ -346,11 +348,15 @@ function readSampling(body: Record<string, unknown>, policy: OverridePolicyRules
  * the policy, `parallel_tool_calls` passes through, `user` is recorded, and `n` above 1 is refused, because a run
  * gives one answer. A field sent as null is read as not sent.
  */
-export function readRunRequest(body: unknown, policy: OverridePolicyRules): RunRequest {
+export function readRunRequest(
+  body: unknown,
+  policy: OverridePolicyRules,
+  settings: Readonly<RouterSettings>,
+): RunRequest {
   if (isRecord(body) === false) {
     throw new RequestRefusal('body', 'The body must be a JSON object.');
   }
-  const appTools = readAppTools(body);
+  const appTools = readAppTools(body, settings.maxAppTools);
   const n = parseField(z.int().min(1).nullish(), body.n, 'n');
   if (n !== null && n !== undefined && n > 1) {
     throw new RequestRefusal('n', 'n: a run gives one answer, so n may only be 1.');

@@ -148,6 +148,7 @@ export const permissions: PermissionsMap = {
     unpairSso: notAKey,
     setUserRole: isAdmin,
     deleteUser: isAdmin,
+    updateRouterSettings: isAdmin,
     createWorkspace: isUser,
     updateWorkspace: isUser,
     deleteWorkspace: isUser,
