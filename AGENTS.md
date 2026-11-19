@@ -94,7 +94,7 @@ non-negotiables apply on top of these.
   any user.
 - **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
   decide.
-- **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
+- **Admin-only:** secrets, settings, roles and override policies. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
@@ -174,8 +174,10 @@ non-negotiables apply on top of these.
   reserved ids `host` and `task`, which no agent may use, so an app can't replace or delete an
   agent's part. A resume that sends different host or task text is refused.
 - **The override policy is a row, not part of the document.** Every agent points at one through
-  `agents.override_policy_id`. Until policies can be chosen, that's always the seeded default.
-  Read it from the table, and never hard-code its rules.
+  `agents.override_policy_id`: the seeded default until a user chooses another. Read it from the
+  snapshot, and never hard-code its rules. Policies widen what apps may do, so only an admin
+  writes one, as with settings; any user chooses among them. The default and any policy in use
+  are never deleted.
 - **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
   means exactly those. An emptied list means none, never all.
 - **A waiting run resumes only when every handed-back call is answered.** It is matched by the

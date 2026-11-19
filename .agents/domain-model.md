@@ -64,7 +64,7 @@ Dependencies point one way:
 
 | Actor | Is | Reaches the system through | May change |
 |---|---|---|---|
-| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
+| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings, roles and override policies. Creates and revokes workspace keys, promotes revisions, and chooses each agent's override policy from those an admin wrote |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
@@ -265,7 +265,7 @@ created (shown once) --> in use --revoke--> deleted
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client | `agents/routes`; `ai_router.kind` |
-| Every agent has exactly one override policy. Until policies can be chosen, every agent uses the one seeded default | `db/schema`: `agents.override_policy_id`, defaulting to the seeded row |
+| Every agent has exactly one override policy, the seeded default until a user chooses another, and a run is checked against the one its agent has when the request arrives. Only an admin writes a policy; any user chooses one. The default is never deleted, and neither is a policy an agent uses. A policy's sampling fields are OpenAI wire names, each once, and never a field the router reads itself | `db/schema`: `agents.override_policy_id` (restrict on delete), `agents/policy-resolvers`, `agents/policy` `overridePolicyInputSchema`; `graphql/permissions` |
 | An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
 | The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
@@ -446,12 +446,14 @@ Everything about the code comes after `Owner:`.
   request (the sampling settings the app sent). Owner: `agents/layers`; the router layer sets
   `endpoint` to the router's internal model address, which the run's `fetch` hands to
   `models/forward`.
-- **Override policy:** what the layers above an agent may change. Anything it does not allow is
-  refused. For now there is one policy, which every agent uses: an app may add its own
-  instructions, narrow the servers and set sampling settings, but never change the model. Owner:
-  `agents/policy` (`DEFAULT_POLICY_RULES`); the `override_policies` table, seeded with one row by
-  the migration, and `agents.override_policy_id`, which defaults to it. There is no UI for it, and
-  no API writes it.
+- **Override policy:** what the layers above an agent may change: whether an app may add its
+  own instructions (system messages) or a task, narrow the servers, send `response_format`, and
+  which sampling fields it may set. Anything it does not allow is refused. No policy changes the
+  model. The seeded **default** lets an app do all of these, and a new agent starts with it. An
+  admin writes more on the Policies page, and any user chooses one for an agent on its page.
+  Owner: `agents/policy` (`DEFAULT_POLICY_RULES`, the input rules), `agents/policy-resolvers`
+  (`createOverridePolicy`, `updateOverridePolicy`, `deleteOverridePolicy`,
+  `setAgentOverridePolicy`); the `override_policies` table and `agents.override_policy_id`.
 - **Reach:** the models and servers an agent may use, taken from the agent itself, not from the
   app's workspace. The workspace can still configure those servers for its own runs, but never
   add to them. Owner: `agents/reach`.

@@ -8,6 +8,7 @@ import {
   Bot,
   KeyRound,
   Layers,
+  ListChecks,
   LogOut,
   Plug,
   Route,
@@ -27,6 +28,7 @@ const PLACES = [
   { to: '/providers', label: 'Providers', icon: Server },
   { to: '/pools', label: 'Pools', icon: Layers },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Plug },
+  { to: '/policies', label: 'Policies', icon: ListChecks },
 ] as const;
 /** The places only an admin has. Anyone else who opens Settings reads it, so it is not offered to them. */
 const ADMIN_PLACES = [

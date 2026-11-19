@@ -500,7 +500,7 @@ The acceptance check for the first release.
       It needs to be allowed by the override policy, with a list of allowed hosts, because the
       router would be calling a URL an app chose. Until then, an app gives an agent its own tools
       as app tools.
-    - **Override policies in full:** more than one, chosen per agent, with a UI.
+    - **Override policies in full** (built): more than one, chosen per agent, with a UI.
     - **Import and export** of `.agent.json` and `.agent.md` files, and an
       `ai-router agents push` / `pull` CLI that signs in through the browser. This may be dropped
       altogether.
