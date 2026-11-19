@@ -1,12 +1,12 @@
 import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type { OverridePolicyRules } from '../../agents/policy.ts';
 
-/** The seeded policy's id. Every agent uses it until policies can be chosen. */
+/** The seeded policy's id. A new agent uses it, and it is never deleted. */
 export const DEFAULT_POLICY_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
- * What the layers above an agent may change. Seeded with one default row, which every agent uses;
- * there is no UI for policies yet. Never in the agent's document, so the document stays portable.
+ * What the layers above an agent may change. Seeded with the default, which a new agent uses; an admin adds more,
+ * and a user chooses one per agent. Never in the agent's document, so the document stays portable.
  */
 export const overridePolicies = pgTable(
   'override_policies',

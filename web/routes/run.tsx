@@ -1,8 +1,9 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { RunDocument, type RunQuery } from '@/__generated__/graphql';
+import { CancelRunDocument, RunDocument, type RunQuery } from '@/__generated__/graphql';
 import { displayNameOf } from '@/agents/shapes';
 import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState } from '@/components/load-state';
@@ -195,6 +196,10 @@ export function RunRoute() {
   });
   const live = useRunEvents(runId, () => void queryClient.invalidateQueries({ queryKey: ['runs'] }));
   const { tab, showTab } = useDetailTab(RUN_TABS);
+  const cancel = useMutation({
+    mutationFn: () => request(CancelRunDocument, { id: runId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['runs'] }),
+  });
   const record = run.data?.run ?? undefined;
   const isRunning = isOpen(record?.status ?? '');
   const now = useNow(isRunning);
@@ -240,7 +245,22 @@ export function RunRoute() {
         description={`Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`}
         backSlot={back}
         width="page"
-        actionSlot={<RunStatusBadge status={record.status} />}
+        actionSlot={
+          <>
+            <RunStatusBadge status={record.status} />
+            {isRunning ? (
+              <ConfirmButton
+                title="Cancel this run?"
+                description="It stops where it is, and the app that started it gets an error instead of an answer. A cancelled run can't be carried on."
+                confirmLabel="Cancel run"
+                cancelLabel="Keep it going"
+                loading={cancel.isPending}
+                onConfirm={() => cancel.mutate()}
+                content="Cancel"
+              />
+            ) : null}
+          </>
+        }
         headerBarSlot={<DetailTabBar tabs={RUN_TABS} labels={RUN_TAB_LABELS} label="Run tabs" />}
         contentSlot={
           <>

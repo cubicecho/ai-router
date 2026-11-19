@@ -1,5 +1,6 @@
 import express, { type Express } from 'express';
 import { createAdminServer } from '../admin/server.ts';
+import { createAgentMcpRoutes } from '../agents/mcp.ts';
 import { createAgentRoutes } from '../agents/routes.ts';
 import { createRunService, type RunService } from '../agents/run.ts';
 import { createRunRecordRoutes } from '../agents/run-records.ts';
@@ -82,7 +83,8 @@ export interface BuiltApp {
 }
 
 /**
- * Builds the Express app: /graphql, the agents endpoint /v1, the run records /runs, /healthz, the OIDC redirects and the UI,
+ * Builds the Express app: /graphql, the agents endpoint /v1 and its MCP door /mcp, the run records /runs, /healthz, the
+ * OIDC redirects and the UI,
  * and hands the tools area the admin server, which has no endpoint.
  *
  * @param deps - What the router talks to.
@@ -137,8 +139,10 @@ export async function createApp({
       catalog: services.catalog,
     }),
   );
+  // The same keys over MCP: each agent the key's workspace may run, as a tool. Before the UI's fallback.
+  app.use('/mcp', createAgentMcpRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
   // The same keys, each reading only its own workspace's runs.
-  app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, bus: runService.bus }));
+  app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, runs: runService }));
   app.get('/healthz', async (_request, response) => {
     const health = await checkHealth(db, children);
     response.status(health.ok ? HttpStatus.Ok : HttpStatus.ServiceUnavailable).json(health);

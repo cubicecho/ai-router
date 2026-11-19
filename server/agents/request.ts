@@ -43,7 +43,7 @@ const CEILING_FIELDS: readonly string[] = Object.freeze(['max_tokens', 'max_comp
  * The request fields the router reads itself. Anything else an app sends is an override, which only the agent's
  * policy can allow.
  */
-const READ_FIELDS: ReadonlySet<string> = new Set([
+export const READ_FIELDS: ReadonlySet<string> = new Set([
   'model',
   'messages',
   'stream',

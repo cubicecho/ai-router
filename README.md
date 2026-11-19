@@ -57,7 +57,11 @@ curl http://localhost:3000/v1/chat/completions \
 - **App tools** sent in `tools` are handed back with `finish_reason: "tool_calls"`. Answering
   them resumes the same run.
 - **Run records:** `GET /runs/<id>` gives the run, and `GET /runs/<id>/events` its events, live
-  with `Accept: text/event-stream`.
+  with `Accept: text/event-stream`. `POST /runs/<id>/cancel`, with an optional `{ "reason" }`,
+  stops a running or waiting run; its stream ends with a `run_cancelled` error.
+- **MCP:** an MCP client pointed at `/mcp` with the same key sees each agent as a tool: send a
+  `message` (and a `conversation` name to keep history across calls) and get the answer, with
+  progress notifications while it runs.
 - **Long runs:** a run may take 30 minutes. A stream gets a `: keep-alive` comment every 15
   seconds, so a proxy in front needs a read timeout longer than that. An answer without `stream`
   sends nothing until the run ends, so the proxy's and the client's timeouts must outlast the run:

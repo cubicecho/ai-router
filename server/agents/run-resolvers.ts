@@ -1,14 +1,25 @@
 import { fold, type RunEvent } from '@cubicecho/agent-core';
 import { eq } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
-import type { Context } from '../core/context.ts';
+import { z } from 'zod';
+import { CALLER_USER, type Context } from '../core/context.ts';
 import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { badInput, notFound } from '../core/errors.ts';
+import { parseOrThrow } from '../core/validation.ts';
 import { runs } from '../db/tables/runs.ts';
+import { users } from '../db/tables/users.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
 
-const { eventPageSize, maxEventPageSize } = RUN_DEFAULTS;
+const { eventPageSize, maxEventPageSize, maxErrorLength } = RUN_DEFAULTS;
+
+/** Why a person cancels a run, which the run's error says. */
+const reasonInput = z
+  .string()
+  .trim()
+  .min(1, 'Say why, or leave the reason out.')
+  .max(maxErrorLength, 'That reason is too long.')
+  .nullish();
 
 /**
  * The event type, live or stored. Its name is the subscription's from before events were stored, kept so clients
@@ -60,6 +71,14 @@ const RUN_FIELD_SDL = `
   }
 `;
 
+/** The mutation people cancel a run with. */
+const CANCEL_SDL = `
+  extend type Mutation {
+    "Cancels a run that is running or waiting: it stops, and ends cancelled with the reason as its error. A run that has ended is answered unchanged. Left out, the reason names who cancelled it."
+    cancelRun(id: UUID!, reason: String): Run!
+  }
+`;
+
 /** What `Run.events` takes. */
 interface EventsArgs {
   afterSeq?: number | null;
@@ -85,7 +104,24 @@ async function* payloads(events: AsyncIterable<RunEvent>): AsyncGenerator<RunEve
 }
 
 /**
- * Adds the `runEvents` subscription, which people follow a run with, and `Run.events`, which reads its stored events.
+ * Says who cancelled a run, for one cancelled without a reason.
+ *
+ * @param ctx - The request, from a person.
+ * @returns Their name, or their email when they have none.
+ */
+async function cancelledBy(ctx: Context): Promise<string> {
+  const userId = ctx.caller?.kind === CALLER_USER ? ctx.caller.userId : null;
+  const [user] =
+    userId === null
+      ? []
+      : await ctx.db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
+  const who = user === undefined ? 'a person' : user.name || user.email;
+  return `Cancelled by ${who}.`;
+}
+
+/**
+ * Adds the `runEvents` subscription, which people follow a run with, `Run.events`, which reads its stored events,
+ * and `cancelRun`.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -99,7 +135,7 @@ export function applyRunsExtension(schema: GraphQLSchema): GraphQLSchema {
     schema.getSubscriptionType() === null || schema.getSubscriptionType() === undefined
       ? `type Subscription {${RUN_EVENTS_FIELD}}\nextend schema { subscription: Subscription }`
       : `extend type Subscription {${RUN_EVENTS_FIELD}}`;
-  const extended = extendSchema(schema, parse(`${EVENT_TYPE_SDL}\n${RUN_FIELD_SDL}\n${root}`));
+  const extended = extendSchema(schema, parse(`${EVENT_TYPE_SDL}\n${RUN_FIELD_SDL}\n${CANCEL_SDL}\n${root}`));
   const fields = objectType(extended, 'Subscription').getFields();
 
   fields.runEvents.subscribe = async (
@@ -125,6 +161,20 @@ export function applyRunsExtension(schema: GraphQLSchema): GraphQLSchema {
     }
     const events = await ctx.runs.bus.events(runId, args.afterSeq ?? 0, limit);
     return args.folded === true ? fold(events) : events;
+  };
+
+  const mutations = objectType(extended, 'Mutation').getFields();
+  mutations.cancelRun.resolve = async (
+    _parent: unknown,
+    args: { id: string; reason?: string | null },
+    ctx: Context,
+  ) => {
+    const reason = parseOrThrow(reasonInput, args.reason) ?? (await cancelledBy(ctx));
+    const cancelled = await ctx.runs.cancel(args.id, reason);
+    if (cancelled === undefined) {
+      throw notFound('Run not found.');
+    }
+    return cancelled;
   };
 
   return extended;

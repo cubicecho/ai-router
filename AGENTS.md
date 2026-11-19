@@ -57,7 +57,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
-| `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/runs` (phases 5–7) | the above and `models`, `tools` |
+| `agents/` | revisions, layers, override policies, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
@@ -95,7 +95,7 @@ non-negotiables apply on top of these.
   any user.
 - **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
   decide.
-- **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
+- **Admin-only:** secrets, settings, roles and override policies. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
@@ -110,8 +110,11 @@ non-negotiables apply on top of these.
 
 ### Endpoints and names
 
-- **`/v1` lists and runs only agents.** No endpoint serves a raw model or tool. `/mcp` stays
-  unanswered until agents are offered as MCP tools.
+- **`/v1` lists and runs only agents.** No endpoint serves a raw model or tool. `/mcp` offers
+  the same agents as MCP tools, one per agent the key's workspace may run: a `message` in, the
+  answer out, progress as MCP progress notifications. Each call is an ordinary run (stateless,
+  no app tools, so it never waits); a `conversation` argument works as `X-Conversation-Id`. It is
+  stateless, so a client's cancel is matched to its call by key and JSON-RPC id.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
 - **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the
@@ -181,8 +184,10 @@ non-negotiables apply on top of these.
   reserved ids `host` and `task`, which no agent may use, so an app can't replace or delete an
   agent's part. A resume that sends different host or task text is refused.
 - **The override policy is a row, not part of the document.** Every agent points at one through
-  `agents.override_policy_id`. Until policies can be chosen, that's always the seeded default.
-  Read it from the table, and never hard-code its rules.
+  `agents.override_policy_id`: the seeded default until a user chooses another. Read it from the
+  snapshot, and never hard-code its rules. Policies widen what apps may do, so only an admin
+  writes one, as with settings; any user chooses among them. The default and any policy in use
+  are never deleted.
 - **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
   means exactly those. An emptied list means none, never all.
 - **An app tool that duplicates the agent's own is pruned, never refused.** Older apps send their
@@ -199,6 +204,11 @@ non-negotiables apply on top of these.
   is a column on `agents`, set only by a user, never a field in the document, so no draft can
   switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
+- **A cancel ends only a run that is going.** `POST /runs/<id>/cancel` (the run's own workspace
+  key; any other run is 404) and the people-only `cancelRun` abort a running run's loop, model and
+  tool calls, or stop a waiting one waiting. It ends `cancelled` with the reason and one last
+  `done`. An ended run is answered unchanged, never rewritten. No admin-server role reaches
+  `cancelRun`.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
   ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an

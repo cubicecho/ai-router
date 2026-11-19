@@ -5,6 +5,7 @@ import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { ErrorCode, errorMessage } from '../core/errors.ts';
+import { isRecord } from '../core/is-record.ts';
 import { HttpStatus } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
@@ -12,23 +13,31 @@ import { conversations } from '../db/tables/conversations.ts';
 import { type RunRow, runs } from '../db/tables/runs.ts';
 import { appCaller } from './app-caller.ts';
 import { openEventStream } from './completion.ts';
-import type { RunBus } from './run-bus.ts';
+import { NOT_JSON, TOO_LARGE } from './routes.ts';
+import type { RunService } from './run.ts';
 
 /** The header an event stream client sends back on reconnecting: the `seq` of the last event it has. */
 const LAST_EVENT_ID = 'last-event-id';
 /** What asks for a live event stream rather than JSON. */
 const EVENT_STREAM = 'text/event-stream';
+/** Why a run an app cancelled without saying why ended. */
+export const APP_CANCELLED = 'The app cancelled the run.';
 
 /** A run id, before it is looked up. */
 const runIdSchema = z.uuid();
 /** The `seq` a reader already has. */
 const afterSchema = z.coerce.number().int().min(0);
+/** A cancel's body, which may be left out: why, as the run's error says it. */
+const cancelSchema = z
+  .object({ reason: z.string().trim().min(1).max(RUN_DEFAULTS.maxErrorLength).optional() })
+  .optional();
 
 /** What the run records talk to. */
 export interface RunRecordRoutesDeps {
   db: DB;
   snapshot: SnapshotHost;
-  bus: RunBus;
+  /** The runs, for their events and to cancel them. */
+  runs: RunService;
   /** Settings that differ from `RUN_DEFAULTS`. */
   overrides?: Partial<RunSettings>;
   /** The clock keys' expiry is judged by. */
@@ -84,19 +93,21 @@ export function runRecord(row: RunRow, conversation: string | null) {
 }
 
 /**
- * Builds the run records: `/runs/<id>` and `/runs/<id>/events`, for workspace keys only, each its own workspace's.
+ * Builds the run records: `/runs/<id>`, `/runs/<id>/events` and `POST /runs/<id>/cancel`, for workspace keys only,
+ * each its own workspace's.
  *
- * @param deps - The database, the snapshot and the run bus.
+ * @param deps - The database, the snapshot and the run service.
  * @returns The router, to mount at `/runs`.
  */
 export function createRunRecordRoutes({
   db,
   snapshot,
-  bus,
+  runs: runService,
   overrides = {},
   now = () => new Date(),
 }: RunRecordRoutesDeps): Router {
-  const { heartbeatSeconds } = { ...RUN_DEFAULTS, ...overrides };
+  const { heartbeatSeconds, bodyLimit } = { ...RUN_DEFAULTS, ...overrides };
+  const { bus } = runService;
   const router = express.Router();
 
   /**
@@ -180,16 +191,44 @@ export function createRunRecordRoutes({
     stream.close();
   });
 
+  router.post(
+    '/:id/cancel',
+    express.json({ limit: bodyLimit }),
+    async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
+      const parsed = cancelSchema.safeParse(request.body);
+      if (parsed.success === false) {
+        const said = `reason: send 1 to ${RUN_DEFAULTS.maxErrorLength} characters, or leave it out.`;
+        refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, said);
+        return;
+      }
+      const found = await ownRun(response, request.params.id);
+      if (found === null) {
+        return;
+      }
+      const cancelled = await runService.cancel(found.run.id, parsed.data?.reason ?? APP_CANCELLED);
+      response.json(runRecord(cancelled ?? found.run, found.conversation));
+    },
+  );
+
   router.use((_request: Request, response: Response) => {
     refuse(
       response,
       HttpStatus.NotFound,
       ErrorCode.NotFound,
-      'The run records serve /runs/<id> and /runs/<id>/events.',
+      'The run records serve /runs/<id>, /runs/<id>/events and POST /runs/<id>/cancel.',
     );
   });
 
   router.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    const type = isRecord(error) ? error.type : undefined;
+    if (type === TOO_LARGE) {
+      refuse(response, HttpStatus.PayloadTooLarge, ErrorCode.BadUserInput, `The body is over ${bodyLimit}.`);
+      return;
+    }
+    if (type === NOT_JSON) {
+      refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, 'The body must be JSON.');
+      return;
+    }
     console.error(`[runs] the run records failed: ${errorMessage(error)}`);
     if (response.headersSent) {
       response.end();

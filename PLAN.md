@@ -497,7 +497,7 @@ The acceptance check for the first release.
    - **Any user grants roles and turns on auto-promote**, as with every workspace and agent
      setting today. Making both admin-only is a later option.
 10. **Later.**
-    - Agents offered as MCP tools, on `/mcp`.
+    - Agents offered as MCP tools, on `/mcp` (built: one tool per agent, stateless, no app tools).
     - `/v1/responses` for agents.
     - **Discovery:** the AI Catalog at `/.well-known/ai-catalog.json`, Server Cards, A2A Agent
       Cards, and LAN announce and discovery (servers found on the network, offered to add). The
@@ -513,12 +513,12 @@ The acceptance check for the first release.
       It needs to be allowed by the override policy, with a list of allowed hosts, because the
       router would be calling a URL an app chose. Until then, an app gives an agent its own tools
       as app tools.
-    - **Override policies in full:** more than one, chosen per agent, with a UI.
+    - **Override policies in full** (built): more than one, chosen per agent, with a UI.
     - **Import and export** of `.agent.json` and `.agent.md` files, and an
       `ai-router agents push` / `pull` CLI that signs in through the browser. This may be dropped
       altogether.
-    - **`POST /runs/<id>/cancel`**, so an app can stop a run it started without dropping the
-      stream. That gives `task_server`'s Runs tab a Stop button.
+    - **`POST /runs/<id>/cancel`** (built), so an app can stop a run it started without dropping
+      the stream. That gives `task_server`'s Runs tab a Stop button.
     - **Server groups**, left out of the first pass, to think about later. A group is a named,
       reusable set of servers with their overrides, which many workspaces can include. It maps
       one to one onto an mcp-router workspace. Before adding one, settle two things:

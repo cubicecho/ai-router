@@ -1,4 +1,5 @@
 import { RequestError } from '@/lib/gql';
+import { isRecord } from '@/lib/is-record';
 
 /** How many spaces a document is indented by when it is shown or edited. */
 export const JSON_INDENT = 2;
@@ -35,16 +36,6 @@ export interface DocumentFacts {
   servers: string[] | null;
   /** Each side task and the model it runs on: null for the agent's own, `''` for turned off. */
   tasks: { name: string; model: string | null }[];
-}
-
-/**
- * Whether a value is a plain object.
- *
- * @param value - Anything.
- * @returns true for an object that is not an array.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && Array.isArray(value) === false;
 }
 
 /**

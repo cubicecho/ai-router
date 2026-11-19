@@ -72,6 +72,11 @@ const HANDED_BACK_REASON = 'handed back to the app';
 const ONE_RUN_PER_CONVERSATION = 'uq_runs_conversation_id_going';
 /** The statuses of a run that is not over. */
 const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
+/**
+ * How many times a cancel looks at a run again: a waiting run a request resumes meanwhile is running when it looks
+ * again, and a run stopping at an app tool is waiting.
+ */
+const CANCEL_ATTEMPTS = 3;
 
 /** A request's `Idempotency-Key`, and the hash of the body it came with. */
 export interface Idempotency {
@@ -244,6 +249,16 @@ export interface RunService {
   prune(): Promise<void>;
   /** Starts the timers that expire and prune. */
   start(): void;
+  /**
+   * Cancels a run that is going. A running run stops its loop and the model and tool calls it is making, and a
+   * waiting one stops waiting. Either ends `cancelled`, with the reason as its error and a last `done` event.
+   *
+   * @param runId - The run.
+   * @param reason - Why, as the run's error says it.
+   * @returns The run as it stands once cancelled, or unchanged for one that had already ended. Undefined for no
+   * such run.
+   */
+  cancel(runId: string, reason: string): Promise<RunRow | undefined>;
   /** Stops the timers, fails the runs still going, and waits for them to be recorded. Waiting runs stay waiting. */
   stop(): Promise<void>;
 }
@@ -262,6 +277,14 @@ export interface RunServiceDeps {
   overrides?: Partial<RunSettings>;
   /** The clock retention and waiting are judged by. */
   now?: () => Date;
+}
+
+/** A run going in this process. */
+interface LiveRun {
+  /** Settles when it ends or waits. */
+  finished: Promise<FinishedRun>;
+  /** Cancels it, with the reason as the abort's. */
+  cancel: AbortController;
 }
 
 /** A tool the run reaches, with what the model is told about it. */
@@ -381,8 +404,8 @@ export function createRunService({
 }: RunServiceDeps): RunService {
   const settings = { ...RUN_DEFAULTS, ...overrides };
   const bus = createRunBus(db, overrides);
-  /** Runs going in this process, by id: what a repeated key waits on. */
-  const live = new Map<string, Promise<FinishedRun>>();
+  /** Runs going in this process, by id: what a repeated key waits on, and a cancel stops. */
+  const live = new Map<string, LiveRun>();
   /** Fails every run still going when the router stops. */
   const stopping = new AbortController();
   const timers: NodeJS.Timeout[] = [];
@@ -408,7 +431,7 @@ export function createRunService({
       finished: async () => {
         const going = live.get(runId);
         if (going !== undefined) {
-          return going;
+          return going.finished;
         }
         const stored = await readRun(runId);
         if (stored === undefined) {
@@ -563,14 +586,20 @@ export function createRunService({
    * @param segment - The stretch.
    * @param listener - Hears the answer's text and the run's events.
    * @param signal - The app's connection.
+   * @param cancelled - Aborted, with the reason, when the run is cancelled.
    * @returns How it ended, or that it waits.
    */
-  const run = async (segment: Segment, listener: RunListener, signal: AbortSignal): Promise<FinishedRun> => {
+  const run = async (
+    segment: Segment,
+    listener: RunListener,
+    signal: AbortSignal,
+    cancelled: AbortSignal,
+  ): Promise<FinishedRun> => {
     const { input, runId, spent } = segment;
     const { appTools } = segment.tools;
     const { workspace, agent, config } = input;
     const deadline = AbortSignal.timeout(settings.timeoutMinutes * MS_PER_MINUTE);
-    const runSignal = AbortSignal.any([signal, deadline, stopping.signal]);
+    const runSignal = AbortSignal.any([signal, cancelled, deadline, stopping.signal]);
     const say = (event: RunEventInput): void => {
       listener.onEvent(bus.publish(runId, event));
     };
@@ -695,6 +724,8 @@ export function createRunService({
         session: runId,
         onEvent,
       });
+      // A cancel that came as the loop ended still cancels: the run hasn't answered yet.
+      cancelled.throwIfAborted();
       const transcript = withCallIds(result.messages, minted);
       if (handed.length > 0) {
         const handedBack = handedBackCalls(
@@ -729,7 +760,9 @@ export function createRunService({
       await keepConversation(segment.conversationId, { messages: transcript, hostText: segment.layers.hostText });
     } catch (error) {
       const usage = failedRun(error)?.usage;
-      if (signal.aborted) {
+      if (cancelled.aborted) {
+        finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: String(cancelled.reason) };
+      } else if (signal.aborted) {
         finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: 'The app disconnected.' };
       } else if (deadline.aborted) {
         const error = `The run took longer than ${settings.timeoutMinutes} minutes.`;
@@ -760,19 +793,18 @@ export function createRunService({
    */
   const started = (segment: Segment): StartedRun => {
     let settle: (finished: FinishedRun) => void = () => {};
-    live.set(
-      segment.runId,
-      new Promise<FinishedRun>((resolve) => {
-        settle = resolve;
-      }),
-    );
+    const cancel = new AbortController();
+    const ending = new Promise<FinishedRun>((resolve) => {
+      settle = resolve;
+    });
+    live.set(segment.runId, { finished: ending, cancel });
     return {
       kind: 'started',
       runId: segment.runId,
       startedAt: segment.startedAt,
       prunedTools: segment.tools.pruned.map((tool) => tool.name),
       execute: async (listener, signal) => {
-        const finished = await run(segment, listener, signal);
+        const finished = await run(segment, listener, signal, cancel.signal);
         settle(finished);
         live.delete(segment.runId);
         return finished;
@@ -838,9 +870,9 @@ export function createRunService({
       }
       return repeat;
     }
-    await bus.open(row.id);
     const { hostText, taskText, servers, sampling } = request;
-    return started({
+    // Live before anything else is awaited, so a cancel from now on finds it.
+    const handle = started({
       input,
       runId: row.id,
       startedAt: row.startedAt,
@@ -853,6 +885,8 @@ export function createRunService({
       spent: { input: 0, output: 0 },
       layers: { hostText, taskText, servers, sampling },
     });
+    await bus.open(row.id);
+    return handle;
   };
 
   /**
@@ -886,7 +920,7 @@ export function createRunService({
   const waitingFor = async (workspaceId: string, agentId: string, answers: ToolAnswer[]): Promise<WaitingRun> => {
     const answeredIds = answers.map((answer) => answer.callId);
     const found = await db
-      .select({ id: runs.id, status: runs.status, pendingCallIds: runs.pendingCallIds })
+      .select({ id: runs.id, status: runs.status, pendingCallIds: runs.pendingCallIds, error: runs.error })
       .from(runs)
       .where(
         and(
@@ -911,6 +945,9 @@ export function createRunService({
         ModelFailure.RunExpired,
         `Run ${match.id} waited too long for these answers and has expired. Start again with a new request.`,
       );
+    }
+    if (match.status === RunStatus.Cancelled) {
+      throw new RunConflict(ModelFailure.RunCancelled, `Run ${match.id} was cancelled: ${match.error ?? ''}`);
     }
     if (match.status !== RunStatus.Waiting) {
       throw new RunConflict(ModelFailure.RunInProgress, `Run ${match.id} isn't waiting for these answers any more.`);
@@ -968,13 +1005,13 @@ export function createRunService({
     if (row === undefined) {
       throw new RunConflict(ModelFailure.RunInProgress, `Run ${waiting.runId} has already been resumed.`);
     }
-    await bus.open(row.id);
     const answers = new Map(request.answers.map((answer) => [answer.callId, answer.content]));
     const messages = state.messages.map((message) => {
       const content = message.role === 'tool' ? answers.get(message.tool_call_id) : undefined;
       return content === undefined ? message : { ...message, content };
     });
-    return started({
+    // Live before anything else is awaited, so a cancel from now on finds it.
+    const handle = started({
       input,
       runId: row.id,
       startedAt: row.startedAt,
@@ -987,6 +1024,53 @@ export function createRunService({
       spent: { input: row.inputTokens, output: row.outputTokens },
       layers: { hostText: state.hostText, taskText: state.taskText, servers: state.servers, sampling: state.sampling },
     });
+    await bus.open(row.id);
+    return handle;
+  };
+
+  /**
+   * Ends a waiting run as cancelled, and says so in its events.
+   *
+   * @param runId - The run.
+   * @param error - Why.
+   * @returns The run, or undefined when it wasn't waiting.
+   */
+  const cancelWaiting = async (runId: string, error: string): Promise<RunRow | undefined> => {
+    const [row] = await db
+      .update(runs)
+      .set({ status: RunStatus.Cancelled, finishedAt: now(), error, resume: null })
+      .where(and(eq(runs.id, runId), eq(runs.status, RunStatus.Waiting)))
+      .returning();
+    if (row !== undefined) {
+      await bus.open(runId);
+      bus.publish(runId, { kind: RunEventKind.Done, ok: false, text: error });
+      await bus.close(runId);
+    }
+    return row;
+  };
+
+  const cancel = async (runId: string, reason: string): Promise<RunRow | undefined> => {
+    const error = reason.slice(0, settings.maxErrorLength);
+    let row = await readRun(runId);
+    for (let attempt = 0; attempt < CANCEL_ATTEMPTS; attempt += 1) {
+      const isGoing = row !== undefined && GOING.includes(row.status);
+      if (isGoing === false) {
+        return row;
+      }
+      const going = live.get(runId);
+      if (going !== undefined) {
+        going.cancel.abort(error);
+        await going.finished;
+      } else if (row?.status === RunStatus.Waiting) {
+        const cancelled = await cancelWaiting(runId, error);
+        if (cancelled !== undefined) {
+          return cancelled;
+        }
+      }
+      // It ended, or a resume took it from waiting to running meanwhile: look again.
+      row = await readRun(runId);
+    }
+    return row;
   };
 
   const recover = async (): Promise<number> => {
@@ -1042,6 +1126,7 @@ export function createRunService({
       await expireOverdue();
     },
     prune,
+    cancel,
     start() {
       every(prune, settings.pruneEveryHours * MS_PER_HOUR, 'pruning old runs');
       every(() => expireOverdue(), settings.expireEveryMinutes * MS_PER_MINUTE, 'expiring waiting runs');
@@ -1051,7 +1136,7 @@ export function createRunService({
         clearInterval(timer);
       }
       stopping.abort();
-      await Promise.allSettled([...live.values()]);
+      await Promise.allSettled([...live.values()].map((going) => going.finished));
       await bus.stop();
     },
   };
