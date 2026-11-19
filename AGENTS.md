@@ -99,7 +99,8 @@ non-negotiables apply on top of these.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
   follows its default. Every user reads `routerSettings`; only an admin calls
-  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap.
+  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap and
+  `pruneAppToolsAcrossServers`.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
@@ -178,6 +179,12 @@ non-negotiables apply on top of these.
   Read it from the table, and never hard-code its rules.
 - **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
   means exactly those. An emptied list means none, never all.
+- **An app tool that duplicates the agent's own is pruned, never refused.** Older apps send their
+  own MCP servers' tools. The same name as one of the agent's tools is always dropped. The same
+  tool under another server's name (equal after the first `__`, deep-equal input schemas) is
+  dropped only under `pruneAppToolsAcrossServers`, off by default, each drop logged with `[runs]`.
+  `X-AI-Router-Pruned-Tools` names them, set before the first byte. A pruned tool is never handed
+  back, and `runs.resume.appTools` keeps the tools as sent, so each resume prunes them again.
 - **A waiting run resumes only when every handed-back call is answered.** It is matched by the
   call ids the router minted. Refuse a partial answer.
 - **Revisions are append-only, but for drafts, and only a user promotes.** A user's saves go live,

@@ -81,6 +81,32 @@ describe('the router settings', () => {
     expect(snapshot.current().settings).toEqual(ROUTER_DEFAULTS);
   });
 
+  it('leave pruning app tools across servers off until an admin turns it on, and back to the default', async () => {
+    const PRUNING = 'pruneAppToolsAcrossServers { value saved default }';
+    const client = createClient(db, admin, { snapshot });
+    const read = async () => (await client.expectOk(`{ routerSettings { ${PRUNING} } }`)).routerSettings;
+    const change = async (value: boolean | null) =>
+      (
+        await client.expectOk(
+          `mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { ${PRUNING} } }`,
+          { input: { pruneAppToolsAcrossServers: value } },
+        )
+      ).updateRouterSettings;
+    expect((await read()).pruneAppToolsAcrossServers).toEqual({ value: false, saved: null, default: false });
+    expect(ROUTER_DEFAULTS.pruneAppToolsAcrossServers).toBe(false);
+    expect((await change(true)).pruneAppToolsAcrossServers).toEqual({ value: true, saved: true, default: false });
+    expect(snapshot.current().settings.pruneAppToolsAcrossServers).toBe(true);
+    // Changing the cap keeps it.
+    await update({ maxAppTools: 8 });
+    expect((await read()).pruneAppToolsAcrossServers.value).toBe(true);
+    expect((await change(null)).pruneAppToolsAcrossServers).toEqual({ value: false, saved: null, default: false });
+    expect(snapshot.current().settings).toEqual({ ...ROUTER_DEFAULTS, maxAppTools: 8 });
+    const asUser = await createClient(db, user, { snapshot }).expectError(UPDATE, {
+      input: { pruneAppToolsAcrossServers: true },
+    });
+    expect(asUser.code).toBe(ErrorCode.Forbidden);
+  });
+
   it('refuse a user who is not an admin, a workspace key and an agent run', async () => {
     const asUser = await createClient(db, user, { snapshot }).expectError(UPDATE, { input: { maxAppTools: 4 } });
     expect(asUser.code).toBe(ErrorCode.Forbidden);

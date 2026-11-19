@@ -12,7 +12,7 @@ import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
-import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
+import { completionBody, HEADER_LIST_JOIN, openChunkStream, PRUNED_TOOLS_HEADER, RUN_ID_HEADER } from './completion.ts';
 import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
@@ -358,6 +358,9 @@ export function createAgentRoutes({
       return;
     }
     response.setHeader(RUN_ID_HEADER, started.runId);
+    if (started.prunedTools.length > 0) {
+      response.setHeader(PRUNED_TOOLS_HEADER, started.prunedTools.join(HEADER_LIST_JOIN));
+    }
     // A run without a key ends with its connection. One with a key goes on to its timeout, so the retry the key
     // is for finds the answer rather than a cancellation.
     const disconnected = new AbortController();

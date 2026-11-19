@@ -125,8 +125,8 @@ describe('reading a request against the override policy', () => {
   it("refuses more app tools than the router's settings allow", () => {
     const tools = ['a', 'b', 'c'].map((name) => ({ type: 'function', function: { name } }));
     const body = { model: 'x', messages: [QUESTION], tools };
-    expect(readRunRequest(body, DEFAULT_POLICY_RULES, { maxAppTools: 3 }).appTools).toHaveLength(3);
-    expect(() => readRunRequest(body, DEFAULT_POLICY_RULES, { maxAppTools: 2 })).toThrow(
+    expect(readRunRequest(body, DEFAULT_POLICY_RULES, { ...ROUTER_DEFAULTS, maxAppTools: 3 }).appTools).toHaveLength(3);
+    expect(() => readRunRequest(body, DEFAULT_POLICY_RULES, { ...ROUTER_DEFAULTS, maxAppTools: 2 })).toThrow(
       'tools: send at most 2 with one request.',
     );
   });

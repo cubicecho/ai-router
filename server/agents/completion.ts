@@ -6,6 +6,10 @@ import type { FinishedRun } from './run.ts';
 
 /** The header every agent answer names its run in, once there is one. */
 export const RUN_ID_HEADER = 'X-Run-Id';
+/** The header that names the app tools a run left out, because the agent's own tools answer them. */
+export const PRUNED_TOOLS_HEADER = 'X-AI-Router-Pruned-Tools';
+/** What joins the names in a header that lists several. */
+export const HEADER_LIST_JOIN = ', ';
 
 /** The content type of a server-sent event stream. */
 const EVENT_STREAM_TYPE = 'text/event-stream';

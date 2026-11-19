@@ -15,13 +15,23 @@ const maxAppToolsSchema = z
   .min(MIN_APP_TOOLS, `Let a request send at least ${MIN_APP_TOOLS} tool.`)
   .max(maxAppToolsLimit, `A request may send at most ${maxAppToolsLimit} tools.`);
 
+/** Whether an app tool under another server's name is dropped, as an admin may set it. */
+const pruneAcrossServersSchema = z.boolean('Send true or false for pruning app tools across servers.');
+
 /** What the `settings` row holds: the members an admin set. One left out follows its default. */
-export const savedSettingsSchema = z.strictObject({ maxAppTools: maxAppToolsSchema }).partial();
+export const savedSettingsSchema = z
+  .strictObject({ maxAppTools: maxAppToolsSchema, pruneAppToolsAcrossServers: pruneAcrossServersSchema })
+  .partial();
 /** The members an admin set. */
 export type SavedSettings = z.infer<typeof savedSettingsSchema>;
 
 /** A change to the settings. A member left out stays as it is, and null returns it to its default. */
-export const settingsChangeSchema = z.strictObject({ maxAppTools: maxAppToolsSchema.nullable() }).partial();
+export const settingsChangeSchema = z
+  .strictObject({
+    maxAppTools: maxAppToolsSchema.nullable(),
+    pruneAppToolsAcrossServers: pruneAcrossServersSchema.nullable(),
+  })
+  .partial();
 /** A change to the settings, as parsed. */
 export type SettingsChange = z.infer<typeof settingsChangeSchema>;
 

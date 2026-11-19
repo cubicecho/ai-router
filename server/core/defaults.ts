@@ -500,10 +500,16 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
 export interface RouterSettings {
   /** The most tools an app may send with one request on `/v1`. OpenAI's own limit is 128. */
   maxAppTools: number;
+  /**
+   * Whether an app tool that is one of the agent's own under another server's name is dropped: the same tool name
+   * after `__`, and the same input schema. A guess, so it is off unless an admin turns it on.
+   */
+  pruneAppToolsAcrossServers: boolean;
 }
 
 export const ROUTER_DEFAULTS: Readonly<RouterSettings> = Object.freeze({
   maxAppTools: 128,
+  pruneAppToolsAcrossServers: false,
 });
 
 /** What an admin may set the router's settings to. */

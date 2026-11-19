@@ -7,6 +7,11 @@ query RouterSettings {
       min
       max
     }
+    pruneAppToolsAcrossServers {
+      value
+      saved
+      default
+    }
   }
 }
 
@@ -18,6 +23,11 @@ mutation UpdateRouterSettings($input: RouterSettingsInput!) {
       default
       min
       max
+    }
+    pruneAppToolsAcrossServers {
+      value
+      saved
+      default
     }
   }
 }

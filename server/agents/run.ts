@@ -33,6 +33,7 @@ import {
 import { ModelFailure } from '../models/openai-error.ts';
 import type { ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
+import { type PrunedAppTool, pruneAppTools } from './app-tools.ts';
 import {
   busyRun,
   type Conversation,
@@ -154,6 +155,8 @@ export interface StartedRun {
   kind: 'started';
   runId: string;
   startedAt: Date;
+  /** The app tools left out because one of the agent's own tools answers them, by name, in the order sent. */
+  prunedTools: string[];
   /**
    * Runs it until it answers or hands calls back.
    *
@@ -195,7 +198,6 @@ export interface RunService {
    *
    * @param input - The run.
    * @returns The new run, to execute at once, or the one the key started.
-   * @throws {@link RequestRefusal} When an app tool has the name of one of the agent's own tools.
    * @throws {@link RunConflict} When the conversation has a run going or waiting.
    */
   begin(input: RunInput): Promise<StartedRun | RepeatedRun>;
@@ -217,7 +219,6 @@ export interface RunService {
    * @param waiting - The run, from `waitingFor`.
    * @returns The run, to execute at once.
    * @throws {@link RunConflict} When another request resumed it first.
-   * @throws {@link RequestRefusal} When an app tool has the name of one of the agent's own tools.
    */
   resume(input: RunInput, waiting: WaitingRun): Promise<StartedRun>;
   /**
@@ -275,6 +276,10 @@ interface RunTools {
   /** By function name. */
   names: Map<string, ReachedTool>;
   catalog: CatalogServer[];
+  /** The app's tools this stretch hands back: those none of the agent's own tools answers. */
+  appTools: AppTool[];
+  /** The app's tools left out, because one of the agent's own answers each. */
+  pruned: PrunedAppTool[];
   /** What the run's first events say was left out. */
   notices: string[];
 }
@@ -287,6 +292,7 @@ interface Segment {
   /** The conversation the run's transcript is kept in. */
   conversationId: string | null;
   tools: RunTools;
+  /** The app's tools as the request sent them, pruned ones included, kept for the run's next wait. */
   appTools: AppTool[];
   /** The transcript the loop carries on from. */
   messages: ChatMessage[];
@@ -416,13 +422,13 @@ export function createRunService({
   /**
    * Lists the tools of every server the run reaches, as its workspace's instances, and names them for the model.
    *
-   * @param config - The resolved agent, for its servers.
-   * @param workspaceId - Whose instances to use.
-   * @param appTools - The app's own tools, which may not share a name with one of these.
-   * @returns The tools. A server that can't start or list is left out and said so, never failing the run.
-   * @throws {@link RequestRefusal} When an app tool has the name of one of these.
+   * @param input - The run: its resolved agent, for its servers, and its workspace, whose instances to use.
+   * @param sent - The app's own tools, as the request sent them.
+   * @returns The tools, with the app's that duplicate one of them left out. A server that can't start or list is left
+   * out and said so, never failing the run.
    */
-  const reachedTools = async (config: RunConfig, workspaceId: string, appTools: AppTool[]): Promise<RunTools> => {
+  const reachedTools = async ({ config, workspace, agent }: RunInput, sent: AppTool[]): Promise<RunTools> => {
+    const workspaceId = workspace.id;
     const notices: string[] = [];
     const reach = reachOf(config.servers, snapshot.current());
     for (const name of reach.missing) {
@@ -452,13 +458,17 @@ export function createRunService({
     for (const tool of dropped) {
       notices.push(`tool "${tool.tool}" of server "${tool.serverName}" is left out: its name clashes with another.`);
     }
-    for (const [index, appTool] of appTools.entries()) {
-      const clash = names.get(appTool.function.name);
-      if (clash !== undefined) {
-        throw new RequestRefusal(
-          `tools.${index}`,
-          `tools.${index}: "${appTool.function.name}" is the name of the agent's tool "${clash.tool}" of server "${clash.serverName}". Give the app's tool another name.`,
+    const { pruneAppToolsAcrossServers } = snapshot.current().settings;
+    const { kept, pruned } = pruneAppTools(sent, names, pruneAppToolsAcrossServers);
+    for (const { name, agentTool, acrossServers } of pruned) {
+      if (acrossServers) {
+        // A guess, so every one is in the log.
+        console.info(
+          `[runs] agent ${agent.name} for workspace ${workspace.slug} leaves out app tool ${name}: its own ${agentTool} is the same tool under another server's name.`,
         );
+        notices.push(`app tool "${name}" is left out: the agent's "${agentTool}" is the same tool, and answers it.`);
+      } else {
+        notices.push(`app tool "${name}" is left out: the agent's own tool of that name answers it.`);
       }
     }
     const definitions: ToolDefinition[] = [...names].map(([name, tool]) => ({
@@ -471,7 +481,7 @@ export function createRunService({
       entry.tools.push({ name, description: tool.description });
       byServer.set(tool.serverName, entry);
     }
-    return { definitions, names, catalog: [...byServer.values()], notices };
+    return { definitions, names, catalog: [...byServer.values()], appTools: kept, pruned, notices };
   };
 
   /**
@@ -556,7 +566,8 @@ export function createRunService({
    * @returns How it ended, or that it waits.
    */
   const run = async (segment: Segment, listener: RunListener, signal: AbortSignal): Promise<FinishedRun> => {
-    const { input, runId, appTools, spent } = segment;
+    const { input, runId, spent } = segment;
+    const { appTools } = segment.tools;
     const { workspace, agent, config } = input;
     const deadline = AbortSignal.timeout(settings.timeoutMinutes * MS_PER_MINUTE);
     const runSignal = AbortSignal.any([signal, deadline, stopping.signal]);
@@ -701,7 +712,7 @@ export function createRunService({
         await recordWait(finished, {
           messages: transcript,
           handedBack,
-          appTools,
+          appTools: segment.appTools,
           loaded: result.loaded,
           ...segment.layers,
         });
@@ -758,6 +769,7 @@ export function createRunService({
       kind: 'started',
       runId: segment.runId,
       startedAt: segment.startedAt,
+      prunedTools: segment.tools.pruned.map((tool) => tool.name),
       execute: async (listener, signal) => {
         const finished = await run(segment, listener, signal);
         settle(finished);
@@ -784,12 +796,12 @@ export function createRunService({
   };
 
   const begin = async (input: RunInput): Promise<StartedRun | RepeatedRun> => {
-    const { workspace, agent, request, config, idempotency, conversation } = input;
+    const { workspace, agent, request, idempotency, conversation } = input;
     const isBusy = conversation !== null && (await busyRun(db, conversation.id)) !== null;
     if (isBusy) {
       await conversationBusy(conversation);
     }
-    const reached = await reachedTools(config, workspace.id, request.appTools);
+    const reached = await reachedTools(input, request.appTools);
     let inserted: RunRow[];
     try {
       inserted = await db
@@ -932,11 +944,12 @@ export function createRunService({
   };
 
   const resume = async (input: RunInput, waiting: WaitingRun): Promise<StartedRun> => {
-    const { workspace, request, config, idempotency } = input;
+    const { request, idempotency } = input;
     const state = waiting.resume;
     // The app sends its tools again with every request, as any OpenAI client does. One that doesn't keeps them.
+    // They are pruned again, by the same rules, against the agent's tools as they are now.
     const appTools = request.appTools.length > 0 ? request.appTools : state.appTools;
-    const reached = await reachedTools(config, workspace.id, appTools);
+    const reached = await reachedTools(input, appTools);
     const [row] = await db
       .update(runs)
       .set({

@@ -29,15 +29,32 @@ const SETTINGS_SDL = parse(`
     max: Int!
   }
 
+  "A setting that is on or off: what is in force, what an admin saved, and its default."
+  type BooleanSetting {
+    "The value in force: the saved one, or the default when none is saved."
+    value: Boolean!
+    "What an admin saved, or null when the setting follows its default."
+    saved: Boolean
+    "What it is when nobody has set it."
+    default: Boolean!
+  }
+
   "The router's settings, which an admin changes while it runs. Every user may read them."
   type RouterSettings {
     "The most tools an app may send with one request on /v1. OpenAI's own limit is 128."
     maxAppTools: IntSetting!
+    """
+    Whether an app tool that is one of the agent's own under another server's name is dropped: the same tool name
+    after __, and the same input schema. An app tool with exactly the name of one of the agent's tools is always
+    dropped. Off by default, since it is a guess; every drop is logged.
+    """
+    pruneAppToolsAcrossServers: BooleanSetting!
   }
 
   "A change to the router's settings. A field left out stays as it is, and null returns it to its default."
   input RouterSettingsInput {
     maxAppTools: Int
+    pruneAppToolsAcrossServers: Boolean
   }
 
   extend type Query {
@@ -77,6 +94,11 @@ function settingsAnswer(saved: SavedSettings) {
       default: ROUTER_DEFAULTS.maxAppTools,
       min: MIN_APP_TOOLS,
       max: ROUTER_CONFIG_DEFAULTS.maxAppToolsLimit,
+    },
+    pruneAppToolsAcrossServers: {
+      value: current.pruneAppToolsAcrossServers,
+      saved: saved.pruneAppToolsAcrossServers ?? null,
+      default: ROUTER_DEFAULTS.pruneAppToolsAcrossServers,
     },
   };
 }
