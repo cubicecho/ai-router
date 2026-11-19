@@ -6,17 +6,18 @@ import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
+import type { SnapshotHost } from '../db/snapshot.ts';
 import type { RunResume } from '../db/tables/runs.ts';
 import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
-import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
+import { CONVERSATION_HEADER, readConversationKey } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import { RequestRefusal, type RunRequest, readRunRequest, requestedAgent, requestedStream } from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
+import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** The header a retry-safe request carries. */
 const IDEMPOTENCY_HEADER = 'idempotency-key';
@@ -103,33 +104,12 @@ function requestHash(body: unknown): string {
 }
 
 /**
- * Finds the agent a workspace may run by its name.
- *
- * @param agents - The snapshot's agents.
- * @param workspaceId - The key's workspace.
- * @param name - The `model` the request names.
- * @returns The agent, or null when it doesn't exist, has no live revision, or isn't the workspace's to run.
- */
-function runnableAgent(
-  agents: ReadonlyMap<string, SnapshotAgent>,
-  workspaceId: string,
-  name: string | null,
-): (SnapshotAgent & { document: Readonly<Record<string, unknown>> }) | null {
-  const agent = name === null ? undefined : agents.get(name);
-  if (agent === undefined || agent.workspaceIds.has(workspaceId) === false) {
-    return null;
-  }
-  const { document } = agent;
-  return agent.liveRevisionId === null || document === null ? null : { ...agent, document };
-}
-
-/**
  * Writes an agent's entry on the model list.
  *
  * @param agent - The agent.
  * @returns The entry, marked as an agent so an app's loop runs as a thin client.
  */
-function modelEntry(agent: SnapshotAgent & { document: Readonly<Record<string, unknown>> }) {
+function modelEntry(agent: RunnableAgent) {
   const { name, description } = agent.document;
   return {
     id: agent.name,
@@ -254,12 +234,7 @@ export function createAgentRoutes({
   router.use(express.json({ limit: settings.bodyLimit }));
 
   router.get('/models', (_request: Request, response: Response<unknown, AppLocals>) => {
-    const { workspaceId } = response.locals.caller;
-    const { agents } = snapshot.current();
-    const data = [...agents.values()].flatMap((agent) => {
-      const runnable = runnableAgent(agents, workspaceId, agent.name);
-      return runnable === null ? [] : [modelEntry(runnable)];
-    });
+    const data = runnableAgents(snapshot.current(), response.locals.caller.workspaceId).map(modelEntry);
     response.json({ object: 'list', data });
   });
 
@@ -306,12 +281,6 @@ export function createAgentRoutes({
     try {
       const runRequest = readRunRequest(body, agent.policy, current.settings);
       delivery = runRequest;
-      const fetch = forwarder.fetchFor({
-        workspaceId,
-        workspaceName: workspace.slug,
-        agentId: agent.id,
-        agentName: agent.name,
-      });
       const conversationKey = readConversationKey(request.get(CONVERSATION_HEADER));
       const conversation =
         conversationKey === null ? null : await runs.openConversation(workspaceId, agent, conversationKey);
@@ -327,15 +296,23 @@ export function createAgentRoutes({
         }
         const layers = resumedLayers(runRequest, waiting.resume);
         const resolved = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
+        const fetch = forwarder.fetchFor({
+          workspaceId,
+          workspaceName: workspace.slug,
+          agentId: agent.id,
+          agentName: agent.name,
+        });
         const config = withRouterFetch(resolved, fetch);
         const input = { workspace, agent, request: runRequest, config, idempotency, conversation };
         started = await runs.resume(input, waiting);
       } else {
-        const withConversation = conversation === null ? runRequest : withHistory(runRequest, conversation);
-        const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, current);
-        const config = withRouterFetch(resolved, fetch);
-        const input = { workspace, agent, request: withConversation, config, idempotency, conversation };
-        started = await runs.begin(input);
+        started = await beginRun(runs, forwarder, current, {
+          workspace,
+          agent,
+          request: runRequest,
+          conversation,
+          idempotency,
+        });
       }
     } catch (error) {
       if (error instanceof RequestRefusal) {

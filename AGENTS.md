@@ -56,7 +56,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
-| `agents/` | revisions, layers, override policy, reach, runs, conversations, the `/v1` agents endpoint, `/runs` (phases 5–7) | the above and `models`, `tools` |
+| `agents/` | revisions, layers, override policies, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
@@ -108,8 +108,11 @@ non-negotiables apply on top of these.
 
 ### Endpoints and names
 
-- **`/v1` lists and runs only agents.** No endpoint serves a raw model or tool. `/mcp` stays
-  unanswered until agents are offered as MCP tools.
+- **`/v1` lists and runs only agents.** No endpoint serves a raw model or tool. `/mcp` offers
+  the same agents as MCP tools, one per agent the key's workspace may run: a `message` in, the
+  answer out, progress as MCP progress notifications. Each call is an ordinary run (stateless,
+  no app tools, so it never waits); a `conversation` argument works as `X-Conversation-Id`. It is
+  stateless, so a client's cancel is matched to its call by key and JSON-RPC id.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
 - **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the

@@ -99,7 +99,7 @@ describe('app', () => {
   });
 
   it.each([
-    ['/mcp', HttpStatus.NotFound],
+    ['/mcp', HttpStatus.Unauthorized],
     ['/runs/x', HttpStatus.Unauthorized],
   ])('never answers %s with the UI', async (path, status) => {
     const response = await fetch(`${base}${path}`);

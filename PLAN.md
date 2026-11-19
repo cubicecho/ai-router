@@ -484,7 +484,7 @@ The acceptance check for the first release.
    - **Any user grants roles and turns on auto-promote**, as with every workspace and agent
      setting today. Making both admin-only is a later option.
 10. **Later.**
-    - Agents offered as MCP tools, on `/mcp`.
+    - Agents offered as MCP tools, on `/mcp` (built: one tool per agent, stateless, no app tools).
     - `/v1/responses` for agents.
     - **Discovery:** the AI Catalog at `/.well-known/ai-catalog.json`, Server Cards, A2A Agent
       Cards, and LAN announce and discovery (servers found on the network, offered to add). The
