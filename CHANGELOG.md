@@ -1,3 +1,18 @@
+# [0.8.0](https://github.com/cubicecho/ai-router/compare/v0.7.0...v0.8.0) (2026-11-19)
+
+### Bug Fixes
+
+* one RunnableAgent, from start.ts, after merging the cancel and MCP work ([d0a70e2](https://github.com/cubicecho/ai-router/commit/d0a70e2441a5c8801a3613a09344c6c085acea35))
+
+### Features
+
+* **mcp:** offer agents as MCP tools on /mcp ([0df5f90](https://github.com/cubicecho/ai-router/commit/0df5f90698d8422b3fb6e1b9bcdb58eef7706e76)), closes [#31](https://github.com/cubicecho/ai-router/issues/31)
+* **models:** check pool targets' health in the background, and weigh targets ([9264e0f](https://github.com/cubicecho/ai-router/commit/9264e0ff43310f51ac2e8379f4622b1a8673e865)), closes [#29](https://github.com/cubicecho/ai-router/issues/29)
+* **models:** count usage per pool, and show it on the pool page ([9ec7ebc](https://github.com/cubicecho/ai-router/commit/9ec7ebc411ed71ec8ee74c5deea895285f5020f1)), closes [#23](https://github.com/cubicecho/ai-router/issues/23)
+* **models:** let people price models and pools, and show cost beside usage ([35078a7](https://github.com/cubicecho/ai-router/commit/35078a7c419e7f17e74f1475dc2b4e04c5ca1871)), closes [#30](https://github.com/cubicecho/ai-router/issues/30)
+* **policies:** several override policies, chosen per agent, with a UI ([7196f56](https://github.com/cubicecho/ai-router/commit/7196f56055f19d7e29ab48e3ee6c9f6b41ffea8c)), closes [#28](https://github.com/cubicecho/ai-router/issues/28)
+* **runs:** cancel a running or waiting run with POST /runs/<id>/cancel ([2d027b2](https://github.com/cubicecho/ai-router/commit/2d027b242ed919d6135edacb517b4f040c56591a)), closes [#27](https://github.com/cubicecho/ai-router/issues/27)
+
 # [0.7.0](https://github.com/cubicecho/ai-router/compare/v0.6.0...v0.7.0) (2026-11-19)
 
 ### Bug Fixes
