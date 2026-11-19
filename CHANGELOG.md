@@ -1,3 +1,21 @@
+# [0.5.0](https://github.com/cubicecho/ai-router/compare/v0.4.0...v0.5.0) (2026-11-19)
+
+### Bug Fixes
+
+* **web:** the first Refresh of a provider's models asks the provider again ([1a80f56](https://github.com/cubicecho/ai-router/commit/1a80f569f8ffb97abe4d144f7cd12bf338e6ce4a))
+
+### Features
+
+* **web:** provider, pool and MCP server pages open in tabs, full width ([c4af8a9](https://github.com/cubicecho/ai-router/commit/c4af8a9d1cf28c0cd68de2b2afbb84cc5ff789f9))
+* **web:** runs are list rows, and the run page has Timeline, Details and Raw events tabs ([0719ae0](https://github.com/cubicecho/ai-router/commit/0719ae09c1c43a82d2a2f17e0cdc8ef99b86fc9d))
+* **web:** Servers is MCP Servers, at /mcp-servers, and the cubeui tabs are installed ([1c2429a](https://github.com/cubicecho/ai-router/commit/1c2429aa9d665a19018ad95d0de5e75c156ea8e2))
+* **web:** tabSearch keeps a detail page's open tab in the address bar ([fa8cbf9](https://github.com/cubicecho/ai-router/commit/fa8cbf98588ac5423c90d590267edfe746798ad5))
+* **web:** the agent editor is a form, with the JSON a switch away ([78d753a](https://github.com/cubicecho/ai-router/commit/78d753a14b54c8d9fe74c4b99ae789ee87bdd98c))
+* **web:** the agent page has Overview, Drafts, History, Workspaces, Runs and Usage tabs ([c9937db](https://github.com/cubicecho/ai-router/commit/c9937dbe0bfc316163ff3399440f2f17cc6e92df))
+* **web:** the providers, pools and MCP Servers lists run full width ([54fc74d](https://github.com/cubicecho/ai-router/commit/54fc74d1aa1332a7668bfe1bc0a328a4f309de7b))
+* **web:** the workspace page is tabbed, Agents, Keys, MCP and Usage, at full width ([41630ec](https://github.com/cubicecho/ai-router/commit/41630ec11ceed4eebcdc12fa270b58557b57c7a6))
+* **web:** the workspaces and users lists run full width, with counts on each row ([48051db](https://github.com/cubicecho/ai-router/commit/48051db46f1abfa875a638a9628f704b0583353d))
+
 # [0.4.0](https://github.com/cubicecho/ai-router/compare/v0.3.0...v0.4.0) (2026-11-18)
 
 ### Features
