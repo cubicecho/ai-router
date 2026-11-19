@@ -33,6 +33,12 @@ query Workspace($id: UUID!) {
     keys(orderBy: { createdAt: { direction: desc, priority: 1 } }) {
       ...KeyFields
     }
+    agentsAggregate {
+      count
+    }
+    serversAggregate {
+      count
+    }
   }
 }
 
