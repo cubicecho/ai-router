@@ -72,7 +72,7 @@ export interface LoginSectionProps {
 
 /**
  * A remote server's login: whether the router is signed in, and the buttons that sign it in and out.
- * Signing in opens the login's page in a popup, which tells this page when it is done.
+ * Signing in opens the login's page in a popup, which tells this page when it is done. Untitled: its tab names it.
  */
 export function LoginSection({ server, isAdmin }: LoginSectionProps) {
   const queryClient = useQueryClient();
@@ -146,7 +146,6 @@ export function LoginSection({ server, isAdmin }: LoginSectionProps) {
 
   return (
     <Section
-      title="Sign-in"
       description="For a server that asks for a login. Sign in once; the router keeps the login and uses it for every run."
       actionSlot={
         <>

@@ -8,7 +8,9 @@ import {
 } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell';
 import { sessionToken } from '@/lib/session';
+import { validatePoolSearch, validateProviderSearch } from '@/models/tabs';
 import { validateRunsSearch } from '@/runs/search';
+import { validateServerSearch } from '@/tools/server-tabs';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -101,6 +103,7 @@ const providersRoute = createRoute({
 const providerRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/providers/$providerId',
+  validateSearch: validateProviderSearch,
   component: lazyRouteComponent(() => import('@/routes/provider'), 'ProviderRoute'),
 });
 
@@ -113,6 +116,7 @@ const poolsRoute = createRoute({
 const poolRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/pools/$poolId',
+  validateSearch: validatePoolSearch,
   component: lazyRouteComponent(() => import('@/routes/pool'), 'PoolRoute'),
 });
 
@@ -125,6 +129,7 @@ const serversRoute = createRoute({
 const serverRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/mcp-servers/$serverId',
+  validateSearch: validateServerSearch,
   component: lazyRouteComponent(() => import('@/routes/server'), 'ServerRoute'),
 });
 

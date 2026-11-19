@@ -54,7 +54,24 @@ function rowsOf(secrets: readonly SecretName[], envMeta: Readonly<Record<string,
   return [...set, ...missing];
 }
 
-/** A server's secrets: env values and headers kept by the router and never shown. Only an admin sets them. */
+/**
+ * Whether the registry says the server needs a secret nobody has set.
+ *
+ * @param secrets - The secrets set.
+ * @param envMeta - What is known of each env var.
+ * @returns true when a required secret is missing.
+ */
+export function isRequiredSecretUnset(
+  secrets: readonly SecretName[],
+  envMeta: Readonly<Record<string, EnvVarMeta>>,
+): boolean {
+  return rowsOf(secrets, envMeta).some((row) => row.isSet === false && row.meta?.isRequired === true);
+}
+
+/**
+ * A server's secrets: env values and headers kept by the router and never shown. Only an admin sets them. Untitled:
+ * its tab names it.
+ */
 export function SecretsSection({ serverId, serverName, transport, secrets, envMeta, isAdmin }: SecretsSectionProps) {
   const [target, setTarget] = useState<SecretTarget | null>(null);
   const rows = rowsOf(secrets, envMeta);
@@ -71,7 +88,6 @@ export function SecretsSection({ serverId, serverName, transport, secrets, envMe
 
   return (
     <Section
-      title="Secrets"
       description={
         isAdmin
           ? 'Env values and headers the router keeps for it. Once saved a value is never shown again.'
