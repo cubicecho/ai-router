@@ -128,7 +128,15 @@ export async function createApp({
   // `all`, not `use`: a mounted `use` strips the path, and Yoga matches graphqlEndpoint itself.
   app.all(graphql.graphqlEndpoint, (request, response) => graphql(request, response));
   // Workspace keys only: a session is never read here, on a trusted network too.
-  app.use('/v1', createAgentRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
+  app.use(
+    '/v1',
+    createAgentRoutes({
+      snapshot: routes,
+      runs: runService,
+      forwarder: services.forwarder,
+      catalog: services.catalog,
+    }),
+  );
   // The same keys, each reading only its own workspace's runs.
   app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, bus: runService.bus }));
   app.get('/healthz', async (_request, response) => {

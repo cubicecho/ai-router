@@ -18,9 +18,25 @@ const maxAppToolsSchema = z
 /** Whether an app tool under another server's name is dropped, as an admin may set it. */
 const pruneAcrossServersSchema = z.boolean('Send true or false for pruning app tools across servers.');
 
+/** What a request on `/v1` gets for a field the agent's override policy doesn't list. */
+export const UnlistedFields = { Refuse: 'refuse', Ignore: 'ignore' } as const satisfies Record<
+  string,
+  RouterSettings['unlistedFields']
+>;
+export type UnlistedFields = (typeof UnlistedFields)[keyof typeof UnlistedFields];
+
+/** The choice for unlisted fields, as an admin may set it. */
+const unlistedFieldsSchema = z.enum(UnlistedFields, {
+  error: `Choose ${Object.values(UnlistedFields).join(' or ')} for unlisted request fields.`,
+});
+
 /** What the `settings` row holds: the members an admin set. One left out follows its default. */
 export const savedSettingsSchema = z
-  .strictObject({ maxAppTools: maxAppToolsSchema, pruneAppToolsAcrossServers: pruneAcrossServersSchema })
+  .strictObject({
+    maxAppTools: maxAppToolsSchema,
+    unlistedFields: unlistedFieldsSchema,
+    pruneAppToolsAcrossServers: pruneAcrossServersSchema,
+  })
   .partial();
 /** The members an admin set. */
 export type SavedSettings = z.infer<typeof savedSettingsSchema>;
@@ -29,6 +45,7 @@ export type SavedSettings = z.infer<typeof savedSettingsSchema>;
 export const settingsChangeSchema = z
   .strictObject({
     maxAppTools: maxAppToolsSchema.nullable(),
+    unlistedFields: unlistedFieldsSchema.nullable(),
     pruneAppToolsAcrossServers: pruneAcrossServersSchema.nullable(),
   })
   .partial();

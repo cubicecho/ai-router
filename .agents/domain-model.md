@@ -123,8 +123,10 @@ received --resolve--> running --model answers--> completed
 
 - **Resolving:** the router applies the override policy to the layers above the agent, then
   calls `resolveAgentSpec`.
-- **Refusing:** a layer the policy refuses refuses the whole run, and nothing is quietly
-  trimmed. The exception is `servers`, which is narrowed by definition.
+- **Refusing:** a layer the policy refuses refuses the whole run, and nothing is trimmed
+  quietly. `servers` is narrowed by definition. A request field the router doesn't read and the
+  policy doesn't list refuses too, unless the router's **unlisted fields** setting is `ignore`:
+  then it is dropped and the answer names it in `X-AI-Router-Ignored`.
 - **Revision:** a run keeps the revision it started with. A revision promoted mid-run applies
   to the next run.
 - **Waiting:** handing calls back to the app pauses the run. It does not end it.
@@ -240,7 +242,7 @@ created (shown once) --> in use --revoke--> deleted
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
-| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the policy doesn't allow refuses the request, naming the field | `agents/request`, `agents/layers`, read from `agents/policy` |
+| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the router doesn't read and the policy doesn't list refuses the request, naming the field; with the unlisted-fields setting at `ignore` it is dropped instead, and the answer's `X-AI-Router-Ignored` header names every field dropped, streamed or not. Ignoring never reaches the messages (system messages the policy refuses included), the tools, `tool_choice`, `functions`, `n`, `response_format`, `stream_options`, `ai_router`, or a bad value of a listed field: those refuse whatever the setting | `agents/request`, `agents/layers`, read from `agents/policy` |
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, `RESERVED_PART_IDS` in `agents/document` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
 | A resumed run keeps the revision and layers it started with. A resume request that sends different host or task text is refused | `agents/routes` `resumedLayers`, `runs.resume` |
@@ -298,9 +300,11 @@ Everything about the code comes after `Owner:`.
   `auth/`; the env var `SECURE_LOCAL_NET`.
 - **Settings:** the router's own options, which an admin changes on the Settings page while it
   runs, for every app at once. Each has a default and a range; one nobody has set follows its
-  default. Today there are two: the most tools an app may send with one request (128 by default,
-  OpenAI's own limit), and whether an app tool that is one of the agent's under another server's
-  name is left out (off by default). Every user may read them. Owner: `db/schema` `settings`, one row or none,
+  default. Today there are three: the most tools an app may send with one request (128 by default,
+  OpenAI's own limit); **unlisted fields**, whether a request field the agent's override
+  policy doesn't list is refused (the default) or ignored and named in `X-AI-Router-Ignored`;
+  and whether an app tool that is one of the agent's under another server's name is left out
+  (off by default). Every user may read them. Owner: `db/schema` `settings`, one row or none,
   whose `values` holds only what was set; `core/settings` parses it and spreads it over
   `ROUTER_DEFAULTS`, with the range from `ROUTER_CONFIG_DEFAULTS`; read into the snapshot as
   `Snapshot.settings`; served by `settings/resolvers` (`routerSettings`, `updateRouterSettings`).
@@ -309,7 +313,10 @@ Everything about the code comes after `Owner:`.
 ### Endpoints
 
 - **Agents endpoint:** the address apps use to run agents. It looks like any OpenAI-compatible
-  model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
+  model server, except that every model it lists is an agent. Each agent's entry carries
+  `context_length` when it is known: the document's `model.contextLength`, else what its
+  provider's model list states for the model (a pool's smallest), read from the cached listing
+  with a short bounded wait. Owner: `agents/routes`, `agents/context-length`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and

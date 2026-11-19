@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SnapshotProvider } from '../../server/db/snapshot.ts';
-import { ModelCatalog, ModelListError } from '../../server/models/catalog.ts';
+import { contextLengthOf, ModelCatalog, ModelListError } from '../../server/models/catalog.ts';
 import type { UpstreamFetch, UpstreamResponse } from '../../server/models/outbound.ts';
 
 const PROVIDER: SnapshotProvider = {
@@ -74,11 +74,36 @@ describe('ModelCatalog', () => {
     expect(asked).toHaveLength(2);
   });
 
+  it('waits for a listing only so long, and keeps the late one for the next ask', async () => {
+    let release = () => {};
+    const slow: UpstreamFetch = () =>
+      new Promise((resolve) => {
+        release = () => resolve(LIST);
+      });
+    const catalog = new ModelCatalog(slow, { modelListWaitMs: 10 });
+    expect(await catalog.listWithin(PROVIDER)).toBeNull();
+    release();
+    expect(await catalog.listWithin(PROVIDER)).toEqual([{ id: 'qwen3:8b' }]);
+    const { fetch } = fakeProvider(new Error('refused'));
+    expect(await new ModelCatalog(fetch).listWithin(PROVIDER)).toBeNull();
+  });
+
   it.each([
     ['a refusal', answer(401, 'no key'), /answered 401/],
     ['an answer that is not a model list', answer(200, '<html>'), /did not answer/],
   ])('says what went wrong for %s', async (_label, wrong, message) => {
     const { fetch } = fakeProvider(wrong);
     await expect(new ModelCatalog(fetch).list(PROVIDER)).rejects.toThrow(message);
+  });
+});
+
+describe('contextLengthOf', () => {
+  it('reads the first key a server states the context window under, and nothing that is not a whole number above 0', () => {
+    expect(contextLengthOf({ id: 'a', max_model_len: 32_768 })).toBe(32_768);
+    expect(contextLengthOf({ id: 'a', context_length: 8_192, n_ctx: 4_096 })).toBe(8_192);
+    expect(contextLengthOf({ id: 'a', context_length: 0, n_ctx: 4_096 })).toBe(4_096);
+    expect(contextLengthOf({ id: 'a', context_length: '8192' })).toBeNull();
+    expect(contextLengthOf({ id: 'a', meta: { n_ctx_train: 262_144 } })).toBeNull();
+    expect(contextLengthOf({ id: 'a' })).toBeNull();
   });
 });

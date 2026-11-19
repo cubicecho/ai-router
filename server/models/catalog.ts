@@ -16,6 +16,41 @@ const upstreamModelListSchema = z.object({ data: z.array(upstreamModelSchema) })
 /** One model as a provider lists it. */
 export type UpstreamModel = z.infer<typeof upstreamModelSchema>;
 
+/**
+ * The keys a provider's listing states a model's context window under: none is in OpenAI's schema, so each server
+ * picks its own (`max_model_len` is vLLM, `context_length` OpenRouter, `n_ctx` the llama bindings). The same list,
+ * in the same order, as agent-core's.
+ */
+const CONTEXT_KEYS: readonly string[] = Object.freeze([
+  'context_length',
+  'max_context_length',
+  'max_context_window',
+  'max_model_len',
+  'context_window',
+  'n_ctx',
+]);
+
+/**
+ * Reads the context window a provider's listing states for a model.
+ *
+ * @param model - The model, as listed.
+ * @returns The first whole number above zero under one of `CONTEXT_KEYS`, in tokens, or null when none states one.
+ *
+ * @remarks
+ * llama.cpp's `meta.n_ctx_train` is left out: it is the window the model was trained with, which the server may run
+ * well under.
+ */
+export function contextLengthOf(model: UpstreamModel): number | null {
+  for (const key of CONTEXT_KEYS) {
+    const value = model[key];
+    const isStated = typeof value === 'number' && Number.isInteger(value) && value > 0;
+    if (isStated) {
+      return value;
+    }
+  }
+  return null;
+}
+
 /** A provider whose model list could not be read. The message says why, for the person looking. */
 export class ModelListError extends Error {
   /**
@@ -90,6 +125,25 @@ export class ModelCatalog {
       }
     });
     return models;
+  }
+
+  /**
+   * Lists a provider's models without making the caller wait long for them.
+   *
+   * @param provider - The provider.
+   * @returns The models, from the cache or a listing that arrives within `modelListWaitMs`. Null when it doesn't
+   * arrive in time or fails; a late listing still lands in the cache for the next ask.
+   */
+  async listWithin(provider: SnapshotProvider): Promise<UpstreamModel[] | null> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), this.settings.modelListWaitMs);
+    });
+    try {
+      return await Promise.race([this.list(provider).catch(() => null), late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

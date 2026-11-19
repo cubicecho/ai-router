@@ -193,6 +193,11 @@ export interface ModelSettings {
   modelListCacheSeconds: number;
   /** How long a provider may take to list its models. */
   modelListTimeoutMs: number;
+  /**
+   * How long the agents' model list waits for a provider's listing it holds no fresh copy of, for context lengths.
+   * Past it the entry goes without one, and the listing carries on into the cache for the next ask.
+   */
+  modelListWaitMs: number;
   /** How much of a provider's failed answer is kept in an error message. */
   errorBodyMaxChars: number;
   /** A JSON answer larger than this is passed on but not read for its token counts. */
@@ -207,6 +212,7 @@ export const MODEL_DEFAULTS: Readonly<ModelSettings> = Object.freeze({
   responseTimeoutMs: 600_000,
   modelListCacheSeconds: 60,
   modelListTimeoutMs: 10_000,
+  modelListWaitMs: 2_000,
   errorBodyMaxChars: 500,
   maxResponseBytes: 8_388_608,
   keepAliveMs: 30_000,
@@ -505,11 +511,17 @@ export interface RouterSettings {
    * after `__`, and the same input schema. A guess, so it is off unless an admin turns it on.
    */
   pruneAppToolsAcrossServers: boolean;
+  /**
+   * What a request on `/v1` gets for a field the agent's override policy doesn't list: `refuse` answers 400 naming
+   * it, and `ignore` drops it, runs, and names it in `X-AI-Router-Ignored`.
+   */
+  unlistedFields: 'refuse' | 'ignore';
 }
 
 export const ROUTER_DEFAULTS: Readonly<RouterSettings> = Object.freeze({
   maxAppTools: 128,
   pruneAppToolsAcrossServers: false,
+  unlistedFields: 'refuse',
 });
 
 /** What an admin may set the router's settings to. */
