@@ -125,11 +125,11 @@ export function AgentPolicySection({ agentId, policy }: AgentPolicySectionProps)
               <PropertyRow
                 label="Policy"
                 value={
-                  <Link to="/policies" className="underline decoration-foreground/30 underline-offset-4">
+                  // The name alone is an identifier: the hint under it is prose.
+                  <Link to="/policies" className="font-mono underline decoration-foreground/30 underline-offset-4">
                     {policy.name}
                   </Link>
                 }
-                valueClassName="font-mono"
                 hint={policy.description === '' ? undefined : policy.description}
               />
             }
