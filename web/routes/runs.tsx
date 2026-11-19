@@ -72,7 +72,7 @@ export function RunsRoute() {
   return (
     <PageLayout
       title="Runs"
-      width="full"
+      width="page"
       description="Every time an app ran an agent: what it ran, for whom, how long it took and how it ended."
       headerContentSlot={
         <div className="grid w-full max-w-3xl gap-2 sm:grid-cols-3">

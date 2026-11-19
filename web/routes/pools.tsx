@@ -37,7 +37,7 @@ export function PoolsRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="Pools"
       description="One model name served by several targets. An agent names a pool as its model."
       actionSlot={rows.length > 0 ? create : undefined}

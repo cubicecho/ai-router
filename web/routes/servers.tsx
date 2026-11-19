@@ -29,7 +29,7 @@ export function ServersRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="MCP Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
       actionSlot={installed.length > 0 ? add : undefined}
@@ -57,7 +57,8 @@ export function ServersRoute() {
                 description={[
                   server.displayName === null ? undefined : server.name,
                   describeTransport(transportOf(server.transport)),
-                  describeSource(sourceOf(server.source)),
+                  // The badge already says the admin server is built in.
+                  isBuiltin(server.transport) ? undefined : describeSource(sourceOf(server.source)),
                 ]
                   .filter((part) => part !== undefined)
                   .join(' · ')}

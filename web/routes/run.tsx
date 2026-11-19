@@ -211,7 +211,7 @@ export function RunRoute() {
       <PageLayout
         title="Run"
         backSlot={back}
-        width="full"
+        width="page"
         loading={run.isPending}
         contentSlot={<LoadState query={run} what="this run" record={record} notFoundLabel="Run not found" level={2} />}
       />
@@ -248,10 +248,10 @@ export function RunRoute() {
         title={title}
         description={`Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`}
         backSlot={back}
-        width="full"
+        width="page"
         actionSlot={<RunStatusBadge status={record.status} />}
         headerBarSlot={
-          <div className={cn(titleColumn('full'), 'pb-3')}>
+          <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label="Run tabs">
               {RUN_TABS.map((value) => (
                 <TabsTrigger key={value} value={value}>

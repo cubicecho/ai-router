@@ -55,7 +55,7 @@ export function WorkspacesRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="Workspaces"
       description="What each app sees: the agents, models and servers it may use, and the keys it calls with."
       actionSlot={rows.length > 0 ? create : undefined}

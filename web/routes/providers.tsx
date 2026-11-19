@@ -24,7 +24,7 @@ export function ProvidersRoute() {
 
   return (
     <PageLayout
-      width="full"
+      width="page"
       title="Providers"
       description="The model servers agents call. An agent names a model as <provider>/<model>."
       actionSlot={rows.length > 0 ? add : undefined}

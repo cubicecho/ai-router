@@ -87,7 +87,7 @@ export function WorkspaceRoute() {
   if (record === undefined) {
     return (
       <PageLayout
-        width="full"
+        width="page"
         title="Workspace"
         backSlot={back}
         loading={workspace.isPending}
@@ -120,7 +120,7 @@ export function WorkspaceRoute() {
     // One root round the whole page, so the triggers in the header name the panes in the body.
     <Tabs value={tab} onValueChange={showTab} className="h-full">
       <PageLayout
-        width="full"
+        width="page"
         title={record.name}
         description={record.description === '' ? undefined : record.description}
         backSlot={back}
