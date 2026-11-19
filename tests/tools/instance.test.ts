@@ -15,8 +15,19 @@ import {
   InstanceState,
   type ToolCallEvent,
 } from '../../server/tools/instance.ts';
-import { type ResolvedServer, TRANSPORT_STDIO, TRANSPORT_STREAMABLE_HTTP } from '../../server/tools/shapes.ts';
-import { FIXTURE_HEADER, type HttpFixture, startHttpFixture } from './fixtures/http-server.ts';
+import {
+  type ResolvedServer,
+  TRANSPORT_SSE,
+  TRANSPORT_STDIO,
+  TRANSPORT_STREAMABLE_HTTP,
+} from '../../server/tools/shapes.ts';
+import {
+  FIXTURE_HEADER,
+  type HttpFixture,
+  type SseFixture,
+  startHttpFixture,
+  startSseFixture,
+} from './fixtures/http-server.ts';
 
 /** The stdio fixture, run with this process's node. */
 const FIXTURE = fileURLToPath(new URL('./fixtures/stdio-server.ts', import.meta.url));
@@ -31,6 +42,7 @@ let installDir: string;
 let helperDir: string;
 let helperPath: string;
 let http: HttpFixture;
+let sse: SseFixture;
 const running: Instance[] = [];
 
 beforeAll(async () => {
@@ -42,6 +54,7 @@ beforeAll(async () => {
   await writeFile(helperPath, '#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n');
   await chmod(helperPath, 0o755);
   http = await startHttpFixture();
+  sse = await startSseFixture();
 });
 
 afterEach(async () => {
@@ -51,6 +64,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await http.close();
+  await sse.close();
   await rm(installDir, { recursive: true, force: true });
   await rm(helperDir, { recursive: true, force: true });
 });
@@ -111,6 +125,21 @@ function httpServer(headers: Record<string, string> = {}): ResolvedServer {
     homeDir: null,
     idleTimeoutMs: 60_000,
     callTimeoutMs: 10_000,
+  };
+}
+
+/**
+ * Describes the SSE fixture as a resolved server.
+ *
+ * @param [headers] - Headers to send.
+ * @returns The server.
+ */
+function sseServer(headers: Record<string, string> = {}): ResolvedServer {
+  return {
+    ...httpServer(),
+    id: 'server-3',
+    name: 'legacy',
+    transport: { type: TRANSPORT_SSE, url: sse.url, headers },
   };
 }
 
@@ -392,5 +421,33 @@ describe('a streamable-HTTP instance', () => {
     await instance.start();
     await delay(150);
     expect(instance.state).toBe(InstanceState.Ready);
+  });
+});
+
+describe('an SSE instance', () => {
+  it('connects, lists, and calls with its headers, on its event stream and on every message', async () => {
+    const events: ToolCallEvent[] = [];
+    const instance = track(sseServer({ [FIXTURE_HEADER]: 'over-sse' }), (event) => events.push(event));
+    expect((await instance.listTools()).map((tool) => tool.name)).toEqual(['header']);
+    expect(textOf(await instance.callTool('header', {}))).toBe('over-sse');
+    expect(sse.streamHeader()).toBe('over-sse');
+    expect(events[0]).toMatchObject({ serverId: 'server-3', ok: true });
+  });
+
+  it('is never stopped for being idle', async () => {
+    const instance = track({ ...sseServer(), idleTimeoutMs: 50 });
+    await instance.start();
+    await delay(150);
+    expect(instance.state).toBe(InstanceState.Ready);
+  });
+
+  it('fails to start, as a streamable-HTTP one does, when nothing answers at its address', async () => {
+    const instance = track({
+      ...sseServer(),
+      transport: { type: TRANSPORT_SSE, url: `${http.url}/nothing`, headers: {} },
+    });
+    const error = await instanceErrorOf(instance.start());
+    expect(error.code).toBe(InstanceErrorCode.StartFailed);
+    expect(instance.state).toBe(InstanceState.Failed);
   });
 });

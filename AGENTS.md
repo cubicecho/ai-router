@@ -117,6 +117,11 @@ non-negotiables apply on top of these.
   nothing deletes or renames the row or gives it env, args, secrets or a login (`tools/builtin`).
   That server is the only way to the management tools, and there is no `/admin/mcp`. Agent ids
   follow the same name rule as providers and servers.
+- **Two transports reach a server at an address:** `streamable-http` and `sse`, the older
+  HTTP+SSE one. Both take headers, a login and a workspace entry's URL, so switch on
+  `isHttpTransport` (`tools/shapes`), never on one of them.
+- **Header values are secrets.** They live in `server_secrets`, set by `setServerSecret` or by
+  `installServer`'s `headers`, and both take them only from an admin.
 - **Roles live on the admin server's entries only.** A workspace's entry for `ai-router` holds
   roles and nothing else; every other entry's roles stay empty.
 - **The admin server lists only what the roles reach, and the schema's permissions are the lock.**

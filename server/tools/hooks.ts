@@ -12,7 +12,7 @@ import type { DeletedEntry } from './api.ts';
 import { BUILTIN_EDITABLE, BUILTIN_PEOPLE_ONLY, isBuiltin, refuseIfBuiltin } from './builtin.ts';
 import { registryInput, serverUpdateInput, workspaceServerInput } from './input.ts';
 import { dropLoginOnMove } from './oauth/service.ts';
-import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
+import { isHttpTransport } from './shapes.ts';
 
 /**
  * Makes a `before` hook that checks every written row against a schema.
@@ -82,11 +82,12 @@ async function afterServerUpdate(payload: WriteHookPayload): Promise<void> {
   checkBuiltinUpdate(payload, updated);
   for (const row of updated) {
     const old = before.get(row.id)?.transport;
-    if (old?.type !== TRANSPORT_STREAMABLE_HTTP || row.transport.type !== TRANSPORT_STREAMABLE_HTTP) {
+    const { transport } = row;
+    if (old === undefined || isHttpTransport(old) === false || isHttpTransport(transport) === false) {
       continue;
     }
-    if (old.url !== row.transport.url) {
-      const oauth = dropLoginOnMove(old.url, row.transport.url, row.oauth);
+    if (old.url !== transport.url) {
+      const oauth = dropLoginOnMove(old.url, transport.url, row.oauth);
       await payload.tx.update(servers).set({ oauth }).where(eq(servers.id, row.id));
       payload.onCommit(() => tools.logins.forget(row.id));
     }

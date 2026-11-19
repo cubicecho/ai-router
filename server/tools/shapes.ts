@@ -41,8 +41,38 @@ export type SourceType = (typeof SourceType)[keyof typeof SourceType];
 export const TRANSPORT_STDIO = 'stdio' as const;
 /** A server reached over streamable HTTP. */
 export const TRANSPORT_STREAMABLE_HTTP = 'streamable-http' as const;
+/** A server reached over the older HTTP+SSE transport: it streams events from one address, and takes posts at another. */
+export const TRANSPORT_SSE = 'sse' as const;
 /** The admin server, served inside the router and connected to in process. Only `ai-router` has it. */
 export const TRANSPORT_BUILTIN = 'builtin' as const;
+
+/** The transports that reach a server at an address, with headers and, where it has one, a login. */
+export const HTTP_TRANSPORTS = Object.freeze([TRANSPORT_STREAMABLE_HTTP, TRANSPORT_SSE] as const);
+/** A transport that reaches a server at an address. */
+export type HttpTransportType = (typeof HTTP_TRANSPORTS)[number];
+
+/**
+ * Reads a transport's name as one of the HTTP transports.
+ *
+ * @param type - A transport's `type`, such as a registry remote's.
+ * @returns It, when it is streamable HTTP or SSE; otherwise undefined.
+ */
+export function httpTransportType(type: string): HttpTransportType | undefined {
+  return HTTP_TRANSPORTS.find((candidate) => candidate === type);
+}
+
+/**
+ * Whether a transport reaches its server at an address, rather than starting a program or connecting in process.
+ *
+ * @typeParam T - The transport's shape: stored, resolved or as a person gave it.
+ * @param transport - The transport.
+ * @returns true for streamable HTTP and SSE.
+ */
+export function isHttpTransport<T extends { type: string }>(
+  transport: T,
+): transport is Extract<T, { type: HttpTransportType }> {
+  return httpTransportType(transport.type) !== undefined;
+}
 
 /** Where a server can be installed or added from: anywhere but the router itself. */
 export const installSourceSchema = z.discriminatedUnion('type', [
@@ -83,6 +113,11 @@ export const externalTransportSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal(TRANSPORT_STREAMABLE_HTTP),
+    url: z.url(),
+  }),
+  z.object({
+    type: z.literal(TRANSPORT_SSE),
+    /** The event stream's address. The server names where messages are posted once it is open. */
     url: z.url(),
   }),
 ]);
@@ -156,7 +191,7 @@ export interface ResolvedServer {
   workspaceId: string | null;
   transport:
     | { type: typeof TRANSPORT_STDIO; command: string; args: string[]; cwd?: string }
-    | { type: typeof TRANSPORT_STREAMABLE_HTTP; url: string; headers: Record<string, string> }
+    | { type: HttpTransportType; url: string; headers: Record<string, string> }
     | {
         type: typeof TRANSPORT_BUILTIN;
         /** What the instance's workspace grants its runs: its entry's roles, or every role to list for a person. */

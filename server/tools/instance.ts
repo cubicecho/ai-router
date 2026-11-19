@@ -3,6 +3,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -22,11 +23,27 @@ import { HttpStatus } from '../core/wire.ts';
 import type { BuiltinConnector } from './builtin.ts';
 import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 import { type ChildExec, childCommand, childEnv, execChild } from './install-folder.ts';
-import { type ResolvedServer, TRANSPORT_BUILTIN, TRANSPORT_STDIO } from './shapes.ts';
+import {
+  type HttpTransportType,
+  type ResolvedServer,
+  TRANSPORT_BUILTIN,
+  TRANSPORT_SSE,
+  TRANSPORT_STDIO,
+  TRANSPORT_STREAMABLE_HTTP,
+} from './shapes.ts';
 import { isToolError, toolResultText } from './tool-result.ts';
 
 /** What the router calls itself in the handshake. */
 const CLIENT_NAME = 'ai-router';
+
+/**
+ * The SDK's client for each HTTP transport. Both take the address, the headers on every request, and the login.
+ * The SSE client is deprecated in the SDK, which keeps it for servers that still speak only SSE.
+ */
+const HTTP_CLIENTS = Object.freeze({
+  [TRANSPORT_STREAMABLE_HTTP]: StreamableHTTPClientTransport,
+  [TRANSPORT_SSE]: SSEClientTransport,
+} satisfies Record<HttpTransportType, unknown>);
 
 /**
  * Signals one process, run by node as the server's own user: `node -e <this> <pid> <signal>`. The image has no
@@ -142,7 +159,7 @@ export interface CallOptions {
 export interface InstanceOptions {
   /** How stdio programs run, from the boot check. */
   isolation: ChildIsolation;
-  /** Signs a streamable-HTTP server's requests in. Ignored over stdio. */
+  /** Signs a streamable-HTTP or SSE server's requests in. Ignored over stdio. */
   authProvider?: OAuthClientProvider;
   /** Connects the built-in admin server in process. Without it, the built-in server refuses to start. */
   builtin?: BuiltinConnector;
@@ -347,7 +364,7 @@ function isMcpError(error: unknown, code: McpErrorCode): boolean {
 }
 
 /**
- * One running connection to one server: a stdio program the router started, or a streamable-HTTP server it reached.
+ * One running connection to one server: a stdio program the router started, or a server it reached over HTTP.
  *
  * @remarks
  * Starts on the first call, and a failed start or an exited program waits out a backoff that grows with each
@@ -645,7 +662,8 @@ export class Instance {
   /**
    * Builds the transport the server is reached over.
    *
-   * @returns A stdio, streamable-HTTP or in-process transport, not yet started.
+   * @returns A stdio, streamable-HTTP, SSE or in-process transport, not yet started. Headers go on every request, the
+   * SSE stream's included.
    */
   private async transport(): Promise<Transport> {
     const { transport } = this.server;
@@ -658,7 +676,8 @@ export class Instance {
     if (transport.type === TRANSPORT_STDIO) {
       return this.childTransport(transport.command, transport.args, transport.cwd);
     }
-    return new StreamableHTTPClientTransport(new URL(transport.url), {
+    const HttpClient = HTTP_CLIENTS[transport.type];
+    return new HttpClient(new URL(transport.url), {
       requestInit: { headers: transport.headers },
       ...(this.authProvider === undefined ? {} : { authProvider: this.authProvider }),
     });

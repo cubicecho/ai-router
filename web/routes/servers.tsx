@@ -43,7 +43,7 @@ export function ServersRoute() {
               <EmptyState
                 iconSlot={<Plug />}
                 title="No MCP servers yet"
-                description="Install one from a registry, npm or PyPI, or add one by its command or address."
+                description="Install one from a registry, npm or PyPI, or add a program or an HTTP address by hand."
                 actionSlot={add}
               />
             }

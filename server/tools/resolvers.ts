@@ -1,13 +1,14 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
-import { CALLER_RUN, type Context } from '../core/context.ts';
+import { CALLER_RUN, CALLER_USER, type Context } from '../core/context.ts';
 import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
-import { badInput, notFound } from '../core/errors.ts';
+import { badInput, forbidden, notFound } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import type { SnapshotServer } from '../db/snapshot.ts';
 import { serverSecrets } from '../db/tables/server-secrets.ts';
 import { servers } from '../db/tables/servers.ts';
+import { Role } from '../db/tables/users.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
@@ -15,7 +16,7 @@ import type { InstallServerRequest } from './api.ts';
 import { BUILTIN_PEOPLE_ONLY, refuseIfBuiltin } from './builtin.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
-import { TRANSPORT_STREAMABLE_HTTP } from './shapes.ts';
+import { isHttpTransport } from './shapes.ts';
 
 const TOOLS_SDL = parse(`
   "Whether the router holds a login for a remote server. Never the tokens or the client secret."
@@ -74,7 +75,7 @@ const TOOLS_SDL = parse(`
   type RegistryChoice {
     "What installServer's packageSelector takes."
     selector: String!
-    "npm, pypi or streamable-http."
+    "npm, pypi, streamable-http or sse."
     kind: String!
     "The package, or the remote's address."
     identifier: String!
@@ -114,13 +115,21 @@ const TOOLS_SDL = parse(`
 
   "How a server added by hand is reached."
   input ServerTransportInput {
-    "stdio or streamable-http."
+    "stdio, streamable-http or sse."
     type: String!
     "The program, for stdio."
     command: String
     args: [String!]
-    "The address, for streamable-http."
+    "The address, for streamable-http and sse. For sse, the event stream's."
     url: String
+  }
+
+  "A header a server reached over HTTP is sent with, kept as one of its secrets."
+  input ServerHeaderInput {
+    "Such as Authorization."
+    name: String!
+    "Never served again."
+    value: String!
   }
 
   "What to install."
@@ -134,6 +143,8 @@ const TOOLS_SDL = parse(`
     transport: ServerTransportInput
     "Env values that aren't secret. Set secret ones with setServerSecret."
     env: JSON
+    "Secret headers, for a server reached over HTTP, stored with it as setServerSecret stores them. Admin only."
+    headers: [ServerHeaderInput!]
     enabled: Boolean
   }
 
@@ -230,6 +241,10 @@ function instanceWorkspace(ctx: Context, requested: string | null | undefined): 
   return workspaceId;
 }
 
+/** What someone other than an admin is told for adding a server with headers. */
+const HEADERS_ADMIN_ONLY =
+  'Only an admin can set headers: they are secrets. Add the server without them, and an admin sets them under Secrets.';
+
 /** Why the admin server has no login. */
 const NO_LOGIN = 'it has no login';
 
@@ -274,7 +289,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
 
   serverFields.login.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) => {
     const server = serverById(ctx, selectedId(parent, 'server', 'login'));
-    return server.transport.type === TRANSPORT_STREAMABLE_HTTP ? loginOf(server) : null;
+    return isHttpTransport(server.transport) ? loginOf(server) : null;
   };
 
   serverFields.instances.resolve = (parent: { id?: string }, _args: unknown, ctx: Context) =>
@@ -294,8 +309,15 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     ctx: Context,
   ) => ctx.tools.browse(args.registryId, args.search ?? null, args.cursor ?? null);
 
-  mutations.installServer.resolve = (_parent: unknown, args: { input: InstallServerRequest }, ctx: Context) =>
-    ctx.tools.install(args.input);
+  mutations.installServer.resolve = (_parent: unknown, args: { input: InstallServerRequest }, ctx: Context) => {
+    const { caller } = ctx;
+    const setsHeaders = (args.input.headers ?? []).length > 0;
+    const isAdmin = caller?.kind === CALLER_USER && caller.role === Role.Admin;
+    if (setsHeaders && isAdmin === false) {
+      throw forbidden(HEADERS_ADMIN_ONLY);
+    }
+    return ctx.tools.install(args.input);
+  };
 
   mutations.deleteServer.resolve = async (_parent: unknown, args: { id: string }, ctx: Context) => {
     if ((await ctx.tools.remove(args.id)) === false) {

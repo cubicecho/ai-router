@@ -4,43 +4,109 @@ import { useState } from 'react';
 import {
   InstallServerDocument,
   type InstallServerInput,
+  MeDocument,
   RegistriesDocument,
   RegistryServersDocument,
   type RegistryServersQuery,
 } from '@/__generated__/graphql';
-import { InputField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
+import { InputField, PasswordField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadError, RowSkeleton } from '@/components/load-state';
+import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
+import { Plus, Trash2 } from '@/components/ui/icons';
 import { SearchInput } from '@/components/ui/search-input';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { request } from '@/lib/gql';
-import { envToText, STDIO, STREAMABLE_HTTP, serverNameError, textToEnv, textToLines } from './shapes';
+import { Role } from '@/lib/roles';
+import {
+  envToText,
+  HEADER_NAME_PATTERN,
+  HTTP_TRANSPORT_OPTIONS,
+  type HttpTransportType,
+  STDIO,
+  STREAMABLE_HTTP,
+  serverNameError,
+  textToEnv,
+  textToLines,
+} from './shapes';
 
-/** Where a server is installed from. */
-type InstallFrom = 'registry' | 'npm' | 'pypi' | 'manual';
-
-/** How a server added by hand is reached. */
-type HandTransport = typeof STDIO | typeof STREAMABLE_HTTP;
+/** Where a server comes from: a registry, a package, or added by hand as a program or an HTTP address. */
+type InstallFrom = 'registry' | 'npm' | 'pypi' | 'program' | 'http';
 
 /** One entry in a registry's search results. */
 type RegistryEntry = RegistryServersQuery['registryServers']['servers'][number];
 
-/** The ways to install, as people read them. */
+/** One header row of the form. */
+interface HeaderRow {
+  name: string;
+  value: string;
+}
+
+/** The ways to add a server, as people read them. */
 const FROM: { value: InstallFrom; label: string }[] = [
   { value: 'registry', label: 'From a registry' },
   { value: 'npm', label: 'npm' },
   { value: 'pypi', label: 'PyPI' },
-  { value: 'manual', label: 'By hand' },
+  { value: 'program', label: 'Program (stdio)' },
+  { value: 'http', label: 'HTTP address' },
 ];
 
-/** What a registry entry's package or remote is, as people read it. */
-const CHOICE_KINDS: Readonly<Record<string, string>> = { npm: 'npm', pypi: 'PyPI', 'streamable-http': 'Remote' };
+/** The ways that add a server by hand: nothing is installed. */
+const BY_HAND: ReadonlySet<InstallFrom> = new Set(['program', 'http']);
+
+/** What the URL field suggests for each HTTP transport. */
+const URL_PLACEHOLDERS: Readonly<Record<HttpTransportType, string>> = Object.freeze({
+  'streamable-http': 'https://mcp.example.com/mcp',
+  sse: 'https://mcp.example.com/sse',
+});
+
+/** What a header value may not hold: a line break would start another header. */
+const LINE_BREAK = /[\r\n]/;
+
+/** What a registry entry's package or remote is, as people read it: a package's registry, or a remote's transport. */
+const CHOICE_KINDS: Readonly<Record<string, string>> = Object.freeze({
+  npm: 'npm',
+  pypi: 'PyPI',
+  ...Object.fromEntries(HTTP_TRANSPORT_OPTIONS.map((option) => [option.value, option.label])),
+});
+
+/**
+ * Checks a header row's name against the others and the router's rule.
+ *
+ * @param name - The name typed.
+ * @param rows - Every row, this one included.
+ * @returns What is wrong with it, or undefined.
+ */
+function headerNameError(name: string, rows: readonly HeaderRow[]): string | undefined {
+  const trimmed = name.trim();
+  if (trimmed === '') {
+    return 'Name the header.';
+  }
+  if (HEADER_NAME_PATTERN.test(trimmed) === false) {
+    return 'A header name, such as Authorization.';
+  }
+  const sameName = rows.filter((row) => row.name.trim().toLowerCase() === trimmed.toLowerCase());
+  return sameName.length > 1 ? 'That header is listed twice.' : undefined;
+}
+
+/**
+ * Checks a header row's value.
+ *
+ * @param value - The value typed.
+ * @returns What is wrong with it, or undefined.
+ */
+function headerValueError(value: string): string | undefined {
+  if (value === '') {
+    return 'Give the header a value.';
+  }
+  return LINE_BREAK.test(value) ? 'A header value cannot hold a line break.' : undefined;
+}
 
 /** What the install dialog is given. */
 export interface InstallDialogProps {
@@ -59,12 +125,17 @@ function choiceLabel(choice: RegistryEntry['choices'][number]): string {
   return `${CHOICE_KINDS[choice.kind] ?? choice.kind}: ${choice.identifier}${version}`;
 }
 
-/** Installs a server from a registry, npm or PyPI, or adds one by hand, then opens its page. */
+/**
+ * Installs a server from a registry, npm or PyPI, or adds a program or an HTTP address by hand, then opens its page.
+ * An admin can give an HTTP server its secret headers here; anyone else adds them later, through an admin.
+ */
 export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [chosen, setChosen] = useState<RegistryEntry | null>(null);
+  const me = useQuery({ queryKey: ['me'], queryFn: () => request(MeDocument), enabled: open });
+  const isAdmin = me.data?.me.role === Role.Admin;
   const registries = useQuery({
     queryKey: ['registries'],
     queryFn: () => request(RegistriesDocument),
@@ -85,16 +156,17 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
       packageSelector: null as string | null,
       package: '',
       version: '',
-      transport: STDIO as HandTransport,
       command: '',
       args: '',
+      httpTransport: STREAMABLE_HTTP as HttpTransportType,
       url: '',
+      headers: [] as HeaderRow[],
       name: '',
       env: '',
     },
     onSubmit: ({ value }) => {
       const name = value.name.trim() === '' ? null : value.name.trim();
-      const env = value.transport === STDIO || value.from !== 'manual' ? (textToEnv(value.env).env ?? {}) : {};
+      const env = value.from === 'http' ? {} : (textToEnv(value.env).env ?? {});
       const registry = registries.data?.registries.find((entry) => entry.id === value.registryId);
       if (value.from === 'registry') {
         return install.mutateAsync({
@@ -112,28 +184,28 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
           env,
         });
       }
+      if (value.from === 'program') {
+        return install.mutateAsync({
+          name,
+          source: { type: 'manual' },
+          transport: { type: STDIO, command: value.command.trim(), args: textToLines(value.args) },
+          env,
+        });
+      }
       return install.mutateAsync({
         name,
         source: { type: 'manual' },
-        transport:
-          value.transport === STDIO
-            ? { type: STDIO, command: value.command.trim(), args: textToLines(value.args) }
-            : { type: STREAMABLE_HTTP, url: value.url.trim() },
-        env,
+        transport: { type: value.httpTransport, url: value.url.trim() },
+        ...(isAdmin ? { headers: value.headers.map((row) => ({ name: row.name.trim(), value: row.value })) } : {}),
       });
     },
   });
   // What the form shows depends on these, so the page holds a copy of each the form's own setters keep up.
   const [from, setFrom] = useState<InstallFrom>(form.state.values.from);
-  const [transport, setTransport] = useState<HandTransport>(form.state.values.transport);
   const [registryId, setRegistryId] = useState(form.state.values.registryId);
   const pickFrom = (next: InstallFrom) => {
     form.setFieldValue('from', next);
     setFrom(next);
-  };
-  const pickTransport = (next: HandTransport) => {
-    form.setFieldValue('transport', next);
-    setTransport(next);
   };
   const results = useInfiniteQuery({
     queryKey: ['registries', registryId, 'servers', search],
@@ -149,7 +221,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
     setChosen(entry);
     form.setFieldValue('packageSelector', null);
   };
-  const isManual = from === 'manual';
+  const isByHand = BY_HAND.has(from);
 
   const registryPart = (
     <>
@@ -245,43 +317,131 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
     />
   );
 
-  const manualPart = (
+  const programPart = (
     <>
-      <SegmentedGroup aria-label="How the router reaches it" value={transport} onValueChange={pickTransport}>
-        <SegmentedButton value={STDIO}>A program it starts</SegmentedButton>
-        <SegmentedButton value={STREAMABLE_HTTP}>An address</SegmentedButton>
-      </SegmentedGroup>
-      {transport === STDIO ? (
-        <>
+      <InputField
+        form={form}
+        name="command"
+        label="Command"
+        placeholder="node"
+        description="The program, run as the server's own user. Never through a shell."
+        required
+        validators={{
+          onChange: ({ value, fieldApi }) =>
+            fieldApi.form.getFieldValue('from') === 'program' && value.trim() === '' ? 'Name the program.' : undefined,
+        }}
+      />
+      <TextareaField
+        form={form}
+        name="args"
+        label="Arguments"
+        description="One per line. A line keeps its spaces."
+        rows={3}
+      />
+    </>
+  );
+
+  const headersPart = isAdmin ? (
+    <Section
+      title="Headers"
+      level={3}
+      description="Sent with every request, such as Authorization. They are kept as secrets and never shown again."
+      actionSlot={
+        <Button
+          variant="positive"
+          size="sm"
+          iconSlot={<Plus />}
+          onClick={() => form.pushFieldValue('headers', { name: '', value: '' })}
+          content="Add header"
+        />
+      }
+      contentSlot={
+        <form.Subscribe selector={(state) => state.values.headers.length}>
+          {(count) =>
+            count === 0 ? (
+              <p className="text-foreground/60 text-sm">No headers.</p>
+            ) : (
+              <div className="grid gap-3">
+                {Array.from({ length: count }, (_row, index) => (
+                  // A row has no key of its own until its name is typed, and its place is what the fields bind to.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
+                  <div key={index} className="flex items-end gap-2">
+                    <InputField
+                      form={form}
+                      name={`headers[${index}].name`}
+                      label="Name"
+                      placeholder="Authorization"
+                      className="flex-1"
+                      required
+                      validators={{
+                        onChangeListenTo: ['headers'],
+                        onChange: ({ value, fieldApi }) =>
+                          fieldApi.form.getFieldValue('from') === 'http'
+                            ? headerNameError(value, fieldApi.form.getFieldValue('headers'))
+                            : undefined,
+                      }}
+                    />
+                    <PasswordField
+                      form={form}
+                      name={`headers[${index}].value`}
+                      label="Value"
+                      autoComplete="off"
+                      className="flex-1"
+                      required
+                      validators={{
+                        onChange: ({ value, fieldApi }) =>
+                          fieldApi.form.getFieldValue('from') === 'http' ? headerValueError(value) : undefined,
+                      }}
+                    />
+                    <Button
+                      variant="destructive-outline"
+                      size="icon"
+                      aria-label={`Remove header ${index + 1}`}
+                      iconSlot={<Trash2 />}
+                      onClick={() => form.removeFieldValue('headers', index)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </form.Subscribe>
+      }
+    />
+  ) : (
+    <p className="text-foreground/60 text-sm">
+      Headers, such as Authorization, are secrets: an admin sets them under Secrets once it is added.
+    </p>
+  );
+
+  const httpPart = (
+    <>
+      <SelectField
+        form={form}
+        name="httpTransport"
+        label="Transport"
+        description="Streamable HTTP, unless the server still speaks only SSE, the older transport."
+        options={[...HTTP_TRANSPORT_OPTIONS]}
+      />
+      <form.Subscribe selector={(state) => state.values.httpTransport}>
+        {(httpTransport) => (
           <InputField
             form={form}
-            name="command"
-            label="Command"
-            placeholder="node"
-            description="The program, run as the server's own user. Never through a shell."
+            name="url"
+            label="URL"
+            placeholder={URL_PLACEHOLDERS[httpTransport]}
+            description={httpTransport === STREAMABLE_HTTP ? undefined : 'The address of its event stream.'}
             required
-            validators={{ onChange: ({ value }) => (value.trim() === '' ? 'Name the program.' : undefined) }}
+            validators={{
+              onChange: ({ value, fieldApi }) =>
+                fieldApi.form.getFieldValue('from') === 'http' && URL.canParse(value.trim()) === false
+                  ? 'Enter an http or https URL.'
+                  : undefined,
+            }}
           />
-          <TextareaField
-            form={form}
-            name="args"
-            label="Arguments"
-            description="One per line. A line keeps its spaces."
-            rows={3}
-          />
-        </>
-      ) : (
-        <InputField
-          form={form}
-          name="url"
-          label="Address"
-          placeholder="https://mcp.example.com/mcp"
-          required
-          validators={{
-            onChange: ({ value }) => (URL.canParse(value.trim()) ? undefined : 'Enter an http or https URL.'),
-          }}
-        />
-      )}
+        )}
+      </form.Subscribe>
+      {headersPart}
     </>
   );
 
@@ -311,14 +471,15 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
           </SegmentedGroup>
           {from === 'registry' ? registryPart : null}
           {from === 'npm' || from === 'pypi' ? packagePart : null}
-          {isManual ? manualPart : null}
+          {from === 'program' ? programPart : null}
+          {from === 'http' ? httpPart : null}
           <InputField
             form={form}
             name="name"
             label="Name"
-            required={isManual}
+            required={isByHand}
             description={
-              isManual
+              isByHand
                 ? 'What a run calls it: its tools are <name>__<tool>.'
                 : 'What a run calls it: its tools are <name>__<tool>. Left blank, it is named after the package.'
             }
@@ -326,13 +487,13 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
               onChange: ({ value, fieldApi }) => {
                 const name = value.trim();
                 if (name === '') {
-                  return fieldApi.form.getFieldValue('from') === 'manual' ? 'Name it.' : undefined;
+                  return BY_HAND.has(fieldApi.form.getFieldValue('from')) ? 'Name it.' : undefined;
                 }
                 return serverNameError(name);
               },
             }}
           />
-          {isManual && transport === STREAMABLE_HTTP ? null : (
+          {from === 'http' ? null : (
             <TextareaField
               form={form}
               name="env"
@@ -351,7 +512,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
           <form.SubmitButton
             disabled={from === 'registry' && chosen === null}
             loadingLabel="Installing…"
-            content={isManual ? 'Add server' : 'Install'}
+            content={isByHand ? 'Add server' : 'Install'}
           />
         </>
       )}
