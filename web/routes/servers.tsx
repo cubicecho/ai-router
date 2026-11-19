@@ -30,7 +30,7 @@ export function ServersRoute() {
   return (
     <PageLayout
       width="prose"
-      title="Servers"
+      title="MCP Servers"
       description="The MCP servers agents use tools from. A run sees each tool as <server>__<tool>."
       actionSlot={installed.length > 0 ? add : undefined}
       contentSlot={
@@ -42,14 +42,14 @@ export function ServersRoute() {
             emptySlot={
               <EmptyState
                 iconSlot={<Plug />}
-                title="No servers yet"
+                title="No MCP servers yet"
                 description="Install one from a registry, npm or PyPI, or add one by its command or address."
                 actionSlot={add}
               />
             }
           />
           <List
-            label="Servers"
+            label="MCP servers"
             contentSlot={rows.map((server) => (
               <ListItem
                 key={server.id}
@@ -62,7 +62,7 @@ export function ServersRoute() {
                     <LoginBadge login={server.login} />
                   </span>
                 }
-                linkSlot={<Link to="/servers/$serverId" params={{ serverId: server.id }} />}
+                linkSlot={<Link to="/mcp-servers/$serverId" params={{ serverId: server.id }} />}
               />
             ))}
           />

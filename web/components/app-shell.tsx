@@ -15,7 +15,7 @@ const PLACES = [
   { to: '/workspaces', label: 'Workspaces', icon: KeyRound },
   { to: '/providers', label: 'Providers', icon: Server },
   { to: '/pools', label: 'Pools', icon: Layers },
-  { to: '/servers', label: 'Servers', icon: Plug },
+  { to: '/mcp-servers', label: 'MCP Servers', icon: Plug },
 ] as const;
 /** The places only an admin has. */
 const ADMIN_PLACES = [{ to: '/users', label: 'Users', icon: UserRound }] as const;

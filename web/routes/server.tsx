@@ -33,7 +33,7 @@ import { ToolsSection } from '@/tools/tools-section';
 
 /** One MCP server: how it runs, its secrets and login, its instances, its tools and what they have been used for. */
 export function ServerRoute() {
-  const { serverId } = useParams({ from: '/app/servers/$serverId' });
+  const { serverId } = useParams({ from: '/app/mcp-servers/$serverId' });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
@@ -46,7 +46,7 @@ export function ServerRoute() {
     mutationFn: () => request(DeleteServerDocument, { id: serverId }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['servers'] });
-      void navigate({ to: '/servers' });
+      void navigate({ to: '/mcp-servers' });
     },
   });
   // The admin server's one setting a person changes here: whether it takes calls.
@@ -58,7 +58,13 @@ export function ServerRoute() {
   const defaults = server.data?.serverDefaults;
   const isAdmin = me.data?.me.role === Role.Admin;
   const back = (
-    <Button variant="outline" size="sm" iconSlot={<ArrowLeft />} linkSlot={<Link to="/servers" />} content="Servers" />
+    <Button
+      variant="outline"
+      size="sm"
+      iconSlot={<ArrowLeft />}
+      linkSlot={<Link to="/mcp-servers" />}
+      content="MCP Servers"
+    />
   );
 
   if (record === undefined) {

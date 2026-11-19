@@ -85,7 +85,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
 
   return (
     <Section
-      title="Servers"
+      title="MCP Servers"
       description="An entry sets a server's settings for this workspace's agent runs, such as an account's login. It never adds the server to a run."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
@@ -96,7 +96,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
             <EmptyState compact title="No entries. Runs here use each server as it is." actionSlot={add} />
           ) : (
             <List
-              label="Servers"
+              label="MCP servers"
               contentSlot={rows.map((entry) => {
                 const name = entry.server?.name ?? 'A deleted server';
                 const kind: SecretKind =
@@ -109,7 +109,11 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
                   <ListItem
                     key={entry.id}
                     title={
-                      <Link to="/servers/$serverId" params={{ serverId: entry.serverId }} className="hover:underline">
+                      <Link
+                        to="/mcp-servers/$serverId"
+                        params={{ serverId: entry.serverId }}
+                        className="hover:underline"
+                      >
                         {entry.server?.displayName ?? name}
                       </Link>
                     }

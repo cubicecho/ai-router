@@ -124,7 +124,7 @@ export function AgentRoute() {
                       hint={facts.temperature === null ? undefined : `Temperature ${facts.temperature}`}
                     />
                     <PropertyRow
-                      label="Servers"
+                      label="MCP Servers"
                       value={describeServers(facts.servers)}
                       valueClassName={facts.servers !== null && facts.servers.length > 0 ? 'font-mono' : undefined}
                       hint={

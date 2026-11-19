@@ -118,13 +118,13 @@ const poolRoute = createRoute({
 
 const serversRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/servers',
+  path: '/mcp-servers',
   component: lazyRouteComponent(() => import('@/routes/servers'), 'ServersRoute'),
 });
 
 const serverRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: '/servers/$serverId',
+  path: '/mcp-servers/$serverId',
   component: lazyRouteComponent(() => import('@/routes/server'), 'ServerRoute'),
 });
 

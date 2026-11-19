@@ -75,7 +75,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
     onSuccess: (server) => {
       void queryClient.invalidateQueries({ queryKey: ['servers'] });
       onOpenChange(false);
-      void navigate({ to: '/servers/$serverId', params: { serverId: server.id } });
+      void navigate({ to: '/mcp-servers/$serverId', params: { serverId: server.id } });
     },
   });
   const form = useAppForm({
