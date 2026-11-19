@@ -78,6 +78,8 @@ const SESSIONS_SDL = `
   type RunSession {
     "The key the app sent."
     key: String!
+    "Its first user message, on one line and cut short: what it was about. Null when no run had one."
+    title: String
     "Null once the workspace is deleted."
     workspaceId: UUID
     "The workspace's slug when the session's latest run started."
@@ -87,10 +89,21 @@ const SESSIONS_SDL = `
     runCount: Int!
     "Its runs that are running or waiting."
     openRunCount: Int!
+    "Its runs that failed or expired."
+    failedRunCount: Int!
+    cancelledRunCount: Int!
+    "How its latest run is, or ended: a run status."
+    lastStatus: String!
+    "The error of its latest run that failed or expired. Null when none did."
+    lastError: String
     "When its first run started."
     startedAt: DateTime!
     "When its latest run started."
     lastStartedAt: DateTime!
+    "When its last run to end ended. Null while one is still going, or when none has ended."
+    lastFinishedAt: DateTime
+    "The milliseconds its runs took, added up, a run still going counted to now. Waits for the app count."
+    runMs: Float!
     inputTokens: Int!
     outputTokens: Int!
   }

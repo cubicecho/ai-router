@@ -8,7 +8,7 @@ import { ArrowRight } from '@/components/ui/icons';
 import { useOpenRows } from '@/lib/use-open-rows';
 import { RunStatusBadge } from './run-status-badge';
 import { RunsList } from './runs-list';
-import { formatCount, formatTokens, isOpen, RunStatus, startedOf } from './shapes';
+import { formatCount, formatDuration, formatTokens, isOpen, RunStatus, startedOf } from './shapes';
 import { useNow, useRuns } from './use-runs';
 
 /** One session, as the Sessions tab reads it. */
@@ -29,6 +29,20 @@ function sessionRunsWhere(session: RunSessionRow): RunFilters {
       ? { workspaceName: { eq: session.workspaceName } }
       : { workspaceId: { eq: session.workspaceId } };
   return { sessionKey: { eq: session.key }, ...inWorkspace };
+}
+
+/**
+ * Says how long a session has gone on: from its first run's start to its last run's end.
+ *
+ * @param session - The session.
+ * @returns Such as "Over 3 min 4 s", or that it is still going.
+ */
+function spanOf(session: RunSessionRow): string {
+  if (session.lastFinishedAt === null || session.lastFinishedAt === undefined) {
+    return 'Still going';
+  }
+  const ms = Math.max(0, Date.parse(session.lastFinishedAt) - Date.parse(session.startedAt));
+  return `Over ${formatDuration(ms)}`;
 }
 
 /** A session's runs, newest first, read when its row opens. */
@@ -69,8 +83,9 @@ export interface SessionsListProps {
 }
 
 /**
- * Sessions, one closed row each: its key, where it came from, its agents, how many runs and tokens, and whether one is
- * still going. A row opens onto its runs.
+ * Sessions, one closed row each: its title or key, where it came from, its agents, when and for how long, how many runs
+ * and how many failed (the latest error on hover) or were cancelled, the time and tokens they took, and how the latest
+ * is. A row opens onto its runs.
  */
 export function SessionsList({ sessions }: SessionsListProps) {
   const rows = useOpenRows<string>();
@@ -80,23 +95,36 @@ export function SessionsList({ sessions }: SessionsListProps) {
       contentSlot={sessions.map((session) => {
         const id = `${session.workspaceId ?? session.workspaceName}/${session.key}`;
         const runCount = `${formatCount(session.runCount)} ${session.runCount === 1 ? 'run' : 'runs'}`;
+        const key = <span className="font-mono">{session.key}</span>;
         return (
           <CollapsibleRow
             key={id}
             open={rows.isOpen(id)}
             onOpenChange={(next) => rows.setOpen(id, next)}
-            title={<span className="font-mono">{session.key}</span>}
+            title={session.title ?? key}
             description={
               <span className="grid gap-0.5 text-foreground/60 text-sm">
-                <span>{`From ${session.workspaceName} · ${session.agentNames.join(', ')}`}</span>
-                <span>{`Latest run ${startedOf(session.lastStartedAt)}`}</span>
+                <span>
+                  {session.title === null || session.title === undefined ? null : <>{key} · </>}
+                  {`From ${session.workspaceName} · ${session.agentNames.join(', ')}`}
+                </span>
+                <span>{`Started ${startedOf(session.startedAt)} · ${spanOf(session)}`}</span>
               </span>
             }
             meta={
               <span className="flex items-center gap-4 text-foreground/60 text-xs tabular-nums">
                 <span>{runCount}</span>
+                {session.failedRunCount > 0 ? (
+                  <span className="text-destructive" title={session.lastError ?? undefined}>
+                    {`${formatCount(session.failedRunCount)} failed`}
+                  </span>
+                ) : null}
+                {session.cancelledRunCount > 0 ? (
+                  <span>{`${formatCount(session.cancelledRunCount)} cancelled`}</span>
+                ) : null}
+                <span title="The time its runs took, added up">{formatDuration(session.runMs)}</span>
                 <span>{formatTokens(session)}</span>
-                {session.openRunCount > 0 ? <RunStatusBadge status={RunStatus.Running} /> : null}
+                <RunStatusBadge status={session.openRunCount > 0 ? RunStatus.Running : session.lastStatus} />
               </span>
             }
             contentSlot={<SessionRuns session={session} />}
