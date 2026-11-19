@@ -59,6 +59,7 @@ const SNAPSHOT: Snapshot = {
           providerId: `id-${name}`,
           providerName: name,
           model: 'qwen3:32b',
+          weight: 1,
         })),
       },
     ],
