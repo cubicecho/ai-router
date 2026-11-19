@@ -279,7 +279,7 @@ created (shown once) --> in use --revoke--> deleted
 | An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
-| Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent and run | `models/usage`, `tools/activity` |
+| Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent, run and workspace, those it makes through the admin server's `try_server_tool` included, even on a server's base instance. A run never tries the admin server's own tools through `try_server_tool` | `models/usage`, `tools/activity`, `tools/resolvers` (`tryServerTool`) |
 
 ## Glossary
 
@@ -408,7 +408,8 @@ Everything about the code comes after `Owner:`.
   status. The login comes back to `/oauth/callback`, and the router names itself by
   `/oauth/client-metadata.json` to a login that takes that as a client id.
 - **Activity:** the record of tool calls made through the router, kept for a while: which tool,
-  how long, whether it failed, and the agent and run that made it. Never a call's arguments or
+  how long, whether it failed, and the agent, run and workspace that made it (shown on a server's
+  Activity tab, linked to the run). Never a call's arguments or
   result. Owner: `tools/activity`; the `activity` table, written every few seconds and pruned after
   30 days. `run_id` has no foreign key, so a call's record outlives its run's.
 

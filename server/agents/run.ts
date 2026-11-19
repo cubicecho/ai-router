@@ -671,6 +671,7 @@ export function createRunService({
           agentId: agent.id,
           agentName: agent.name,
           runId,
+          workspaceId: workspace.id,
           signal: callSignal ?? runSignal,
         });
         if (isToolError(result)) {

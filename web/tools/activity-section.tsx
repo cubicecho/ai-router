@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { ServerActivityDocument } from '@/__generated__/graphql';
+import { Link } from '@tanstack/react-router';
+import { ServerActivityDocument, type ServerActivityQuery } from '@/__generated__/graphql';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, RowSkeleton } from '@/components/load-state';
 import { Section } from '@/components/section';
@@ -11,6 +12,38 @@ import { request } from '@/lib/gql';
 const RECENT_CALLS = 50;
 
 const NUMBER = new Intl.NumberFormat();
+
+/** One recorded call, as the section reads it. */
+type ActivityRow = ServerActivityQuery['activities'][number];
+
+/**
+ * Says who made a call: the agent, linked to the run that made it, and the workspace whose run it was.
+ *
+ * @param props - The call.
+ * @returns The cell's content.
+ */
+function CallerCell({ row }: { row: ActivityRow }) {
+  const { agentName, workspaceName, runId } = row;
+  if (agentName === null || agentName === undefined) {
+    return <>{workspaceName ?? 'Tried here'}</>;
+  }
+  const agent =
+    runId === null || runId === undefined ? (
+      agentName
+    ) : (
+      <Link to="/agent-runs/$runId" params={{ runId }} className="underline-offset-2 hover:underline">
+        {agentName}
+      </Link>
+    );
+  return (
+    <span className="grid gap-0.5">
+      {agent}
+      {workspaceName === null || workspaceName === undefined ? null : (
+        <span className="text-foreground/60">{workspaceName}</span>
+      )}
+    </span>
+  );
+}
 
 /**
  * The latest tool calls made through one server: when, which tool, how long, and whether it failed. Untitled: its
@@ -49,7 +82,9 @@ export function ActivitySection({ serverId }: { serverId: string }) {
             <TableRow key={row.id}>
               <TableCell className="whitespace-nowrap text-xs">{new Date(row.at).toLocaleString()}</TableCell>
               <TableCell className="font-mono text-xs">{row.tool}</TableCell>
-              <TableCell className="text-xs">{row.agentName ?? row.workspaceName ?? 'Tried here'}</TableCell>
+              <TableCell className="text-xs">
+                <CallerCell row={row} />
+              </TableCell>
               <TableCell className="text-right text-xs tabular-nums">{NUMBER.format(row.durationMs)} ms</TableCell>
               <TableCell className="text-xs">
                 {row.ok ? (

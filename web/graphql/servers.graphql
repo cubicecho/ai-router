@@ -84,6 +84,7 @@ query ServerActivity($serverId: UUID!, $limit: Int!) {
     error
     workspaceName
     agentName
+    runId
   }
 }
 

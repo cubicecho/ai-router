@@ -39,6 +39,8 @@ export interface RunToolCall {
   agentId: string;
   agentName: string;
   runId: string;
+  /** The workspace whose run it is. The activity names it, even for a call on a server's base instance. */
+  workspaceId: string;
   /** Abandons the call: the server is told it was cancelled. */
   signal?: AbortSignal;
 }
