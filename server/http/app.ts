@@ -130,7 +130,7 @@ export async function createApp({
   // Workspace keys only: a session is never read here, on a trusted network too.
   app.use('/v1', createAgentRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
   // The same keys, each reading only its own workspace's runs.
-  app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, bus: runService.bus }));
+  app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, runs: runService }));
   app.get('/healthz', async (_request, response) => {
     const health = await checkHealth(db, children);
     response.status(health.ok ? HttpStatus.Ok : HttpStatus.ServiceUnavailable).json(health);

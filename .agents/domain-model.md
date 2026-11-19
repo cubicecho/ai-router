@@ -66,7 +66,7 @@ Dependencies point one way:
 |---|---|---|---|
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, and promotes revisions |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
-| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
+| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client | `/v1` and `/runs`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, and the state of server instances. Never config, so a config change by anything other than a user is a bug |
@@ -114,11 +114,12 @@ received --resolve--> running --model answers--> completed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
                       running --app without a key disconnects--> cancelled
+                      running --cancel (the app's key, or a user)--> cancelled
                       running --model calls an app tool--> waiting (finish_reason: tool_calls)
                       waiting --app answers every handed-back call--> running
                       waiting --no answer before the wait timeout--> expired
+                      waiting --cancel (the app's key, or a user)--> cancelled
                       waiting --the router stops or restarts--> waiting
-                      running --cancel (app, later)--> cancelled
 ```
 
 - **Resolving:** the router applies the override policy to the layers above the agent, then
@@ -144,6 +145,12 @@ received --resolve--> running --model answers--> completed
     that answers anything else. A late answer to an expired run gets 409 `run_expired`.
   - **The run timeout** counts the time a run runs, from its start or a resume; waiting doesn't
     count. Waiting past `RUN_DEFAULTS.waitTimeoutHours` expires it.
+- **Cancelling:** an app cancels a run of its own workspace with `POST /runs/<id>/cancel`, and a
+  user cancels any run with `cancelRun` or the run page's Cancel. A running run stops its loop and
+  the model and tool calls it is making; a waiting one stops waiting. Either ends `cancelled`, with
+  the reason the canceller gave (or one naming them) as its error and a last `done` event, and an
+  open stream or a repeated key gets 409 `run_cancelled`. Cancelling a run that has ended answers
+  with it unchanged. A late answer to a cancelled run's calls gets 409 `run_cancelled` too.
 - **Recording:** a run is recorded from `running` on, with the revision it ran, what its requests added, and the end it came
   to: its answer and token counts, or why it failed or was cancelled. It is deleted after the
   retention period. A run the router was running when it stopped is marked failed at the next boot.
@@ -253,6 +260,7 @@ created (shown once) --> in use --revoke--> deleted
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
 | An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
+| A cancel ends only a run that is running or waiting, as `cancelled` with one last `done`; an ended run is answered unchanged. A key cancels only its own workspace's runs, and another workspace's run answers the same 404 as one that doesn't exist. `cancelRun` is for people: no admin-server role reaches it | `agents/run` `cancel`, `agents/run-records`; `graphql/permissions` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
@@ -309,9 +317,10 @@ Everything about the code comes after `Owner:`.
   model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
-  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
+  `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error),
   `/runs/<id>/events` (JSON, or a live event stream with `Accept: text/event-stream`, which a
-  client rejoins with `Last-Event-ID`), with workspace keys only and `{ error, code }` refusals.
+  client rejoins with `Last-Event-ID`) and `POST /runs/<id>/cancel` (an optional `{ reason }`,
+  answered with the run's record), with workspace keys only and `{ error, code }` refusals.
 
 ### Workspaces
 

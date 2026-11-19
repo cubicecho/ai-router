@@ -504,8 +504,8 @@ The acceptance check for the first release.
     - **Import and export** of `.agent.json` and `.agent.md` files, and an
       `ai-router agents push` / `pull` CLI that signs in through the browser. This may be dropped
       altogether.
-    - **`POST /runs/<id>/cancel`**, so an app can stop a run it started without dropping the
-      stream. That gives `task_server`'s Runs tab a Stop button.
+    - **`POST /runs/<id>/cancel`** (built), so an app can stop a run it started without dropping
+      the stream. That gives `task_server`'s Runs tab a Stop button.
     - **Server groups**, left out of the first pass, to think about later. A group is a named,
       reusable set of servers with their overrides, which many workspaces can include. It maps
       one to one onto an mcp-router workspace. Before adding one, settle two things:

@@ -1,8 +1,9 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { RunDocument, type RunQuery } from '@/__generated__/graphql';
+import { CancelRunDocument, RunDocument, type RunQuery } from '@/__generated__/graphql';
 import { displayNameOf } from '@/agents/shapes';
 import { CardLayout } from '@/components/card-layout';
+import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState } from '@/components/load-state';
 import { PageLayout, titleColumn } from '@/components/page-layout';
@@ -201,6 +202,10 @@ export function RunRoute() {
     refetchInterval: (query) => (isOpen(query.state.data?.run?.status ?? '') ? RUNNING_REFETCH_MS : false),
   });
   const live = useRunEvents(runId, () => void queryClient.invalidateQueries({ queryKey: ['runs'] }));
+  const cancel = useMutation({
+    mutationFn: () => request(CancelRunDocument, { id: runId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['runs'] }),
+  });
   const tab = openTab(RUN_TABS, search);
   const record = run.data?.run ?? undefined;
   const isRunning = isOpen(record?.status ?? '');
@@ -252,7 +257,22 @@ export function RunRoute() {
         description={`Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`}
         backSlot={back}
         width="page"
-        actionSlot={<RunStatusBadge status={record.status} />}
+        actionSlot={
+          <>
+            <RunStatusBadge status={record.status} />
+            {isRunning ? (
+              <ConfirmButton
+                title="Cancel this run?"
+                description="It stops where it is, and the app that started it gets an error instead of an answer. A cancelled run can't be carried on."
+                confirmLabel="Cancel run"
+                cancelLabel="Keep it going"
+                loading={cancel.isPending}
+                onConfirm={() => cancel.mutate()}
+                content="Cancel"
+              />
+            ) : null}
+          </>
+        }
         headerBarSlot={
           <div className={cn(titleColumn('page'), 'pb-3')}>
             <TabsList aria-label="Run tabs">

@@ -25,8 +25,8 @@ const OWNER = 'ai-router';
 /** The request fields a repeat may change and still be the same request. */
 const DELIVERY_FIELDS: ReadonlySet<string> = new Set(['stream', 'stream_options']);
 /** What body-parser calls a body over the limit, and one that isn't JSON. */
-const TOO_LARGE = 'entity.too.large';
-const NOT_JSON = 'entity.parse.failed';
+export const TOO_LARGE = 'entity.too.large';
+export const NOT_JSON = 'entity.parse.failed';
 
 /** What the agents endpoint talks to. */
 export interface AgentRoutesDeps {

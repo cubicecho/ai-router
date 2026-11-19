@@ -186,6 +186,11 @@ non-negotiables apply on top of these.
   is a column on `agents`, set only by a user, never a field in the document, so no draft can
   switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
+- **A cancel ends only a run that is going.** `POST /runs/<id>/cancel` (the run's own workspace
+  key; any other run is 404) and the people-only `cancelRun` abort a running run's loop, model and
+  tool calls, or stop a waiting one waiting. It ends `cancelled` with the reason and one last
+  `done`. An ended run is answered unchanged, never rewritten. No admin-server role reaches
+  `cancelRun`.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
   ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an

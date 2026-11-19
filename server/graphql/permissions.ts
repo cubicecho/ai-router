@@ -165,6 +165,8 @@ export const permissions: PermissionsMap = {
     createWorkspaceServer: isUser,
     updateWorkspaceServer: isUser,
     deleteWorkspaceServer: isUser,
+    // People only, never a run on the admin server: no role grants stopping another run.
+    cancelRun: isUser,
   },
   // A rule on a type guards it wherever it is reached, a relation included, so a run's read of an agent can't walk
   // into the workspaces that run it.
