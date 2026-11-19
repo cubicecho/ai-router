@@ -50,6 +50,7 @@ query Run($id: UUID!) {
     user
     stream
     idempotencyKey
+    input
     answer
     agent {
       id

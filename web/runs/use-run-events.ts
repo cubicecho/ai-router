@@ -28,8 +28,8 @@ export interface RunEvents {
 }
 
 /**
- * Follows a run's live events through the `runEvents` subscription. A run that ended a while ago gives none, since
- * events are not stored yet.
+ * Follows a run's events through the `runEvents` subscription: the stored ones first, each stretch of streamed text
+ * already folded into one, then each live one as it happens.
  *
  * @param runId - The run.
  * @param onEnd - Hears that the stream ended, so the page can read the run's final row.
