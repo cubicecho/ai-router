@@ -270,7 +270,6 @@ export function RunRoute() {
               )}
               <CardLayout
                 level={2}
-                title="Timeline"
                 description="Its exchanges, turns, tool calls and results, side tasks and usage, as they happened. Open a row for its detail."
                 actionSlot={
                   isFollowing && live.events.length > 0 && isRunning ? (
@@ -289,14 +288,12 @@ export function RunRoute() {
             </DetailTabPanel>
             <DetailTabPanel value="details">
               <Section
-                title="Details"
                 description="What ran, for whom, how the app asked, when, and what it spent."
                 contentSlot={<RunFacts run={record} now={now} />}
               />
             </DetailTabPanel>
             <DetailTabPanel value="events">
               <Section
-                title="Raw events"
                 description="Every event as the router sent it, one JSON object a line."
                 contentSlot={
                   noEvents() ?? (

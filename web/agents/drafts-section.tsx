@@ -42,7 +42,10 @@ function describeDraft(draft: AgentRevisionFieldsFragment): string {
   return parts.filter((part) => part !== '').join(' · ');
 }
 
-/** An agent's drafts, waiting for a person to make one live or discard it, and whether runs' saves skip the wait. */
+/**
+ * An agent's drafts, waiting for a person to make one live or discard it, and whether runs' saves skip the wait.
+ * Untitled: its tab names it.
+ */
 export function DraftsSection({ agentId, autoPromote, drafts }: DraftsSectionProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -70,7 +73,6 @@ export function DraftsSection({ agentId, autoPromote, drafts }: DraftsSectionPro
 
   return (
     <Section
-      title="Drafts"
       description="Revisions an agent's run saved, waiting for a person to promote or discard them."
       contentSlot={
         <>

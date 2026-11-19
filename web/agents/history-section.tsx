@@ -28,7 +28,10 @@ const STANDING_BADGES: Record<RevisionStanding, ReactNode> = {
   [RevisionStanding.Draft]: <Badge variant="info-soft">Draft</Badge>,
 };
 
-/** Every revision of an agent, newest first. A retired one can go live again; a draft is promoted from Drafts. */
+/**
+ * Every revision of an agent, newest first. A retired one can go live again; a draft is promoted from Drafts.
+ * Untitled: its tab names it.
+ */
 export function HistorySection({ liveRevisionId, revisions }: HistorySectionProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -45,7 +48,6 @@ export function HistorySection({ liveRevisionId, revisions }: HistorySectionProp
 
   return (
     <Section
-      title="History"
       description="Every revision kept, drafts included. Making a retired one live again rolls the agent back; nothing is lost."
       contentSlot={
         <>

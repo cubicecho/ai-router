@@ -75,12 +75,11 @@ function TotalsTable({ label, entries }: { label: string; entries: [string, Tota
   );
 }
 
-/** Calls and tokens, in total by a group and by day for the last two weeks. */
+/** Calls and tokens, in total by a group and by day for the last two weeks. Untitled: its Usage tab names it. */
 export function UsageSection({ rows, groupBy, groupLabel }: UsageSectionProps) {
   const byDay = totalsBy(rows, (row) => row.day ?? 'Earlier').slice(0, RECENT_DAYS);
   return (
     <Section
-      title="Usage"
       description="Calls and tokens counted from each provider's own numbers. Days past 90 add up into Earlier."
       contentSlot={
         rows.length === 0 ? (

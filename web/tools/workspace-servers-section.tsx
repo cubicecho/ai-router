@@ -62,7 +62,10 @@ function overridesOf(entry: WorkspaceServerFieldsFragment, secrets: readonly str
   return parts.length === 0 ? 'Overrides nothing yet' : parts.join(', ');
 }
 
-/** A workspace's entries for servers: the settings its agent runs use in place of each server's own. */
+/**
+ * A workspace's entries for servers: the settings its agent runs use in place of each server's own. Untitled: its
+ * tab names it.
+ */
 export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServersSectionProps) {
   const queryClient = useQueryClient();
   // undefined is closed, null is adding, an entry is editing it.
@@ -87,7 +90,6 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
 
   return (
     <Section
-      title="MCP Servers"
       description="An entry sets a server's settings for this workspace's agent runs, such as an account's login. It never adds the server to a run."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
