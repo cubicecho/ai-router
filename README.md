@@ -84,9 +84,13 @@ OpenAI client or SDK) connects like this:
 
 4. **The app's own tools.** Whatever the app sends in `tools` is an **app tool**: the router
    hands its calls back with `finish_reason: "tool_calls"`, and the app runs them and answers.
-   An app that used to load MCP servers itself should drop them and let the agent's servers do
-   the work, or, if it keeps them, use an agent with `tools.servers: []` so the two sets don't
-   overlap. The most tools one request may send is a router setting (128 by default).
+   An app that used to load MCP servers itself may keep sending their tools: one with the name
+   of one of the agent's own tools is left out, the agent's server answers it, and the answer
+   names it in `X-AI-Router-Pruned-Tools`. The same tool under another server name
+   (`gh__create_issue` beside `github__create_issue`, with the same input schema) is left out
+   too once an admin turns on **Settings → Leave out app tools that are the agent's under
+   another server name**. The most tools one request may send is a router setting (128 by
+   default).
 5. **Strict fields.** A field the router doesn't read and the agent's override policy doesn't
    list (`reasoning_effort`, `chat_template_kwargs`, `metadata`, `store`, `logprobs`,
    `service_tier` and the like) answers 400, naming it. A client that can't stop sending them
