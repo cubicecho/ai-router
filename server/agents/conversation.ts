@@ -26,13 +26,14 @@ export interface Conversation {
 }
 
 /**
- * Reads the conversation a request names.
+ * Reads a key an app names something by in a header: a conversation, or a session.
  *
- * @param value - The `X-Conversation-Id` header, if sent.
- * @returns The app's name for it, or null when the request is stateless.
- * @throws {@link RequestRefusal} For an empty, too long or unprintable id.
+ * @param header - The header, for the refusal.
+ * @param value - Its value, if sent.
+ * @returns The key, or null when it wasn't sent.
+ * @throws {@link RequestRefusal} For an empty, too long or unprintable key.
  */
-export function readConversationKey(value: string | undefined): string | null {
+export function readKeyHeader(header: string, value: string | undefined): string | null {
   if (value === undefined) {
     return null;
   }
@@ -40,11 +41,22 @@ export function readConversationKey(value: string | undefined): string | null {
   const isUsable = key.length <= CONVERSATION_DEFAULTS.maxIdLength && KEY_PATTERN.test(key);
   if (isUsable === false) {
     throw new RequestRefusal(
-      CONVERSATION_HEADER,
-      `${CONVERSATION_HEADER}: send 1 to ${CONVERSATION_DEFAULTS.maxIdLength} printable characters, without spaces.`,
+      header,
+      `${header}: send 1 to ${CONVERSATION_DEFAULTS.maxIdLength} printable characters, without spaces.`,
     );
   }
   return key;
+}
+
+/**
+ * Reads the conversation a request names.
+ *
+ * @param value - The `X-Conversation-Id` header, if sent.
+ * @returns The app's name for it, or null when the request is stateless.
+ * @throws {@link RequestRefusal} For an empty, too long or unprintable id.
+ */
+export function readConversationKey(value: string | undefined): string | null {
+  return readKeyHeader(CONVERSATION_HEADER, value);
 }
 
 /**

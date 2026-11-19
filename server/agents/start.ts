@@ -16,6 +16,8 @@ export interface NewRun {
   request: RunRequest;
   /** The conversation it carries on, or null for a stateless run. */
   conversation: Conversation | null;
+  /** The session it belongs to, or null. */
+  sessionKey: string | null;
   idempotency: Idempotency | null;
 }
 
@@ -68,7 +70,7 @@ export function beginRun(
   runs: RunService,
   forwarder: Forwarder,
   snapshot: Snapshot,
-  { workspace, agent, request, conversation, idempotency }: NewRun,
+  { workspace, agent, request, conversation, sessionKey, idempotency }: NewRun,
 ): Promise<StartedRun | RepeatedRun> {
   const withConversation = conversation === null ? request : withHistory(request, conversation);
   const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, snapshot);
@@ -79,5 +81,5 @@ export function beginRun(
     agentName: agent.name,
   });
   const config = withRouterFetch(resolved, fetch);
-  return runs.begin({ workspace, agent, request: withConversation, config, idempotency, conversation });
+  return runs.begin({ workspace, agent, request: withConversation, config, idempotency, conversation, sessionKey });
 }

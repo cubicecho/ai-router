@@ -92,7 +92,7 @@ describe('/mcp', () => {
     expect(result._meta).toEqual({ runId: row?.id });
   });
 
-  it('carries a conversation on across calls that name it, and keeps calls without one apart', async () => {
+  it('carries a conversation on across calls that name it, as one session, and keeps calls without one apart', async () => {
     h.script = (body) => ({ content: `heard ${sentMessages(body).length}: ${lastMessage(body).content}` });
     const { base } = await h.startRouter();
     const client = await connect(base);
@@ -102,6 +102,8 @@ describe('/mcp', () => {
     expect(textOf(second)).toBe('heard 4: two');
     const alone = await client.callTool({ name: 'helper', arguments: { message: 'three' } });
     expect(textOf(alone)).toBe('heard 2: three');
+    const sessions = await h.db.select({ sessionKey: runs.sessionKey }).from(runs).orderBy(runs.startedAt);
+    expect(sessions.map((row) => row.sessionKey)).toEqual(['chat', 'chat', null]);
   });
 
   it('refuses an agent the key may not run and a call with no message, and reports a failed run as an error', async () => {

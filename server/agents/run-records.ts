@@ -1,9 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
-import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
+import { CONVERSATION_DEFAULTS, RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { ErrorCode, errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { HttpStatus } from '../core/wire.ts';
@@ -27,6 +27,11 @@ export const APP_CANCELLED = 'The app cancelled the run.';
 const runIdSchema = z.uuid();
 /** The `seq` a reader already has. */
 const afterSchema = z.coerce.number().int().min(0);
+/** What `GET /runs` takes: one session's runs, and how many. */
+const listSchema = z.object({
+  session: z.string().trim().min(1).max(CONVERSATION_DEFAULTS.maxIdLength).optional(),
+  limit: z.coerce.number().int().min(1).max(RUN_DEFAULTS.maxRunPageSize).default(RUN_DEFAULTS.runPageSize),
+});
 /** A cancel's body, which may be left out: why, as the run's error says it. */
 const cancelSchema = z
   .object({ reason: z.string().trim().min(1).max(RUN_DEFAULTS.maxErrorLength).optional() })
@@ -66,13 +71,14 @@ function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: 
  *
  * @param row - The run.
  * @param conversation - The app's name for the conversation it belongs to, or null.
- * @returns Its agent, revision, conversation, status, what its requests added, timings (when it started, last began
- * waiting, and ended), usage and error.
+ * @returns Its agent, revision, conversation, session, status, what its requests added, timings (when it started, last
+ * began waiting, and ended), usage and error.
  */
 export function runRecord(row: RunRow, conversation: string | null) {
   return {
     id: row.id,
     conversation,
+    session: row.sessionKey,
     agent: row.agentName,
     agentId: row.agentId,
     revisionId: row.revisionId,
@@ -93,8 +99,8 @@ export function runRecord(row: RunRow, conversation: string | null) {
 }
 
 /**
- * Builds the run records: `/runs/<id>`, `/runs/<id>/events` and `POST /runs/<id>/cancel`, for workspace keys only,
- * each its own workspace's.
+ * Builds the run records: `GET /runs`, `/runs/<id>`, `/runs/<id>/events` and `POST /runs/<id>/cancel`, for workspace
+ * keys only, each its own workspace's.
  *
  * @param deps - The database, the snapshot and the run service.
  * @returns The router, to mount at `/runs`.
@@ -157,6 +163,25 @@ export function createRunRecordRoutes({
     next();
   });
 
+  router.get('/', async (request: Request, response: Response<unknown, AppLocals>) => {
+    const parsed = listSchema.safeParse(request.query);
+    if (parsed.success === false) {
+      const said = `session is a session's key, and limit 1 to ${RUN_DEFAULTS.maxRunPageSize} runs. Both may be left out.`;
+      refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, said);
+      return;
+    }
+    const { session, limit } = parsed.data;
+    const ofWorkspace = eq(runs.workspaceId, response.locals.caller.workspaceId);
+    const rows = await db
+      .select({ run: runs, conversation: conversations.key })
+      .from(runs)
+      .leftJoin(conversations, eq(conversations.id, runs.conversationId))
+      .where(session === undefined ? ofWorkspace : and(ofWorkspace, eq(runs.sessionKey, session)))
+      .orderBy(desc(runs.startedAt), desc(runs.id))
+      .limit(limit);
+    response.json({ runs: rows.map((row) => runRecord(row.run, row.conversation)) });
+  });
+
   router.get('/:id', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
     const found = await ownRun(response, request.params.id);
     if (found !== null) {
@@ -215,7 +240,7 @@ export function createRunRecordRoutes({
       response,
       HttpStatus.NotFound,
       ErrorCode.NotFound,
-      'The run records serve /runs/<id>, /runs/<id>/events and POST /runs/<id>/cancel.',
+      'The run records serve /runs, /runs/<id>, /runs/<id>/events and POST /runs/<id>/cancel.',
     );
   });
 

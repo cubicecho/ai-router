@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isRecord } from '../core/is-record.ts';
 
 /** The request header a caller may send to keep its calls on one target. */
-export const SESSION_HEADER = 'x-session-id';
+export const SESSION_HEADER = 'X-Session-Id';
 
 /** Body fields that name a session or a cache, in the order they are trusted. OpenAI's own names. */
 const KEY_FIELDS = ['prompt_cache_key', 'user'] as const;

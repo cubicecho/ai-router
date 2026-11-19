@@ -137,6 +137,27 @@ function RunFacts({ run, now }: { run: RunRecord; now: number }) {
             hint={run.workspaceId === null ? 'This workspace has since been deleted.' : 'Whose key started it.'}
           />
           <PropertyRow
+            label="Session"
+            value={
+              run.sessionKey === null ? (
+                'None'
+              ) : (
+                <Link
+                  to="/agent-runs"
+                  search={{ session: run.sessionKey, workspace: run.workspaceId ?? undefined }}
+                  className={`${LINK_CLASS} font-mono`}
+                >
+                  {run.sessionKey}
+                </Link>
+              )
+            }
+            hint={
+              run.sessionKey === null
+                ? 'Sent with no X-Session-Id or X-Conversation-Id, so it belongs to no session.'
+                : "The conversation's key, or the X-Session-Id the app sent. Opens the session's runs."
+            }
+          />
+          <PropertyRow
             label="User"
             value={run.user ?? 'Not sent'}
             valueClassName={run.user === null ? undefined : 'font-mono'}

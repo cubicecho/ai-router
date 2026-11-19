@@ -193,6 +193,7 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
         agent,
         request,
         conversation,
+        sessionKey: key,
         idempotency: null,
       });
     } catch (error) {

@@ -186,6 +186,9 @@ export const permissions: PermissionsMap = {
   ServerInstance: canDo(read, Subject.Server),
   Registry: canDo(read, Subject.Registry),
   Run: canDo(read, Subject.Run),
+  // Read across every workspace, so people only: a run on the admin server reaches its own workspace's runs.
+  RunSession: isUser,
+  RunSessionPage: isUser,
   Activity: isUser,
   Conversation: isUser,
   ServerSecret: isUser,

@@ -14,17 +14,20 @@ export interface RunsPage {
   where: RunFilters;
   limit: number;
   offset: number;
+  /** Whether to read it: false while its tab is closed. */
+  enabled?: boolean | undefined;
 }
 
 /**
  * Reads a page of runs, newest first, and reads it again every couple of seconds while any run on it is running.
  *
- * @param page - The filters and the page.
+ * @param page - The filters and the page, and whether to read it.
  * @returns The query.
  */
-export function useRuns({ where, limit, offset }: RunsPage) {
+export function useRuns({ where, limit, offset, enabled = true }: RunsPage) {
   return useQuery({
     queryKey: ['runs', where, limit, offset],
+    enabled,
     queryFn: () => request(RunsDocument, { where, limit, offset }),
     refetchInterval: (query) => (query.state.data?.runs.some((run) => isOpen(run.status)) ? LIVE_REFETCH_MS : false),
     placeholderData: (previous) => previous,

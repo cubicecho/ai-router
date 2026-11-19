@@ -226,6 +226,11 @@ non-negotiables apply on top of these.
   stored `seq`s increase with gaps. A stretch still going stays in memory until it ends (or
   `RUN_DEFAULTS.streamHoldMs`), and `text_ends` lets a reader that had part of a stretch, live,
   get only the rest. Never number stored rows yourself, and never assume `seq + 1` is stored.
+- **A run session is a label, never routing.** `runs.session_key` is the conversation's key, else
+  `X-Session-Id` (agent-core sends its loop's `session` there), read before the run starts and
+  refused like `X-Conversation-Id` when malformed. It groups runs per workspace across agents, and
+  nothing reads it to decide how a run goes. `runSessions` reads every workspace, so it is
+  people-only.
 - **A run keeps its input, not as an event.** `runs.input` holds what each request added: the new
   run's system, developer and user messages (for a conversation, only the new ones), then each
   resume's tool answers. Apps already show their own input, so it isn't a progress event.
