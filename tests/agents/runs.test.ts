@@ -19,6 +19,7 @@ import {
   GRANT,
   INSTALL,
   lastMessage,
+  PROVIDER_CONTEXT_LENGTH,
   QUESTION,
   SERVER,
   useRunHarness,
@@ -30,11 +31,25 @@ import {
 const h = useRunHarness();
 
 describe('the agents endpoint', () => {
-  it('lists the agents this key may run, marked as agents', async () => {
+  it('lists the agents this key may run, marked as agents, with what their model reads', async () => {
     const { base } = await h.startRouter();
     await h.asUser.expectOk(CREATE_AGENT, {
       document: { spec: 'cubicecho.agent/1', id: 'not-granted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
+    const { createAgent: stated } = await h.asUser.expectOk(CREATE_AGENT, {
+      document: {
+        spec: 'cubicecho.agent/1',
+        id: 'small',
+        model: { model: 'fake/m1', contextLength: 8_192 },
+        tools: { servers: [] },
+      },
+    });
+    const { createAgent: unknown } = await h.asUser.expectOk(CREATE_AGENT, {
+      document: { spec: 'cubicecho.agent/1', id: 'elsewhere', model: { model: 'gone/m1' }, tools: { servers: [] } },
+    });
+    for (const agent of [stated, unknown]) {
+      await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: agent.id } });
+    }
     const response = await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${h.keySecret}` } });
     expect(response.status).toBe(HttpStatus.Ok);
     expect(await response.json()).toEqual({
@@ -47,12 +62,15 @@ describe('the agents endpoint', () => {
           owned_by: 'ai-router',
           name: 'Helper',
           description: 'Answers with what its tool said.',
+          context_length: PROVIDER_CONTEXT_LENGTH,
           ai_router: { kind: 'agent' },
         },
+        expect.objectContaining({ id: 'small', context_length: 8_192 }),
+        expect.not.objectContaining({ context_length: expect.anything() }),
       ],
     });
     const one = await fetch(`${base}/v1/models/helper`, { headers: { 'x-api-key': h.keySecret } });
-    expect(await one.json()).toMatchObject({ id: 'helper' });
+    expect(await one.json()).toMatchObject({ id: 'helper', context_length: PROVIDER_CONTEXT_LENGTH });
     const hidden = await fetch(`${base}/v1/models/not-granted`, { headers: { 'x-api-key': h.keySecret } });
     expect(hidden.status).toBe(HttpStatus.NotFound);
   });

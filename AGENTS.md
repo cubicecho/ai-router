@@ -195,7 +195,8 @@ non-negotiables apply on top of these.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
   ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an
-  ai-router-specific client.
+  ai-router-specific client. The entry also carries `context_length` when it is known (the
+  document's `model.contextLength`, else the provider's listing), and never `0`.
 - **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
   second run.
 - **Run events are `agent-core`'s `RunEvent`, unchanged,** as JSON: agent-core has no encoder for them. The router

@@ -6,13 +6,15 @@ import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import type { SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
+import type { Snapshot, SnapshotAgent, SnapshotHost } from '../db/snapshot.ts';
 import type { RunResume } from '../db/tables/runs.ts';
 import { RunStatus } from '../db/tables/runs.ts';
+import type { ModelCatalog } from '../models/catalog.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
 import { completionBody, openChunkStream, RUN_ID_HEADER } from './completion.ts';
+import { agentContextLength } from './context-length.ts';
 import { CONVERSATION_HEADER, readConversationKey, withHistory } from './conversation.ts';
 import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import {
@@ -41,6 +43,8 @@ export interface AgentRoutesDeps {
   snapshot: SnapshotHost;
   runs: RunService;
   forwarder: Forwarder;
+  /** The providers' model lists, for each agent's context length. */
+  catalog: ModelCatalog;
   /** Settings that differ from `RUN_DEFAULTS`. */
   overrides?: Partial<RunSettings>;
   /** The clock keys' expiry is judged by. */
@@ -62,6 +66,9 @@ interface Delivery {
   /** The events a non-streamed answer carries as `ai_router.events`, when the app asked for progress. */
   events?: RunEvent[] | null;
 }
+
+/** An agent with a live revision, which a request may run. */
+type RunnableAgent = SnapshotAgent & { document: Readonly<Record<string, unknown>> };
 
 /** A request that got past the key check: who it is from. */
 interface AppLocals {
@@ -122,7 +129,7 @@ function runnableAgent(
   agents: ReadonlyMap<string, SnapshotAgent>,
   workspaceId: string,
   name: string | null,
-): (SnapshotAgent & { document: Readonly<Record<string, unknown>> }) | null {
+): RunnableAgent | null {
   const agent = name === null ? undefined : agents.get(name);
   if (agent === undefined || agent.workspaceIds.has(workspaceId) === false) {
     return null;
@@ -135,9 +142,10 @@ function runnableAgent(
  * Writes an agent's entry on the model list.
  *
  * @param agent - The agent.
- * @returns The entry, marked as an agent so an app's loop runs as a thin client.
+ * @param contextLength - How many tokens its model reads, or null when that isn't known.
+ * @returns The entry, marked as an agent so an app's loop runs as a thin client, with `context_length` when known.
  */
-function modelEntry(agent: SnapshotAgent & { document: Readonly<Record<string, unknown>> }) {
+function modelEntry(agent: RunnableAgent, contextLength: number | null) {
   const { name, description } = agent.document;
   return {
     id: agent.name,
@@ -146,6 +154,7 @@ function modelEntry(agent: SnapshotAgent & { document: Readonly<Record<string, u
     owned_by: OWNER,
     name: typeof name === 'string' ? name : agent.name,
     description: typeof description === 'string' ? description : '',
+    ...(contextLength === null ? {} : { context_length: contextLength }),
     ai_router: { kind: 'agent' },
   };
 }
@@ -214,6 +223,7 @@ export function createAgentRoutes({
   snapshot,
   runs,
   forwarder,
+  catalog,
   overrides = {},
   now = () => new Date(),
 }: AgentRoutesDeps): Router {
@@ -261,23 +271,35 @@ export function createAgentRoutes({
   });
   router.use(express.json({ limit: settings.bodyLimit }));
 
-  router.get('/models', (_request: Request, response: Response<unknown, AppLocals>) => {
+  /**
+   * Writes an agent's entry with its context length, waiting at most `modelListWaitMs` for a provider's listing.
+   *
+   * @param agent - A runnable agent.
+   * @param current - The snapshot the request reads.
+   * @returns The entry.
+   */
+  const entryOf = async (agent: RunnableAgent, current: Snapshot) =>
+    modelEntry(agent, await agentContextLength(agent.name, agent.document, current, catalog));
+
+  router.get('/models', async (_request: Request, response: Response<unknown, AppLocals>) => {
     const { workspaceId } = response.locals.caller;
-    const { agents } = snapshot.current();
-    const data = [...agents.values()].flatMap((agent) => {
-      const runnable = runnableAgent(agents, workspaceId, agent.name);
-      return runnable === null ? [] : [modelEntry(runnable)];
+    const current = snapshot.current();
+    const runnable = [...current.agents.values()].flatMap((agent) => {
+      const found = runnableAgent(current.agents, workspaceId, agent.name);
+      return found === null ? [] : [found];
     });
+    const data = await Promise.all(runnable.map((agent) => entryOf(agent, current)));
     response.json({ object: 'list', data });
   });
 
-  router.get('/models/:id', (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
-    const agent = runnableAgent(snapshot.current().agents, response.locals.caller.workspaceId, request.params.id);
+  router.get('/models/:id', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
+    const current = snapshot.current();
+    const agent = runnableAgent(current.agents, response.locals.caller.workspaceId, request.params.id);
     if (agent === null) {
       refuse(response, ModelFailure.ModelNotFound, `There is no agent named "${request.params.id}" for this key.`);
       return;
     }
-    response.json(modelEntry(agent));
+    response.json(await entryOf(agent, current));
   });
 
   router.post('/chat/completions', async (request: Request, response: Response<unknown, AppLocals>) => {

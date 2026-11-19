@@ -66,7 +66,7 @@ server-side tools. Hermes, Open WebUI, LibreChat and cagent all do this. What we
 
 | Path | Who | Serves |
 | --- | --- | --- |
-| `GET /v1/models`, `/v1/models/<id>` | key | the workspace's agents, and nothing else. Each entry carries its description and `ai_router: { kind: "agent" }` |
+| `GET /v1/models`, `/v1/models/<id>` | key | the workspace's agents, and nothing else. Each entry carries its description, `context_length` when known, and `ai_router: { kind: "agent" }` |
 | `POST /v1/chat/completions` | key | a run of the agent named in `model` |
 | `POST /v1/<other>` | key | refused until `/v1/responses` arrives for agents |
 | `/runs/<id>`, `/runs/<id>/events` | key | a run of the key's workspace, and its `RunEvent`s, as JSON or as a live event stream |

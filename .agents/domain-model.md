@@ -310,7 +310,10 @@ Everything about the code comes after `Owner:`.
 ### Endpoints
 
 - **Agents endpoint:** the address apps use to run agents. It looks like any OpenAI-compatible
-  model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
+  model server, except that every model it lists is an agent. Each agent's entry carries
+  `context_length` when it is known: the document's `model.contextLength`, else what its
+  provider's model list states for the model (a pool's smallest), read from the cached listing
+  with a short bounded wait. Owner: `agents/routes`, `agents/context-length`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
