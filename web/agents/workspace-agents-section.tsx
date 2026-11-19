@@ -20,7 +20,10 @@ export interface WorkspaceAgentsSectionProps {
   workspaceId: string;
 }
 
-/** The agents a workspace offers: the only ones an app calling with its keys may list and run. */
+/**
+ * The agents a workspace offers: the only ones an app calling with its keys may list and run. Untitled: its tab names
+ * it.
+ */
 export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionProps) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
@@ -53,7 +56,6 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
 
   return (
     <Section
-      title="Agents"
       description="An app with this workspace's key sees only these agents."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={

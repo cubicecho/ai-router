@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import {
   DeleteWorkspaceDocument,
@@ -9,6 +9,7 @@ import {
 } from '@/__generated__/graphql';
 import { WorkspaceAgentsSection } from '@/agents/workspace-agents-section';
 import { ConfirmButton } from '@/components/confirm-button';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
@@ -16,11 +17,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatDate } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
-import { openTab } from '@/lib/tab-search';
 import { UsageSection } from '@/models/usage-section';
 import { RecentRunsSection } from '@/runs/recent-runs-section';
 import { WorkspaceServersSection } from '@/tools/workspace-servers-section';
@@ -39,24 +38,13 @@ const TAB_LABELS = {
 /** The tabs whose label is followed by how many rows they hold. */
 type CountedTab = Exclude<WorkspaceTab, 'usage'>;
 
-/**
- * Finds the tab a value names.
- *
- * @param value - What the tabs reported.
- * @returns The tab, or undefined when it names none.
- */
-function tabOf(value: string): WorkspaceTab | undefined {
-  return WORKSPACE_TABS.find((tab) => tab === value);
-}
-
 /** One workspace, in tabs: the agents its apps may run, the keys they call with, its MCP Servers and its usage. */
 export function WorkspaceRoute() {
   const { workspaceId } = useParams({ from: '/app/workspaces/$workspaceId' });
-  const search = useSearch({ from: '/app/workspaces/$workspaceId' });
   const navigate = useNavigate({ from: '/workspaces/$workspaceId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
-  const tab = openTab(WORKSPACE_TABS, search);
+  const { tab, showTab } = useDetailTab(WORKSPACE_TABS);
   const me = useQuery({ queryKey: ['me'], queryFn: () => request(MeDocument) });
   const workspace = useQuery({
     queryKey: ['workspaces', workspaceId],
@@ -109,16 +97,9 @@ export function WorkspaceRoute() {
     keys: record.keys.length,
     mcp: record.serversAggregate.count,
   } satisfies Record<CountedTab, number>;
-  const showTab = (value: string) => {
-    const next = tabOf(value);
-    if (next !== undefined) {
-      void navigate({ search: { tab: next }, replace: true });
-    }
-  };
 
   return (
-    // One root round the whole page, so the triggers in the header name the panes in the body.
-    <Tabs value={tab} onValueChange={showTab} className="h-full">
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         width="page"
         title={record.name}
@@ -137,48 +118,44 @@ export function WorkspaceRoute() {
           </>
         }
         headerBarSlot={
-          <>
-            <PropertyList
-              className="px-4 pb-3"
-              contentSlot={
-                <>
-                  <PropertyRow
-                    label="Slug"
-                    value={record.slug}
-                    valueClassName="font-mono"
-                    actionSlot={<CopyButton value={record.slug} label="Copy slug" />}
-                  />
-                  <PropertyRow label="Created" value={formatDate(record.createdAt)} />
-                </>
-              }
-            />
-            <div className="px-4 pb-3">
-              <TabsList aria-label={`${record.name}'s sections`}>
-                {WORKSPACE_TABS.map((value) => (
-                  <TabsTrigger
-                    key={value}
-                    value={value}
-                    trailingSlot={value === 'usage' ? undefined : <Badge variant="secondary">{counts[value]}</Badge>}
-                  >
-                    {TAB_LABELS[value]}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
-          </>
+          <DetailTabBar
+            tabs={WORKSPACE_TABS}
+            labels={TAB_LABELS}
+            label={`${record.name}'s sections`}
+            trailing={{
+              agents: <Badge variant="secondary">{counts.agents}</Badge>,
+              keys: <Badge variant="secondary">{counts.keys}</Badge>,
+              mcp: <Badge variant="secondary">{counts.mcp}</Badge>,
+            }}
+            leadSlot={
+              <PropertyList
+                contentSlot={
+                  <>
+                    <PropertyRow
+                      label="Slug"
+                      value={record.slug}
+                      valueClassName="font-mono"
+                      actionSlot={<CopyButton value={record.slug} label="Copy slug" />}
+                    />
+                    <PropertyRow label="Created" value={formatDate(record.createdAt)} />
+                  </>
+                }
+              />
+            }
+          />
         }
         contentSlot={
           <>
-            <TabsContent value="agents" className="mt-0">
+            <DetailTabPanel value="agents">
               <WorkspaceAgentsSection workspaceId={record.id} />
-            </TabsContent>
-            <TabsContent value="keys" className="mt-0">
+            </DetailTabPanel>
+            <DetailTabPanel value="keys">
               <WorkspaceKeysSection workspaceId={record.id} keys={record.keys} />
-            </TabsContent>
-            <TabsContent value="mcp" className="mt-0">
+            </DetailTabPanel>
+            <DetailTabPanel value="mcp">
               <WorkspaceServersSection workspaceId={record.id} isAdmin={me.data?.me.role === Role.Admin} />
-            </TabsContent>
-            <TabsContent value="usage" className="mt-0 grid gap-6">
+            </DetailTabPanel>
+            <DetailTabPanel value="usage" className="gap-6">
               <UsageSection
                 rows={usage.data?.usageCounts ?? []}
                 groupBy={(row) => `${row.providerName}/${row.model}`}
@@ -189,11 +166,11 @@ export function WorkspaceRoute() {
                 search={{ workspace: record.id }}
                 hide="workspace"
               />
-            </TabsContent>
+            </DetailTabPanel>
             <WorkspaceDialog open={isEditing} onOpenChange={setIsEditing} workspace={record} />
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

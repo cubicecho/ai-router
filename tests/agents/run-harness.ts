@@ -43,6 +43,8 @@ export const SERVER = 'fix.ture';
 /** What the fixture's `echo` is called as, once the router has named it for the model. */
 export const ECHO = 'fix_ture__echo';
 export const PROVIDER_URL = 'http://fake.test/v1';
+/** The context window the fake provider lists `m1` with. */
+export const PROVIDER_CONTEXT_LENGTH = 32_768;
 export const AGENT_PROMPT = 'You answer with what the tool said.';
 export const QUESTION = { role: 'user', content: 'hello there' };
 
@@ -236,7 +238,8 @@ export class RunHarness {
       text: async () => text,
     });
     if (url === `${PROVIDER_URL}/models`) {
-      return answer(HttpStatus.Ok, JSON.stringify({ object: 'list', data: [{ id: 'm1', object: 'model' }] }));
+      const data = [{ id: 'm1', object: 'model', max_model_len: PROVIDER_CONTEXT_LENGTH }];
+      return answer(HttpStatus.Ok, JSON.stringify({ object: 'list', data }));
     }
     if (url !== `${PROVIDER_URL}/chat/completions`) {
       return answer(HttpStatus.NotFound, JSON.stringify({ error: { message: 'not here' } }));

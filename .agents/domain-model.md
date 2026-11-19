@@ -123,8 +123,11 @@ received --resolve--> running --model answers--> completed
 
 - **Resolving:** the router applies the override policy to the layers above the agent, then
   calls `resolveAgentSpec`.
-- **Refusing:** a layer the policy refuses refuses the whole run, and nothing is quietly
-  trimmed. The exception is `servers`, which is narrowed by definition.
+- **Refusing:** a layer the policy refuses refuses the whole run, and nothing is trimmed
+  quietly. `servers` is narrowed by definition. A request field the router doesn't read and the
+  policy doesn't list refuses too, unless the router's **unlisted fields** setting is `ignore`:
+  then it is dropped and the answer names it in `X-AI-Router-Ignored`, as is any key of
+  `stream_options` but `include_usage`, named `stream_options.<key>`.
 - **Revision:** a run keeps the revision it started with. A revision promoted mid-run applies
   to the next run.
 - **Waiting:** handing calls back to the app pauses the run. It does not end it.
@@ -240,18 +243,20 @@ created (shown once) --> in use --revoke--> deleted
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
-| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the policy doesn't allow refuses the request, naming the field | `agents/request`, `agents/layers`, read from `agents/policy` |
+| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`ai_router.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the router doesn't read and the policy doesn't list refuses the request, naming the field; with the unlisted-fields setting at `ignore` it is dropped instead, and the answer's `X-AI-Router-Ignored` header names every field dropped, streamed or not. Under `ignore`, a `stream_options` key other than `include_usage` is dropped too and named `stream_options.<key>`; under `refuse` it refuses. Ignoring never reaches the messages (system messages the policy refuses included), the tools, `tool_choice`, `functions`, `n`, `response_format`, `include_usage`, `ai_router`, or a bad value of a listed field: those refuse whatever the setting | `agents/request`, `agents/layers`, read from `agents/policy` |
 | The router builds the host and task layers itself, as prompt parts with the ids `host` and `task`, so an app can never replace or delete one of the agent's own parts. No agent may use those ids, and a save that does is refused | `agents/layers`, `RESERVED_PART_IDS` in `agents/document` |
 | The host part comes only from a request's leading `system` or `developer` messages. Later system messages stay in the transcript where they are | `agents/layers` |
 | A resumed run keeps the revision and layers it started with. A resume request that sends different host or task text is refused | `agents/routes` `resumedLayers`, `runs.resume` |
 | Every run resolves over the router layer, underneath the agent. An agent with no endpoint of its own, and its side tasks, call the router's own models, in process, and usage counts under the run's workspace and agent. Only an endpoint at the router's model address gets the run's `fetch`; an agent's own endpoint is called directly | `agents/layers` `withRouterFetch`, `models/forward` `fetchFor`, agent-core `Endpoint.fetch` |
 | An app's `temperature` sets the model's temperature, and `max_tokens` or `max_completion_tokens` its ceiling. Only the sampling fields the agent format has no name for (`top_p`, `top_k`, `min_p`, the penalties, `seed`, `stop`) go into `extraBody`. A sampling field never reaches `extraBody` under a name the format spells elsewhere | `agents/request` |
 | A request asking for more than one answer (`n` above 1) is refused. `response_format` is allowed by the default policy, `parallel_tool_calls` passes through, and `user` is recorded on the run | `agents/request` |
-| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). An app tool with the name of one of the agent's own tools is refused, before the run is recorded, naming both. A request with more tools than the router's settings allow is refused, before the run is recorded. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools`, `agents/run` `reachedTools` |
+| An app's tools are function tools with OpenAI's names, none twice and none named for the loop's own (`load_tools`, `call_tool`, `record_artifact`). A request with more tools than the router's settings allow is refused, before the run is recorded, counting the tools as sent. `tool_choice` may only be `auto`, and the older `functions` are refused | `agents/request` `readAppTools` |
+| An app tool that duplicates one of the agent's own is left out, never refused, and the agent's server answers it: always when the names are the same, and, only while the router's setting to prune across servers is on (off by default), when the names differ only before the first `__` and the input schemas are equal, each such one logged. `X-AI-Router-Pruned-Tools` names what was left out, before the answer's first byte, and a notice event says it. A left-out tool is never handed back. A waiting run keeps the app's tools as sent, and each resume leaves them out again by the same rules | `agents/app-tools` `pruneAppTools`, `agents/run` `reachedTools`, `agents/routes`; `pruneAppToolsAcrossServers` |
 | Every app tool call is handed back under an id the router minted, in the answer, the events and the stored transcript alike. A repeated identical call is handed back too, never answered from the first | `agents/run` (`freshCallId`, `dedupeToolCalls`) |
 | A standard client's answer is the same with progress events as without: they come only when `ai_router.progress` asks, in chunks with empty `choices`, or beside `choices` as `ai_router.events`. A repeated `Idempotency-Key` answers without them, and the app reads them from `/runs/<id>/events` | `agents/completion`, `agents/routes` |
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
+| `GET /v1/models/<id>` answers with the same entry `GET /v1/models` lists for an agent the key's workspace may run, and with `model_not_found` otherwise: the same 404 for an agent that doesn't exist, has no live revision, or isn't the workspace's to run | `agents/routes` `modelEntry`, `runnableAgent` |
 | An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
@@ -274,7 +279,7 @@ created (shown once) --> in use --revoke--> deleted
 | An agent and its revisions are written only through `createAgent`, `saveAgent`, `promoteRevision`, `discardRevision` and `setAgentAutoPromote`, and the saves check the document. No generated write reaches them | `graphql/build-schema` (`CREATE_RESERVED`, `UPDATE_RESERVED`, `WRITES_RESERVED`) |
 | A bundled MCP server in an agent's document is never started until a user adds it as a server | `agents/reach` |
 | Requests route from an in-memory snapshot, rebuilt after every committed write that changes routing. One router process owns a database, and a second refuses to start | `db/snapshot`; a Postgres advisory lock taken at boot |
-| Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent and run | `models/usage`, `tools/activity` |
+| Usage is counted from the provider's own numbers, only on a 2xx answer. A run's model calls also count under its agent. A run's tool calls are recorded as activity under its agent, run and workspace, those it makes through the admin server's `try_server_tool` included, even on a server's base instance. A run never tries the admin server's own tools through `try_server_tool` | `models/usage`, `tools/activity`, `tools/resolvers` (`tryServerTool`) |
 
 ## Glossary
 
@@ -296,8 +301,11 @@ Everything about the code comes after `Owner:`.
   `auth/`; the env var `SECURE_LOCAL_NET`.
 - **Settings:** the router's own options, which an admin changes on the Settings page while it
   runs, for every app at once. Each has a default and a range; one nobody has set follows its
-  default. Today there is one: the most tools an app may send with one request (128 by default,
-  OpenAI's own limit). Every user may read them. Owner: `db/schema` `settings`, one row or none,
+  default. Today there are three: the most tools an app may send with one request (128 by default,
+  OpenAI's own limit); **unlisted fields**, whether a request field the agent's override
+  policy doesn't list is refused (the default) or ignored and named in `X-AI-Router-Ignored`;
+  and whether an app tool that is one of the agent's under another server's name is left out
+  (off by default). Every user may read them. Owner: `db/schema` `settings`, one row or none,
   whose `values` holds only what was set; `core/settings` parses it and spreads it over
   `ROUTER_DEFAULTS`, with the range from `ROUTER_CONFIG_DEFAULTS`; read into the snapshot as
   `Snapshot.settings`; served by `settings/resolvers` (`routerSettings`, `updateRouterSettings`).
@@ -306,7 +314,10 @@ Everything about the code comes after `Owner:`.
 ### Endpoints
 
 - **Agents endpoint:** the address apps use to run agents. It looks like any OpenAI-compatible
-  model server, except that every model it lists is an agent. Owner: `agents/routes`; `/v1`.
+  model server, except that every model it lists is an agent. Each agent's entry carries
+  `context_length` when it is known: the document's `model.contextLength`, else what its
+  provider's model list states for the model (a pool's smallest), read from the cached listing
+  with a short bounded wait. Owner: `agents/routes`, `agents/context-length`; `/v1`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `/runs/<id>` (agent, revision, status, input, timings, usage and error) and
@@ -358,7 +369,9 @@ Everything about the code comes after `Owner:`.
 - **Transport:** how the router reaches a server: a program it starts, an address it connects to,
   or, for the admin server, inside the router itself. An address is reached over streamable HTTP,
   or over SSE, the older transport that streams events from one address and takes messages posted
-  to another. Both take headers and a login, and are never stopped for being idle. Owner:
+  to another. Both take headers and a login, and are never stopped for being idle. A request a
+  server refused because it no longer has the session (as after a restart) is sent once more on a
+  new one; a request it took and never answered is not, since it may have run. Owner:
   `servers.transport`; `stdio`, `streamable-http`, `sse`, or `builtin` (only `ai-router`'s),
   connected in process. `tools/shapes` `isHttpTransport` is true for the two HTTP ones.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
@@ -394,10 +407,13 @@ Everything about the code comes after `Owner:`.
 - **Server login:** the login a remote server asks for, which a user starts once and the router
   keeps for it, refreshing its tokens as they run out. Owner: `tools/oauth`; OAuth, the `oauth`
   column on `servers`, read from the snapshot; the UI sees only `signed_in` and the `login`
-  status. The login comes back to `/oauth/callback`, and the router names itself by
+  status. A login starts by knocking without a token: an `initialize` posted to a
+  streamable-HTTP server, or opening an SSE server's event stream. The login comes back to
+  `/oauth/callback`, and the router names itself by
   `/oauth/client-metadata.json` to a login that takes that as a client id.
 - **Activity:** the record of tool calls made through the router, kept for a while: which tool,
-  how long, whether it failed, and the agent and run that made it. Never a call's arguments or
+  how long, whether it failed, and the agent, run and workspace that made it (shown on a server's
+  Activity tab, linked to the run). Never a call's arguments or
   result. Owner: `tools/activity`; the `activity` table, written every few seconds and pruned after
   30 days. `run_id` has no foreign key, so a call's record outlives its run's.
 
@@ -498,6 +514,8 @@ Everything about the code comes after `Owner:`.
   Owner: `agents/request` (`tools`), `agents/run`; passed to the loop as `hostTools`, whose
   dispatch answers with a stand-in and agent-core's `end`, so the loop stops after the step. The
   run then stores its transcript in `runs.resume` and the minted ids in `runs.pending_call_ids`.
+  One that duplicates one of the agent's own tools is left out instead (`agents/app-tools`), and
+  named in the `X-AI-Router-Pruned-Tools` header.
 - **Conversation:** optional memory of one chat between requests, named by the app and deleted
   once idle, so the app sends only its new messages. One run at a time. Owner:
   `agents/conversation`; the `conversations` table (per workspace and key, with its agent, host

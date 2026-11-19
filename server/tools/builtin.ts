@@ -27,6 +27,9 @@ export const BUILTIN_ONLY = `The built-in transport is the router's own: only "$
 /** Why an agent run may not change or restart the admin server: it is the run's own way in. */
 export const BUILTIN_PEOPLE_ONLY = 'only a person changes or restarts it, never an agent run through it';
 
+/** Why an agent run may not try the admin server's tools through it: it calls them directly. */
+export const BUILTIN_RUNS_DIRECT = 'a run calls its tools directly, not through try_server_tool';
+
 /** The admin server's columns a write may change. Everything else about it is the router's. */
 export const BUILTIN_EDITABLE: ReadonlySet<string> = new Set(['enabled', 'displayName', 'description', 'updatedAt']);
 

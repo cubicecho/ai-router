@@ -64,6 +64,55 @@ curl http://localhost:3000/v1/chat/completions \
   the OpenAI SDKs give up after 10 minutes. A dropped connection cancels the run, unless the
   request sent an `Idempotency-Key`.
 
+## Connecting an older app
+
+An app that isn't on the current `@cubicecho/agent-core` (an older `task_server`, or any plain
+OpenAI client or SDK) connects like this:
+
+1. **Base URL** `http://<host>:<port>/v1`, and a **workspace key** as `Authorization: Bearer`
+   or `x-api-key`. The workspace must list the agents the app runs.
+2. **The model is an agent's id**, from `GET /v1/models`. Raw model names such as
+   `ollama/qwen3:8b` are not served: they answer 404 `model_not_found`. Each entry carries
+   `context_length` when the router knows it, for an app that sizes its history from the list.
+3. **Side tasks go to a minimal agent.** An app that makes its own model calls for compaction,
+   tool selection or titles should name an agent with only a model, no prompt and no servers,
+   rather than its main agent, which would bring its prompt and tools to every one of them:
+
+   ```json
+   { "spec": "cubicecho.agent/1", "id": "plain", "model": { "model": "ollama/qwen3:8b" }, "tools": { "servers": [] } }
+   ```
+
+4. **The app's own tools.** Whatever the app sends in `tools` is an **app tool**: the router
+   hands its calls back with `finish_reason: "tool_calls"`, and the app runs them and answers.
+   An app that used to load MCP servers itself may keep sending their tools: one with the name
+   of one of the agent's own tools is left out, the agent's server answers it, and the answer
+   names it in `X-AI-Router-Pruned-Tools`. The same tool under another server name
+   (`gh__create_issue` beside `github__create_issue`, with the same input schema) is left out
+   too once an admin turns on **Settings → Leave out app tools that are the agent's under
+   another server name**. The most tools one request may send is a router setting (128 by
+   default).
+5. **Strict fields.** A field the router doesn't read and the agent's override policy doesn't
+   list (`reasoning_effort`, `chat_template_kwargs`, `metadata`, `store`, `logprobs`,
+   `service_tier` and the like) answers 400, naming it. A client that can't stop sending them
+   works once an admin sets **Settings → Fields the agent does not allow** to **Ignore the
+   field**: those fields are then dropped, and the answer names them in
+   `X-AI-Router-Ignored`, streamed or not. So is a newer SDK's `stream_options` key such as
+   `include_obfuscation` (as `stream_options.include_obfuscation`); `include_usage` still works. Messages, tools, `n` above 1, a `tool_choice` other
+   than `auto`, the older `functions`, and a bad value of an allowed field are refused either way.
+6. **Timeouts.** A run without `stream` sends nothing until it ends, which can be long: see
+   **Long runs** under [Running an agent](#running-an-agent). Prefer `stream: true`, or raise
+   the client's timeout and send an `Idempotency-Key`.
+
+What the router serves:
+
+| Endpoint | |
+| --- | --- |
+| `GET /v1/models`, `GET /v1/models/<id>` | the agents this key may run |
+| `POST /v1/chat/completions` | runs one, streamed or not |
+| `GET /runs/<id>`, `GET /runs/<id>/events` | a run of this key's workspace, and its events |
+
+Every other `/v1` path, `/v1/embeddings` and `/v1/completions` included, answers 404.
+
 ## Development
 
 ```bash

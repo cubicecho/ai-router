@@ -33,6 +33,16 @@ export interface RunToolNames<T extends RunTool> {
 }
 
 /**
+ * Replaces each character OpenAI refuses in a function name.
+ *
+ * @param name - A name, such as `<server>__<tool>` or a tool's own name.
+ * @returns The name with each such character replaced by `_`. It may still be too long.
+ */
+export function withValidChars(name: string): string {
+  return name.replace(INVALID_CHARS, REPLACEMENT);
+}
+
+/**
  * Cuts a name short enough to take its hash, and adds the hash of the name it stands for.
  *
  * @param valid - The name with every invalid character replaced.
@@ -61,7 +71,7 @@ export function runToolNames<T extends RunTool>(tools: readonly T[]): RunToolNam
   const entries = tools
     .map((tool) => {
       const original = toolName(tool.serverName, tool.tool);
-      const valid = original.replace(INVALID_CHARS, REPLACEMENT);
+      const valid = withValidChars(original);
       const fits = valid.length <= MAX_FUNCTION_NAME_LENGTH;
       return { tool, original, valid, candidate: fits ? valid : withHash(valid, original) };
     })

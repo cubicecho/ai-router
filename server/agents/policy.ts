@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 /**
- * What the layers above an agent may change, as the `override_policies` table keeps it. Phase 6's
- * run applies it; anything it does not allow refuses the request, and nothing is quietly trimmed.
- * The model and the endpoint are never in it: no request changes them.
+ * What the layers above an agent may change, as the `override_policies` table keeps it. Anything it does not allow
+ * refuses the request, except an unlisted request field, which the router's `unlistedFields` setting may drop and name
+ * instead. The model and the endpoint are never in it: no request changes them.
  */
 export const overridePolicyRulesSchema = z.object({
   /** The app's leading system or developer messages become the agent's `host` prompt part. */

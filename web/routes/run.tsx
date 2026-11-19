@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { RunDocument, type RunQuery } from '@/__generated__/graphql';
 import { displayNameOf } from '@/agents/shapes';
 import { CardLayout } from '@/components/card-layout';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState } from '@/components/load-state';
-import { PageLayout, titleColumn } from '@/components/page-layout';
+import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
@@ -14,10 +15,7 @@ import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft } from '@/components/ui/icons';
 import { Spinner } from '@/components/ui/spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
-import { openTab } from '@/lib/tab-search';
-import { cn } from '@/lib/utils';
 import { inputMessagesOf } from '@/runs/input';
 import { RunInput } from '@/runs/run-input';
 import { RunStatusBadge } from '@/runs/run-status-badge';
@@ -35,9 +33,6 @@ const FINISH_LENGTH = 'length';
 
 /** How a link inside a fact is drawn, so it reads as one without a hover. */
 const LINK_CLASS = 'underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground';
-
-/** How each tab's panel lays out what it holds: the page body's own gap, and none of the pane's top margin. */
-const PANEL_CLASS = 'mt-0 flex flex-col gap-4';
 
 /** One run as the page reads it. */
 type RunRecord = NonNullable<RunQuery['run']>;
@@ -192,8 +187,6 @@ function rawEventsOf(events: readonly LiveRunEvent[]): string {
 /** One run, in tabs: what it did and answered, its facts, and its events as they came. */
 export function RunRoute() {
   const { runId } = useParams({ from: '/app/agent-runs/$runId' });
-  const search = useSearch({ from: '/app/agent-runs/$runId' });
-  const navigate = useNavigate({ from: '/agent-runs/$runId' });
   const queryClient = useQueryClient();
   const run = useQuery({
     queryKey: ['runs', runId],
@@ -201,7 +194,7 @@ export function RunRoute() {
     refetchInterval: (query) => (isOpen(query.state.data?.run?.status ?? '') ? RUNNING_REFETCH_MS : false),
   });
   const live = useRunEvents(runId, () => void queryClient.invalidateQueries({ queryKey: ['runs'] }));
-  const tab = openTab(RUN_TABS, search);
+  const { tab, showTab } = useDetailTab(RUN_TABS);
   const record = run.data?.run ?? undefined;
   const isRunning = isOpen(record?.status ?? '');
   const now = useNow(isRunning);
@@ -221,11 +214,6 @@ export function RunRoute() {
     );
   }
 
-  /** Opens a tab, replacing the address rather than adding to the history. */
-  const showTab = (value: string) => {
-    const next = RUN_TABS.find((candidate) => candidate === value);
-    void navigate({ search: { tab: next === RUN_TABS[0] ? undefined : next }, replace: true });
-  };
   const answer = answerOf(record.answer);
   const isFollowing = live.state === FollowState.Following;
   const title = record.agent === null ? record.agentName : displayNameOf(record.agent);
@@ -246,27 +234,17 @@ export function RunRoute() {
   };
 
   return (
-    <Tabs value={tab} onValueChange={showTab} className="h-full">
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={title}
         description={`Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`}
         backSlot={back}
         width="page"
         actionSlot={<RunStatusBadge status={record.status} />}
-        headerBarSlot={
-          <div className={cn(titleColumn('page'), 'pb-3')}>
-            <TabsList aria-label="Run tabs">
-              {RUN_TABS.map((value) => (
-                <TabsTrigger key={value} value={value}>
-                  {RUN_TAB_LABELS[value]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
-        }
+        headerBarSlot={<DetailTabBar tabs={RUN_TABS} labels={RUN_TAB_LABELS} label="Run tabs" />}
         contentSlot={
           <>
-            <TabsContent value="timeline" className={PANEL_CLASS}>
+            <DetailTabPanel value="timeline">
               <RunInput messages={inputMessagesOf(record.input)} />
               <EndedAlert run={record} />
               {answer === null ? null : (
@@ -292,7 +270,6 @@ export function RunRoute() {
               )}
               <CardLayout
                 level={2}
-                title="Timeline"
                 description="Its exchanges, turns, tool calls and results, side tasks and usage, as they happened. Open a row for its detail."
                 actionSlot={
                   isFollowing && live.events.length > 0 && isRunning ? (
@@ -308,17 +285,15 @@ export function RunRoute() {
                   )
                 }
               />
-            </TabsContent>
-            <TabsContent value="details" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="details">
               <Section
-                title="Details"
                 description="What ran, for whom, how the app asked, when, and what it spent."
                 contentSlot={<RunFacts run={record} now={now} />}
               />
-            </TabsContent>
-            <TabsContent value="events" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="events">
               <Section
-                title="Raw events"
                 description="Every event as the router sent it, one JSON object a line."
                 contentSlot={
                   noEvents() ?? (
@@ -334,10 +309,10 @@ export function RunRoute() {
                   )
                 }
               />
-            </TabsContent>
+            </DetailTabPanel>
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

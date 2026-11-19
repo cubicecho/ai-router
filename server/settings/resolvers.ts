@@ -29,15 +29,53 @@ const SETTINGS_SDL = parse(`
     max: Int!
   }
 
+  "A setting that is on or off: what is in force, what an admin saved, and its default."
+  type BooleanSetting {
+    "The value in force: the saved one, or the default when none is saved."
+    value: Boolean!
+    "What an admin saved, or null when the setting follows its default."
+    saved: Boolean
+    "What it is when nobody has set it."
+    default: Boolean!
+  }
+
+  "What a request on /v1 gets for a field the agent's override policy doesn't list."
+  enum UnlistedFields {
+    "Answer 400, naming the field."
+    refuse
+    "Drop the field, run the agent, and name it in the answer's X-AI-Router-Ignored header."
+    ignore
+  }
+
+  "The choice for unlisted request fields: what is in force, what an admin saved, and its default."
+  type UnlistedFieldsSetting {
+    "The choice in force: the saved one, or the default when none is saved."
+    value: UnlistedFields!
+    "What an admin saved, or null when the setting follows its default."
+    saved: UnlistedFields
+    "What it is when nobody has set it."
+    default: UnlistedFields!
+  }
+
   "The router's settings, which an admin changes while it runs. Every user may read them."
   type RouterSettings {
     "The most tools an app may send with one request on /v1. OpenAI's own limit is 128."
     maxAppTools: IntSetting!
+    """
+    Whether an app tool that is one of the agent's own under another server's name is dropped: the same tool name
+    after __, and the same input schema. An app tool with exactly the name of one of the agent's tools is always
+    dropped. Off by default, since it is a guess; every drop is logged.
+    """
+    pruneAppToolsAcrossServers: BooleanSetting!
+    "What a request on /v1 gets for a field, such as reasoning_effort or metadata, that the agent's override policy doesn't list. Messages, tools, response_format, system messages and ai_router are never ignored."
+    unlistedFields: UnlistedFieldsSetting!
   }
 
   "A change to the router's settings. A field left out stays as it is, and null returns it to its default."
   input RouterSettingsInput {
     maxAppTools: Int
+    pruneAppToolsAcrossServers: Boolean
+    unlistedFields: UnlistedFields
   }
 
   extend type Query {
@@ -77,6 +115,16 @@ function settingsAnswer(saved: SavedSettings) {
       default: ROUTER_DEFAULTS.maxAppTools,
       min: MIN_APP_TOOLS,
       max: ROUTER_CONFIG_DEFAULTS.maxAppToolsLimit,
+    },
+    pruneAppToolsAcrossServers: {
+      value: current.pruneAppToolsAcrossServers,
+      saved: saved.pruneAppToolsAcrossServers ?? null,
+      default: ROUTER_DEFAULTS.pruneAppToolsAcrossServers,
+    },
+    unlistedFields: {
+      value: current.unlistedFields,
+      saved: saved.unlistedFields ?? null,
+      default: ROUTER_DEFAULTS.unlistedFields,
     },
   };
 }

@@ -336,14 +336,24 @@ function signalDirectly(child: ChildProcessWithoutNullStreams, signal: StopSigna
 }
 
 /**
- * Whether a request failed because a streamable-HTTP server no longer has the session it was sent on.
+ * What the SDK's SSE client rejects with when a message is posted to a session the server doesn't have. It carries no
+ * status of its own, only this message.
+ */
+const SSE_SESSION_LOST = /^Error POSTing to endpoint \(HTTP 404\)/;
+
+/**
+ * Whether a request failed because an HTTP server no longer has the session it was sent on, as a restarted one doesn't.
  *
  * @param transport - The transport the request went out on.
  * @param error - What the request rejected with.
- * @returns true for a 404 to a session the server forgot, or a 400 to a request that carried none from a server that
- * now wants one. Both come before the server runs anything, so sending the request again is safe.
+ * @returns true for a 404 to a session the server forgot, or, over streamable HTTP, a 400 to a request that carried
+ * none from a server that now wants one. Each comes before the server runs anything, so sending the request again is
+ * safe. A request the server took and never answered is not one of them: it may have run.
  */
 function isSessionLost(transport: Transport, error: unknown): boolean {
+  if (transport instanceof SSEClientTransport) {
+    return error instanceof Error && SSE_SESSION_LOST.test(error.message);
+  }
   const isHttpError = error instanceof StreamableHTTPError;
   if (isHttpError === false) {
     return false;
@@ -577,7 +587,7 @@ export class Instance {
   }
 
   /**
-   * Runs one request on the connection, starting it first if need be. A streamable-HTTP server that lost the
+   * Runs one request on the connection, starting it first if need be. A streamable-HTTP or SSE server that lost the
    * session is connected to again, and the request sent once more.
    *
    * @typeParam T - What the request resolves to.

@@ -149,6 +149,10 @@ export interface SseFixture {
   url: string;
   /** The `x-fixture` header the last event stream was opened with, which the `header` tool can't see. */
   streamHeader: () => string;
+  /** How many sessions it has opened. */
+  sessionsOpened: () => number;
+  /** Forgets every session, as a restarted server would: a message posted to one is answered 404. */
+  dropSessions: () => void;
   close: () => Promise<void>;
 }
 
@@ -161,6 +165,7 @@ export interface SseFixture {
 export async function startSseFixture(): Promise<SseFixture> {
   const sessions = new Map<string, SSEServerTransport>();
   let streamHeader = '';
+  let opened = 0;
 
   /**
    * Answers one request: a new session on a stream, its session's transport for a message, and 404 otherwise.
@@ -174,6 +179,7 @@ export async function startSseFixture(): Promise<SseFixture> {
       streamHeader = String(req.headers[FIXTURE_HEADER] ?? '');
       const transport = new SSEServerTransport(MESSAGES_PATH, res);
       sessions.set(transport.sessionId, transport);
+      opened += 1;
       res.on('close', () => sessions.delete(transport.sessionId));
       await fixtureServer().connect(transport);
       return;
@@ -187,5 +193,11 @@ export async function startSseFixture(): Promise<SseFixture> {
   }
 
   const { origin, close } = await listenOnLoopback(handle);
-  return { url: `${origin}${SSE_PATH}`, streamHeader: () => streamHeader, close };
+  return {
+    url: `${origin}${SSE_PATH}`,
+    streamHeader: () => streamHeader,
+    sessionsOpened: () => opened,
+    dropSessions: () => sessions.clear(),
+    close,
+  };
 }

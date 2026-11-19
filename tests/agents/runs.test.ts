@@ -1,9 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
+import { IGNORED_HEADER } from '../../server/agents/request.ts';
 import { createRunService } from '../../server/agents/run.ts';
+import { UnlistedFields } from '../../server/core/settings.ts';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { activity } from '../../server/db/tables/activity.ts';
+import { agents } from '../../server/db/tables/agents.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
+import { settings } from '../../server/db/tables/settings.ts';
 import { usageCounts } from '../../server/db/tables/usage-counts.ts';
 import { createSessionToken, createTestAuth, createWorkspaceWithKey } from '../helpers.ts';
 import {
@@ -16,6 +20,7 @@ import {
   GRANT,
   INSTALL,
   lastMessage,
+  PROVIDER_CONTEXT_LENGTH,
   QUESTION,
   SERVER,
   useRunHarness,
@@ -27,11 +32,25 @@ import {
 const h = useRunHarness();
 
 describe('the agents endpoint', () => {
-  it('lists the agents this key may run, marked as agents', async () => {
+  it('lists the agents this key may run, marked as agents, with what their model reads', async () => {
     const { base } = await h.startRouter();
     await h.asUser.expectOk(CREATE_AGENT, {
       document: { spec: 'cubicecho.agent/1', id: 'not-granted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
+    const { createAgent: stated } = await h.asUser.expectOk(CREATE_AGENT, {
+      document: {
+        spec: 'cubicecho.agent/1',
+        id: 'small',
+        model: { model: 'fake/m1', contextLength: 8_192 },
+        tools: { servers: [] },
+      },
+    });
+    const { createAgent: unknown } = await h.asUser.expectOk(CREATE_AGENT, {
+      document: { spec: 'cubicecho.agent/1', id: 'elsewhere', model: { model: 'gone/m1' }, tools: { servers: [] } },
+    });
+    for (const agent of [stated, unknown]) {
+      await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: agent.id } });
+    }
     const response = await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${h.keySecret}` } });
     expect(response.status).toBe(HttpStatus.Ok);
     expect(await response.json()).toEqual({
@@ -44,14 +63,48 @@ describe('the agents endpoint', () => {
           owned_by: 'ai-router',
           name: 'Helper',
           description: 'Answers with what its tool said.',
+          context_length: PROVIDER_CONTEXT_LENGTH,
           ai_router: { kind: 'agent' },
         },
+        expect.objectContaining({ id: 'small', context_length: 8_192 }),
+        expect.not.objectContaining({ context_length: expect.anything() }),
       ],
     });
     const one = await fetch(`${base}/v1/models/helper`, { headers: { 'x-api-key': h.keySecret } });
-    expect(await one.json()).toMatchObject({ id: 'helper' });
+    expect(await one.json()).toMatchObject({ id: 'helper', context_length: PROVIDER_CONTEXT_LENGTH });
     const hidden = await fetch(`${base}/v1/models/not-granted`, { headers: { 'x-api-key': h.keySecret } });
     expect(hidden.status).toBe(HttpStatus.NotFound);
+  });
+
+  it('answers one agent with its list entry, and the same model_not_found for any agent the key may not run', async () => {
+    const { base } = await h.startRouter();
+    const headers = { authorization: `Bearer ${h.keySecret}` };
+    const list = await (await fetch(`${base}/v1/models`, { headers })).json();
+    const one = await fetch(`${base}/v1/models/helper`, { headers });
+    expect(one.status).toBe(HttpStatus.Ok);
+    expect(await one.json()).toEqual(list.data[0]);
+
+    await h.asUser.expectOk(CREATE_AGENT, {
+      document: { spec: 'cubicecho.agent/1', id: 'ungranted', model: { model: 'fake/m1' }, tools: { servers: [] } },
+    });
+    const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
+      document: { spec: 'cubicecho.agent/1', id: 'unpromoted', model: { model: 'fake/m1' }, tools: { servers: [] } },
+    });
+    await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
+    await h.db.update(agents).set({ liveRevisionId: null }).where(eq(agents.id, createAgent.id));
+    await h.snapshot.rebuild();
+
+    const missing = async (name: string) => {
+      const response = await fetch(`${base}/v1/models/${name}`, { headers });
+      expect(response.status).toBe(HttpStatus.NotFound);
+      const { error } = await response.json();
+      return { ...error, message: error.message.replace(name, '<name>') };
+    };
+    const unknown = await missing('nobody');
+    expect(unknown).toMatchObject({ code: 'model_not_found', type: 'invalid_request_error', param: 'model' });
+    expect(await missing('ungranted')).toEqual(unknown);
+    expect(await missing('unpromoted')).toEqual(unknown);
+    expect((await fetch(`${base}/v1/models/helper`)).status).toBe(HttpStatus.Unauthorized);
   });
 
   it('takes workspace keys only: no key, a session, or two different keys are refused', async () => {
@@ -229,6 +282,45 @@ describe('the agents endpoint', () => {
     }
     expect(await h.db.select().from(runs)).toEqual([]);
     expect(h.received).toEqual([]);
+  });
+
+  it('drops the fields the policy does not list when the router ignores them, and names them, streamed or not', async () => {
+    const { base } = await h.startRouter();
+    const unlisted = { reasoning_effort: 'low', metadata: { app: 'task_server' }, store: false };
+    const refused = await h.complete(base, { model: 'helper', messages: [QUESTION], ...unlisted });
+    expect(refused.status).toBe(HttpStatus.BadRequest);
+    expect((await refused.json()).error).toMatchObject({ param: 'reasoning_effort' });
+    expect(refused.headers.get(IGNORED_HEADER)).toBeNull();
+
+    await h.db.insert(settings).values({ values: { unlistedFields: UnlistedFields.Ignore } });
+    await h.snapshot.rebuild();
+    const body = { model: 'helper', messages: [QUESTION], top_k: 40, ...unlisted };
+    const answered = await h.complete(base, body);
+    expect(answered.status).toBe(HttpStatus.Ok);
+    expect(answered.headers.get(IGNORED_HEADER)).toBe('reasoning_effort, metadata, store');
+    expect((await answered.json()).choices[0].message.content).toBe('The tool said: hello there');
+    const [first] = h.received;
+    expect(first?.top_k).toBe(40);
+    expect(first).not.toHaveProperty('metadata');
+    expect(first).not.toHaveProperty('store');
+
+    // A newer SDK's stream option is dropped too, and include_usage still asks for the usage chunk.
+    const streamOptions = { include_usage: true, include_obfuscation: false };
+    const streamed = await h.complete(base, { ...body, stream: true, stream_options: streamOptions });
+    expect(streamed.headers.get('content-type')).toContain('text/event-stream');
+    expect(streamed.headers.get(IGNORED_HEADER)).toBe(
+      'reasoning_effort, metadata, store, stream_options.include_obfuscation',
+    );
+    const lines = await dataLines(streamed);
+    expect(lines.at(-1)).toBe('[DONE]');
+    expect(lines).toContainEqual(expect.objectContaining({ choices: [], usage: expect.any(Object) }));
+
+    const plain = await h.complete(base, { model: 'helper', messages: [QUESTION] });
+    expect(plain.headers.get(IGNORED_HEADER)).toBeNull();
+    await plain.json();
+    const structural = await h.complete(base, { model: 'helper', messages: [QUESTION], n: 2, ...unlisted });
+    expect(structural.status).toBe(HttpStatus.BadRequest);
+    expect((await structural.json()).error).toMatchObject({ param: 'n' });
   });
 
   it('runs a workspace instance with its own settings when the workspace has an entry for the server', async () => {

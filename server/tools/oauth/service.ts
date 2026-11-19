@@ -8,7 +8,7 @@ import { SERVER_LOGIN_DEFAULTS, type ServerLoginSettings } from '../../core/defa
 import { badInput, errorMessage, notFound, upstreamFailed } from '../../core/errors.ts';
 import { parseOrThrow } from '../../core/validation.ts';
 import { HttpStatus, MS_PER_SECOND, SECONDS_PER_MINUTE } from '../../core/wire.ts';
-import type { ServerOAuth } from '../shapes.ts';
+import { type ServerOAuth, TRANSPORT_SSE } from '../shapes.ts';
 import {
   ServerLoginProvider,
   type ServerLoginStore,
@@ -410,13 +410,23 @@ export class ServerLoginService {
   }
 
   /**
-   * Sends a server an `initialize` with no token, and reads only the status and headers.
+   * Sends a server an `initialize` with no token, or opens an SSE server's event stream, and reads only the status and
+   * headers.
    *
-   * @param server - The server: its address, and the headers its instances send, since one may want a header before
-   * it answers 401.
+   * @param server - The server: its address and transport, and the headers its instances send, since one may want a
+   * header before it answers 401.
    * @returns The response, its body already discarded.
    */
   private async knock(server: StoredServerLogin): Promise<Response> {
+    if (server.transport === TRANSPORT_SSE) {
+      // An SSE server takes messages only on the session its stream opens, so the stream is what asks for a login.
+      const response = await this.timedFetch(server.url, {
+        method: 'GET',
+        headers: { ...server.headers, accept: 'text/event-stream' },
+      });
+      await response.body?.cancel().catch(() => undefined);
+      return response;
+    }
     const response = await this.timedFetch(server.url, {
       method: 'POST',
       headers: { ...server.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },

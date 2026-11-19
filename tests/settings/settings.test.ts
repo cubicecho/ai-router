@@ -3,7 +3,7 @@ import { ADMIN_ROLES } from '../../server/core/admin-roles.ts';
 import { CALLER_RUN, type UserCaller } from '../../server/core/context.ts';
 import { ROUTER_CONFIG_DEFAULTS, ROUTER_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
-import { MIN_APP_TOOLS } from '../../server/core/settings.ts';
+import { MIN_APP_TOOLS, UnlistedFields } from '../../server/core/settings.ts';
 import { createSnapshotHost, loadSnapshot, type SnapshotHost } from '../../server/db/snapshot.ts';
 import { settings } from '../../server/db/tables/settings.ts';
 import { Role } from '../../server/db/tables/users.ts';
@@ -18,7 +18,10 @@ import {
   workspaceCaller,
 } from '../helpers.ts';
 
-const READ = '{ routerSettings { maxAppTools { value saved default min max } } }';
+const READ =
+  '{ routerSettings { maxAppTools { value saved default min max } unlistedFields { value saved default } } }';
+const UPDATE_UNLISTED =
+  'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { unlistedFields { value saved } } }';
 const UPDATE =
   'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { maxAppTools { value saved } } }';
 
@@ -63,7 +66,36 @@ describe('the router settings', () => {
       min: MIN_APP_TOOLS,
       max: maxAppToolsLimit,
     });
+    expect(routerSettings.unlistedFields).toEqual({
+      value: UnlistedFields.Refuse,
+      saved: null,
+      default: UnlistedFields.Refuse,
+    });
     expect(snapshot.current().settings).toEqual(ROUTER_DEFAULTS);
+  });
+
+  it('let an admin choose to ignore unlisted request fields, keep the other settings, and return to refusing', async () => {
+    const asAdmin = createClient(db, admin, { snapshot });
+    await update({ maxAppTools: 16 });
+    const ignoring = await asAdmin.expectOk(UPDATE_UNLISTED, { input: { unlistedFields: UnlistedFields.Ignore } });
+    expect(ignoring.updateRouterSettings.unlistedFields).toEqual({
+      value: UnlistedFields.Ignore,
+      saved: UnlistedFields.Ignore,
+    });
+    expect(snapshot.current().settings).toEqual({
+      ...ROUTER_DEFAULTS,
+      maxAppTools: 16,
+      unlistedFields: UnlistedFields.Ignore,
+    });
+    const back = await asAdmin.expectOk(UPDATE_UNLISTED, { input: { unlistedFields: null } });
+    expect(back.updateRouterSettings.unlistedFields).toEqual({ value: UnlistedFields.Refuse, saved: null });
+    expect(snapshot.current().settings).toEqual({
+      ...ROUTER_DEFAULTS,
+      maxAppTools: 16,
+      unlistedFields: UnlistedFields.Refuse,
+    });
+    // GraphQL's enum refuses any other choice before the resolver sees it.
+    await asAdmin.expectError(UPDATE_UNLISTED, { input: { unlistedFields: 'trim' } });
   });
 
   it('let an admin change one, which the snapshot holds once the write answers', async () => {
@@ -79,6 +111,32 @@ describe('the router settings', () => {
     expect(await update({})).toEqual({ value: 16, saved: 16 });
     expect(await update({ maxAppTools: null })).toEqual({ value: ROUTER_DEFAULTS.maxAppTools, saved: null });
     expect(snapshot.current().settings).toEqual(ROUTER_DEFAULTS);
+  });
+
+  it('leave pruning app tools across servers off until an admin turns it on, and back to the default', async () => {
+    const PRUNING = 'pruneAppToolsAcrossServers { value saved default }';
+    const client = createClient(db, admin, { snapshot });
+    const read = async () => (await client.expectOk(`{ routerSettings { ${PRUNING} } }`)).routerSettings;
+    const change = async (value: boolean | null) =>
+      (
+        await client.expectOk(
+          `mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { ${PRUNING} } }`,
+          { input: { pruneAppToolsAcrossServers: value } },
+        )
+      ).updateRouterSettings;
+    expect((await read()).pruneAppToolsAcrossServers).toEqual({ value: false, saved: null, default: false });
+    expect(ROUTER_DEFAULTS.pruneAppToolsAcrossServers).toBe(false);
+    expect((await change(true)).pruneAppToolsAcrossServers).toEqual({ value: true, saved: true, default: false });
+    expect(snapshot.current().settings.pruneAppToolsAcrossServers).toBe(true);
+    // Changing the cap keeps it.
+    await update({ maxAppTools: 8 });
+    expect((await read()).pruneAppToolsAcrossServers.value).toBe(true);
+    expect((await change(null)).pruneAppToolsAcrossServers).toEqual({ value: false, saved: null, default: false });
+    expect(snapshot.current().settings).toEqual({ ...ROUTER_DEFAULTS, maxAppTools: 8 });
+    const asUser = await createClient(db, user, { snapshot }).expectError(UPDATE, {
+      input: { pruneAppToolsAcrossServers: true },
+    });
+    expect(asUser.code).toBe(ErrorCode.Forbidden);
   });
 
   it('refuse a user who is not an admin, a workspace key and an agent run', async () => {

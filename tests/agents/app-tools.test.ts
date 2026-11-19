@@ -1,6 +1,6 @@
 import type { RunEvent } from '@cubicecho/agent-core';
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
 import { Role } from '../../server/db/tables/users.ts';
@@ -8,6 +8,7 @@ import { createClient, createUser } from '../helpers.ts';
 import {
   dataLines,
   ECHO,
+  ECHO_SCRIPT,
   expectInOrder,
   lastMessage,
   QUESTION,
@@ -34,6 +35,11 @@ const ASK_USER = {
 /** Sets the router's app-tool cap. */
 const SET_CAP =
   'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { maxAppTools { value } } }';
+/** Turns pruning app tools across servers on or off. */
+const SET_PRUNING =
+  'mutation ($input: RouterSettingsInput!) { updateRouterSettings(input: $input) { pruneAppToolsAcrossServers { value } } }';
+/** The header that names the app tools a run left out. */
+const PRUNED = 'x-ai-router-pruned-tools';
 /** A second app tool. */
 const PICK_DATE = { type: 'function', function: { name: 'pick_date', parameters: { type: 'object' } } };
 
@@ -311,18 +317,116 @@ describe('app tools', () => {
     expect(await h.runReaches(second.runId, RunStatus.Expired)).toMatchObject({ resume: null });
   });
 
-  it('refuses an app tool with the name of one of the agent’s own tools, before any run is recorded', async () => {
+  it("leaves out an app tool with the name of one of the agent's tools, so the agent's server answers it", async () => {
+    // The model calls echo: the agent's own server answers, and nothing is handed back.
     const { base } = await h.startRouter();
     const response = await h.complete(base, {
       model: 'helper',
       messages: [QUESTION],
-      tools: [{ type: 'function', function: { name: ECHO } }],
+      tools: [{ type: 'function', function: { name: ECHO, parameters: { type: 'object' } } }, ASK_USER],
     });
-    expect(response.status).toBe(HttpStatus.BadRequest);
-    const { error } = await response.json();
-    expect(error.param).toBe('tools.0');
-    expect(error.message).toContain('"echo" of server "fix.ture"');
-    expect(await h.db.select().from(runs)).toEqual([]);
+    expect(response.status).toBe(HttpStatus.Ok);
+    expect(response.headers.get(PRUNED)).toBe(ECHO);
+    const answer = await response.json();
+    expect(answer.choices[0]).toMatchObject({
+      finish_reason: 'stop',
+      message: { content: 'The tool said: hello there' },
+    });
+    // The model sees the agent's echo once, and the app's other tool still.
+    const names = sentToolNames(h.received[0]);
+    expect(names.filter((name) => name === ECHO)).toHaveLength(1);
+    expect(names).toContain('ask_user');
+    const runId = response.headers.get('x-run-id') ?? '';
+    const events = await eventsOf(base, runId);
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'notice', text: expect.stringContaining(ECHO) }));
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'tool-result', name: ECHO, ok: true }));
+    const [row] = await h.db.select().from(runs);
+    expect(row).toMatchObject({ status: RunStatus.Completed, pendingCallIds: [] });
+  });
+
+  it('names what it left out before the first byte of a stream, and nothing when it left nothing out', async () => {
+    const { base } = await h.startRouter();
+    const streamed = await h.complete(base, {
+      model: 'helper',
+      messages: [QUESTION],
+      tools: [{ type: 'function', function: { name: ECHO } }],
+      stream: true,
+    });
+    expect(streamed.headers.get(PRUNED)).toBe(ECHO);
+    expect((await dataLines(streamed)).at(-1)).toBe('[DONE]');
+    const plain = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [ASK_USER] });
+    expect(plain.headers.get(PRUNED)).toBeNull();
+  });
+
+  it('keeps the same tool under another server name, until an admin turns pruning across servers on', async () => {
+    const admin = await createUser(h.db, 'admin@example.com', Role.Admin);
+    const asAdmin = createClient(h.db, admin, { snapshot: h.snapshot, tools: h.tools, models: h.models });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const { base } = await h.startRouter();
+    // The app's own copy of the fixture's echo, under the name it gave the server, with the agent's schema.
+    await h.complete(base, { model: 'helper', messages: [QUESTION] });
+    const sentTools = h.received[0]?.tools as { function: { name: string; parameters: unknown } }[];
+    const agentEcho = sentTools.find((tool) => tool.function.name === ECHO);
+    const appEcho = {
+      type: 'function',
+      function: { name: 'fixture__echo', parameters: agentEcho?.function.parameters },
+    };
+    h.script = (body) =>
+      lastMessage(body).role === 'tool'
+        ? { content: 'Done.' }
+        : { call: { name: 'fixture__echo', args: { text: 'hi' } } };
+    h.received = [];
+
+    const off = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [appEcho] });
+    expect(off.headers.get(PRUNED)).toBeNull();
+    expect((await off.json()).choices[0].finish_reason).toBe('tool_calls');
+    expect(sentToolNames(h.received[0])).toContain('fixture__echo');
+    expect(info).not.toHaveBeenCalledWith(expect.stringContaining('fixture__echo'));
+
+    await asAdmin.expectOk(SET_PRUNING, { input: { pruneAppToolsAcrossServers: true } });
+    h.script = ECHO_SCRIPT;
+    h.received = [];
+    const on = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [appEcho, ASK_USER] });
+    expect(on.headers.get(PRUNED)).toBe('fixture__echo');
+    expect((await on.json()).choices[0]).toMatchObject({ finish_reason: 'stop' });
+    expect(sentToolNames(h.received[0])).not.toContain('fixture__echo');
+    expect(sentToolNames(h.received[0])).toContain('ask_user');
+    expect(info).toHaveBeenCalledWith(expect.stringMatching(/^\[runs\] .*fixture__echo.*fix_ture__echo/));
+
+    // A schema that differs makes it another tool, so it stays.
+    const otherSchema = { type: 'function', function: { name: 'fixture__echo', parameters: { type: 'object' } } };
+    const differs = await h.complete(base, { model: 'helper', messages: [QUESTION], tools: [otherSchema] });
+    expect(differs.headers.get(PRUNED)).toBeNull();
+    info.mockRestore();
+  });
+
+  it('never hands a left-out tool back, and leaves it out again when the run resumes', async () => {
+    // Calls the agent's echo, which the app also sent, and the app's ask_user, in one step.
+    h.script = (body) =>
+      lastMessage(body).role === 'tool'
+        ? { content: 'Both done.' }
+        : {
+            calls: [
+              { name: ECHO, args: { text: 'from the router' } },
+              { name: 'ask_user', args: { question: 'Sure?' } },
+            ],
+          };
+    const { base } = await h.startRouter();
+    const tools = [{ type: 'function', function: { name: ECHO } }, ASK_USER];
+    const response = await h.complete(base, { model: 'helper', messages: [QUESTION], tools });
+    expect(response.headers.get(PRUNED)).toBe(ECHO);
+    const { message } = (await response.json()).choices[0];
+    const calls: Call[] = message.tool_calls;
+    expect(calls.map((call) => call.function.name)).toEqual(['ask_user']);
+    const [row] = await h.db.select().from(runs);
+    expect(row?.resume?.handedBack.map((call) => call.function.name)).toEqual(['ask_user']);
+    // The run keeps the tools as the app sent them, and prunes them again on each resume.
+    expect(row?.resume?.appTools.map((tool) => tool.function.name)).toEqual([ECHO, 'ask_user']);
+
+    const resumed = await h.complete(base, answering(message, { [calls[0]?.id ?? '']: 'yes' }, { tools }));
+    expect(resumed.headers.get(PRUNED)).toBe(ECHO);
+    expect((await resumed.json()).choices[0].message.content).toBe('Both done.');
+    expect(sentToolNames(h.received[1]).filter((name) => name === ECHO)).toHaveLength(1);
   });
 
   it("refuses more tools than the router's settings allow, as soon as an admin lowers the cap", async () => {

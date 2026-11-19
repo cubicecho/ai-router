@@ -421,7 +421,9 @@ export function createToolServices({
     if (run === undefined) {
       refuseIfBuiltin(resolved, 'its tools are for agent runs that name it, and a person does the same in the UI');
     }
-    const workspace = workspaceId === null ? undefined : snapshot.current().workspaces.get(workspaceId);
+    // Who made the call: the run's workspace, whichever instance answers it.
+    const callerWorkspaceId = run?.workspaceId ?? workspaceId;
+    const workspace = callerWorkspaceId === null ? undefined : snapshot.current().workspaces.get(callerWorkspaceId);
     const startedAt = performance.now();
     const record = (ok: boolean, error: string | null): void =>
       activity.record({

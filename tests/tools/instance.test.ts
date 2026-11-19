@@ -434,6 +434,15 @@ describe('an SSE instance', () => {
     expect(events[0]).toMatchObject({ serverId: 'server-3', ok: true });
   });
 
+  it('opens a new session when the server forgot the old one, and sends the call again', async () => {
+    const instance = track(sseServer());
+    await instance.callTool('header', {});
+    const before = sse.sessionsOpened();
+    sse.dropSessions();
+    expect(textOf(await instance.callTool('header', {}))).toBe('');
+    expect(sse.sessionsOpened()).toBe(before + 1);
+  });
+
   it('is never stopped for being idle', async () => {
     const instance = track({ ...sseServer(), idleTimeoutMs: 50 });
     await instance.start();

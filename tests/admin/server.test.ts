@@ -1,6 +1,7 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { graphql } from 'graphql';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -12,6 +13,8 @@ import { CALLER_RUN, type ContextDeps, type UserCaller } from '../../server/core
 import { MCP_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost, type SnapshotHost } from '../../server/db/snapshot.ts';
+import { activity } from '../../server/db/tables/activity.ts';
+import { runs } from '../../server/db/tables/runs.ts';
 import { servers } from '../../server/db/tables/servers.ts';
 import { FIELD_GRANTS } from '../../server/graphql/abilities.ts';
 import { createSchema } from '../../server/graphql/build-schema.ts';
@@ -45,14 +48,18 @@ const UPDATE_ENTRY = `mutation ($id: UUID!, $set: UpdateWorkspaceServerInput!) {
   updateWorkspaceServer(where: { id: { eq: $id } }, set: $set) { id }
 }`;
 const CREATE_AGENT = 'mutation ($document: JSON!) { createAgent(document: $document) { id } }';
+const INSTALL = 'mutation ($input: InstallServerInput!) { installServer(input: $input) { id } }';
 
 /** What `agents:read` is listed, by tool name. */
 const AGENT_READS = ['agent', 'agent_revision', 'agent_revisions', 'agents', 'check_agent'];
 /** The fields a role reaches that the listing leaves out: `UNLISTED_FIELDS`. */
 const UNLISTED = /(Aggregate|GroupBy)$/;
 
+/** A stdio MCP server with an `echo` tool. */
+const FIXTURE = fileURLToPath(new URL('../tools/fixtures/stdio-server.ts', import.meta.url));
+
 /** The run every call in these tests is made for. */
-const RUN: RunToolCall = { agentId: 'agent-1', agentName: 'helper', runId: 'run-1' };
+const RUN: RunToolCall = { agentId: 'agent-1', agentName: 'helper', runId: 'run-1', workspaceId: 'workspace-1' };
 
 let db: TestDb;
 let root: string;
@@ -196,6 +203,67 @@ describe('a call to the admin server', () => {
       expect(body.errors[0].extensions.code, tool).toBe(ErrorCode.BadUserInput);
     }
     expect(snapshotServer().enabled).toBe(true);
+  });
+
+  it('records a try_server_tool call under the run that made it, its agent and its workspace', async () => {
+    await grant([AdminRole.ServersOperate]);
+    const { createAgent } = await asUser.expectOk(CREATE_AGENT, {
+      document: { spec: 'cubicecho.agent/1', id: 'helper', model: { model: 'fake/m1' }, tools: { servers: [] } },
+    });
+    const [run] = await db
+      .insert(runs)
+      .values({ workspaceId, workspaceName: 'household', agentId: createAgent.id, agentName: 'helper', stream: false })
+      .returning({ id: runs.id });
+    const { installServer: fixture } = await asUser.expectOk(INSTALL, {
+      input: {
+        name: 'fixture',
+        source: { type: SourceType.Manual },
+        transport: { type: TRANSPORT_STDIO, command: process.execPath, args: [FIXTURE] },
+      },
+    });
+    const made: RunToolCall = { agentId: createAgent.id, agentName: 'helper', runId: run?.id ?? '', workspaceId };
+    // On the base instance, as an agent trying a tool usually does: the activity still names the run's workspace.
+    const result = await tools.callTool(
+      adminServerId,
+      workspaceId,
+      'try_server_tool',
+      { id: fixture?.id, tool: 'echo', arguments: { text: 'hi' } },
+      made,
+    );
+    expect(result.isError, JSON.stringify(result.content)).toBe(false);
+    await tools.activity.flush();
+    const rows = await db
+      .select()
+      .from(activity)
+      .where(eq(activity.serverId, fixture?.id ?? ''));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tool: 'echo',
+        ok: true,
+        runId: run?.id,
+        agentId: createAgent.id,
+        agentName: 'helper',
+        workspaceId,
+        workspaceName: 'household',
+      }),
+    ]);
+  });
+
+  it('refuses a run trying the admin server through try_server_tool: it calls those tools directly', async () => {
+    await grant([AdminRole.ServersOperate, AdminRole.AgentsRead]);
+    const result = await tools.callTool(
+      adminServerId,
+      workspaceId,
+      'try_server_tool',
+      {
+        id: adminServerId,
+        tool: 'agents',
+      },
+      RUN,
+    );
+    const [content] = result.content;
+    const body = JSON.parse(content?.type === 'text' ? content.text : '{}');
+    expect(body.errors[0].extensions.code).toBe(ErrorCode.BadUserInput);
   });
 
   it("never reaches another workspace's instance of a server", async () => {

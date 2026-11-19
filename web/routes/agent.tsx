@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { type ReactElement, useState } from 'react';
 import { AgentDocument, DeleteAgentDocument } from '@/__generated__/graphql';
 import { AgentEditorDialog } from '@/agents/agent-editor-dialog';
@@ -12,25 +12,19 @@ import { RevisionStanding, standingOf } from '@/agents/revisions';
 import { AGENT_TAB_LABELS, AGENT_TABS, type AgentTab } from '@/agents/search';
 import { factsOf } from '@/agents/shapes';
 import { ConfirmButton } from '@/components/confirm-button';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { LoadState } from '@/components/load-state';
-import { PageLayout, titleColumn } from '@/components/page-layout';
+import { PageLayout } from '@/components/page-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
-import { openTab } from '@/lib/tab-search';
-import { cn } from '@/lib/utils';
 import { RecentRunsSection } from '@/runs/recent-runs-section';
 import { RUNS_PER_PAGE } from '@/runs/search';
-
-/** How each tab's panel lays out what it holds: the page body's own gap, and none of the pane's top margin. */
-const PANEL_CLASS = 'mt-0 flex flex-col gap-4';
 
 /** One agent, in tabs: its live revision, its drafts and history, the workspaces offering it, its runs and usage. */
 export function AgentRoute() {
   const { agentId } = useParams({ from: '/app/agents/$agentId' });
-  const search = useSearch({ from: '/app/agents/$agentId' });
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
@@ -46,7 +40,7 @@ export function AgentRoute() {
       void navigate({ to: '/agents' });
     },
   });
-  const tab = openTab(AGENT_TABS, search);
+  const { tab, showTab } = useDetailTab(AGENT_TABS);
   const record = agent.data?.agent ?? undefined;
   const back = (
     <Button variant="outline" size="sm" iconSlot={<ArrowLeft />} linkSlot={<Link to="/agents" />} content="Agents" />
@@ -66,11 +60,6 @@ export function AgentRoute() {
     );
   }
 
-  /** Opens a tab, replacing the address rather than adding to the history. */
-  const showTab = (value: string) => {
-    const next = AGENT_TABS.find((candidate) => candidate === value);
-    void navigate({ search: { tab: next === AGENT_TABS[0] ? undefined : next }, replace: true });
-  };
   const live = record.liveRevision ?? null;
   // With none live, the editor starts from the newest revision rather than from nothing.
   const newest = record.revisions[0] ?? null;
@@ -85,7 +74,7 @@ export function AgentRoute() {
   };
 
   return (
-    <Tabs value={tab} onValueChange={showTab} className="h-full">
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={displayName}
         description={facts.description ?? undefined}
@@ -104,41 +93,33 @@ export function AgentRoute() {
           </>
         }
         headerBarSlot={
-          <div className={cn(titleColumn('page'), 'pb-3')}>
-            <TabsList aria-label={`${displayName} tabs`}>
-              {AGENT_TABS.map((value) => (
-                <TabsTrigger key={value} value={value} trailingSlot={trailing[value]}>
-                  {AGENT_TAB_LABELS[value]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+          <DetailTabBar tabs={AGENT_TABS} labels={AGENT_TAB_LABELS} label={`${displayName} tabs`} trailing={trailing} />
         }
         contentSlot={
           <>
-            <TabsContent value="overview" className={PANEL_CLASS}>
+            <DetailTabPanel value="overview">
               <AgentOverview agent={record} />
-            </TabsContent>
-            <TabsContent value="drafts" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="drafts">
               <DraftsSection agentId={record.id} autoPromote={record.autoPromote} drafts={drafts} />
-            </TabsContent>
-            <TabsContent value="history" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="history">
               <HistorySection liveRevisionId={liveRevisionId} revisions={record.revisions} />
-            </TabsContent>
-            <TabsContent value="workspaces" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="workspaces">
               <AgentWorkspacesSection agent={record} displayName={displayName} />
-            </TabsContent>
-            <TabsContent value="runs" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="runs">
               <RecentRunsSection
                 where={{ agentName: { eq: record.name } }}
                 search={{ agent: record.name }}
                 hide="agent"
                 limit={RUNS_PER_PAGE}
               />
-            </TabsContent>
-            <TabsContent value="usage" className={PANEL_CLASS}>
+            </DetailTabPanel>
+            <DetailTabPanel value="usage">
               <AgentUsageSection agentId={record.id} />
-            </TabsContent>
+            </DetailTabPanel>
             {isEditing ? (
               <AgentEditorDialog
                 open
@@ -149,6 +130,6 @@ export function AgentRoute() {
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

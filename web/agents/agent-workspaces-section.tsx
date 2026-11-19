@@ -20,7 +20,7 @@ export interface AgentWorkspacesSectionProps {
   displayName: string;
 }
 
-/** The workspaces offering an agent: the only ones whose apps may run it. */
+/** The workspaces offering an agent: the only ones whose apps may run it. Untitled: its tab names it. */
 export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSectionProps) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
@@ -54,7 +54,6 @@ export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSe
 
   return (
     <Section
-      title="Workspaces"
       description="An app sees the agents its workspace offers, so only apps with these workspaces' keys may run it."
       actionSlot={agent.workspaces.length > 0 ? add : undefined}
       contentSlot={

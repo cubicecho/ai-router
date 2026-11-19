@@ -13,9 +13,10 @@ ai-router gives every app on a network **agents**, through one address and one k
 llm-router and mcp-router (`../llm-router`, `../mcp/mcp-router`) stay in service. Their model and
 tool code is the reference to port from, not a dependency.
 
-**Status: phases 1 to 3 and 5 to 7 are built:** the scaffold, models, tools, agents and their
-revisions, and runs on `/v1` with app tools, progress events, run records at `/runs` and
-conversations. Consumers (phase 8) and the admin server (phase 9) come next (`PLAN.md`).
+**Status: phases 1 to 3, 5 to 7 and 9 are built:** the scaffold, models, tools, agents and their
+revisions, runs on `/v1` with app tools, progress events, run records at `/runs` and
+conversations, and the admin server with roles and drafts. The apps are moving over (phase 8).
+What comes next is in the GitHub issues and `PLAN.md`'s later list.
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
@@ -99,7 +100,8 @@ non-negotiables apply on top of these.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
   follows its default. Every user reads `routerSettings`; only an admin calls
-  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap.
+  `updateRouterSettings`, and no run or key reaches either. Today it holds the app-tool cap,
+  `unlistedFields` and `pruneAppToolsAcrossServers`.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
@@ -162,6 +164,11 @@ non-negotiables apply on top of these.
   the agent passes the override policy before `resolveAgentSpec`. `endpoint` and the model never
   change for a request, and a caller's `servers` is intersected with the agent's. Sampling
   settings pass only if the policy allows them, and never reach side tasks.
+- **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
+  refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
+  named in `X-AI-Router-Ignored`, set before the first byte, as is any `stream_options` key but
+  `include_usage` (named `stream_options.<key>`). Only those are ever ignored: messages, tools, `n`, `response_format`, `ai_router`, system messages the policy refuses, and a
+  bad value of a listed field still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
   model address, which the run's `fetch` hands to the models area in process, so an agent
   without an endpoint, and its side tasks, can run, and usage counts under the run.
@@ -178,6 +185,12 @@ non-negotiables apply on top of these.
   Read it from the table, and never hard-code its rules.
 - **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
   means exactly those. An emptied list means none, never all.
+- **An app tool that duplicates the agent's own is pruned, never refused.** Older apps send their
+  own MCP servers' tools. The same name as one of the agent's tools is always dropped. The same
+  tool under another server's name (equal after the first `__`, deep-equal input schemas) is
+  dropped only under `pruneAppToolsAcrossServers`, off by default, each drop logged with `[runs]`.
+  `X-AI-Router-Pruned-Tools` names them, set before the first byte. A pruned tool is never handed
+  back, and `runs.resume.appTools` keeps the tools as sent, so each resume prunes them again.
 - **A waiting run resumes only when every handed-back call is answered.** It is matched by the
   call ids the router minted. Refuse a partial answer.
 - **Revisions are append-only, but for drafts, and only a user promotes.** A user's saves go live,
@@ -189,7 +202,8 @@ non-negotiables apply on top of these.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
   `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
   ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an
-  ai-router-specific client.
+  ai-router-specific client. The entry also carries `context_length` when it is known (the
+  document's `model.contextLength`, else the provider's listing), and never `0`.
 - **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
   second run.
 - **Run events are `agent-core`'s `RunEvent`, unchanged,** as JSON: agent-core has no encoder for them. The router

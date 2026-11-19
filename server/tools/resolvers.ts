@@ -1,19 +1,20 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
-import { CALLER_RUN, CALLER_USER, type Context } from '../core/context.ts';
+import { CALLER_RUN, CALLER_USER, type Context, type RunCaller } from '../core/context.ts';
 import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, forbidden, notFound } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import type { SnapshotServer } from '../db/snapshot.ts';
+import { runs } from '../db/tables/runs.ts';
 import { serverSecrets } from '../db/tables/server-secrets.ts';
 import { servers } from '../db/tables/servers.ts';
 import { Role } from '../db/tables/users.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { selectedId } from '../graphql/selected-id.ts';
-import type { InstallServerRequest } from './api.ts';
-import { BUILTIN_PEOPLE_ONLY, refuseIfBuiltin } from './builtin.ts';
+import type { InstallServerRequest, RunToolCall } from './api.ts';
+import { BUILTIN_PEOPLE_ONLY, BUILTIN_RUNS_DIRECT, refuseIfBuiltin } from './builtin.ts';
 import { SECRET_LIMITS, secretInput } from './input.ts';
 import { serverLoginStatus } from './oauth/service.ts';
 import { isHttpTransport } from './shapes.ts';
@@ -241,6 +242,23 @@ function instanceWorkspace(ctx: Context, requested: string | null | undefined): 
   return workspaceId;
 }
 
+/**
+ * Names the run a call through the admin server is made for, so its activity is recorded under that run.
+ *
+ * @param ctx - The request's context.
+ * @param caller - The run, as the admin server handed it over.
+ * @returns The run, its agent and its workspace. The agent's name is the one the run recorded when it started.
+ */
+async function runCallOf(ctx: Context, caller: RunCaller): Promise<RunToolCall> {
+  const [row] = await ctx.db.select({ agentName: runs.agentName }).from(runs).where(eq(runs.id, caller.runId));
+  return {
+    runId: caller.runId,
+    agentId: caller.agentId,
+    agentName: row?.agentName ?? caller.agentId,
+    workspaceId: caller.workspaceId,
+  };
+}
+
 /** What someone other than an admin is told for adding a server with headers. */
 const HEADERS_ADMIN_ONLY =
   'Only an admin can set headers: they are secrets. Add the server without them, and an admin sets them under Secrets.';
@@ -340,7 +358,7 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     return true;
   };
 
-  mutations.tryServerTool.resolve = (
+  mutations.tryServerTool.resolve = async (
     _parent: unknown,
     args: { id: string; workspaceId?: string | null; tool: string; arguments?: unknown },
     ctx: Context,
@@ -349,7 +367,13 @@ export function applyToolsExtension(schema: GraphQLSchema): GraphQLSchema {
     if (isRecord(toolArgs) === false) {
       throw badInput('A tool takes its arguments as a JSON object.');
     }
-    return ctx.tools.callTool(args.id, instanceWorkspace(ctx, args.workspaceId), args.tool, toolArgs);
+    const workspaceId = instanceWorkspace(ctx, args.workspaceId);
+    const { caller } = ctx;
+    if (caller?.kind !== CALLER_RUN) {
+      return ctx.tools.callTool(args.id, workspaceId, args.tool, toolArgs);
+    }
+    refuseIfBuiltin(serverById(ctx, args.id), BUILTIN_RUNS_DIRECT);
+    return ctx.tools.callTool(args.id, workspaceId, args.tool, toolArgs, await runCallOf(ctx, caller));
   };
 
   mutations.startServerLogin.resolve = (_parent: unknown, args: { serverId: string }, ctx: Context) => {

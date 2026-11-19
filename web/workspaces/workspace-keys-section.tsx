@@ -49,7 +49,7 @@ function expiryOf(expiresAt: string | null, now: number) {
   return <Badge variant="secondary">Expires {formatDate(expiresAt)}</Badge>;
 }
 
-/** The keys a workspace's apps call with: one per app or device, each revoked on its own. */
+/** The keys a workspace's apps call with: one per app or device, each revoked on its own. Untitled: its tab names it. */
 export function WorkspaceKeysSection({ workspaceId, keys }: WorkspaceKeysSectionProps) {
   const queryClient = useQueryClient();
   const [isMakingKey, setIsMakingKey] = useState(false);
@@ -64,7 +64,6 @@ export function WorkspaceKeysSection({ workspaceId, keys }: WorkspaceKeysSection
 
   return (
     <Section
-      title="Keys"
       description="Each app sends one with every request. A key sees this workspace and nothing else."
       actionSlot={keys.length > 0 ? makeKey : undefined}
       contentSlot={
