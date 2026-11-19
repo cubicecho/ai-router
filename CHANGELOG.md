@@ -1,3 +1,9 @@
+## [0.5.1](https://github.com/cubicecho/ai-router/compare/v0.5.0...v0.5.1) (2026-11-19)
+
+### Bug Fixes
+
+* **web:** pages use the page column, so the body is inset under the title ([fbda9bf](https://github.com/cubicecho/ai-router/commit/fbda9bf7a88657d6b2051554a006a19fd1a4b26f)), closes [cubicecho/cubeui#542](https://github.com/cubicecho/cubeui/issues/542)
+
 # [0.5.0](https://github.com/cubicecho/ai-router/compare/v0.4.0...v0.5.0) (2026-11-19)
 
 ### Bug Fixes
