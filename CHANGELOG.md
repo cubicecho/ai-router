@@ -1,3 +1,13 @@
+# [0.6.0](https://github.com/cubicecho/ai-router/compare/v0.5.1...v0.6.0) (2026-11-19)
+
+### Features
+
+* **runs:** keep each run's input, and store its events folded ([6239974](https://github.com/cubicecho/ai-router/commit/6239974a778aad3e92db31f08463e59c13c13431))
+* **settings:** let an admin set the app-tool cap on a Settings page ([c8dfafa](https://github.com/cubicecho/ai-router/commit/c8dfafa95c9c52a6b4a36a5c07a2c648995b8cb0))
+* **tools:** reach servers over SSE, and add HTTP servers with secret headers ([204c6a0](https://github.com/cubicecho/ai-router/commit/204c6a00e7c27e5b2cb51806dc06b3df110a71df))
+* **web:** add HTTP servers as their own choice, with headers and SSE ([b6bd7a0](https://github.com/cubicecho/ai-router/commit/b6bd7a0a625773249e81729f8095913707b77828))
+* **web:** show a run's input first, and runs and timelines in cards ([61c6e73](https://github.com/cubicecho/ai-router/commit/61c6e7345e7a775ace43c77f3d99740e79069565))
+
 ## [0.5.1](https://github.com/cubicecho/ai-router/compare/v0.5.0...v0.5.1) (2026-11-19)
 
 ### Bug Fixes
