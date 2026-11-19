@@ -57,8 +57,8 @@ function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: 
  *
  * @param row - The run.
  * @param conversation - The app's name for the conversation it belongs to, or null.
- * @returns Its agent, revision, conversation, status, timings (when it started, last began waiting, and ended), usage
- * and error.
+ * @returns Its agent, revision, conversation, status, what its requests added, timings (when it started, last began
+ * waiting, and ended), usage and error.
  */
 export function runRecord(row: RunRow, conversation: string | null) {
   return {
@@ -69,6 +69,7 @@ export function runRecord(row: RunRow, conversation: string | null) {
     revisionId: row.revisionId,
     workspace: row.workspaceName,
     status: row.status,
+    input: row.input,
     user: row.user,
     startedAt: row.startedAt.toISOString(),
     finishedAt: row.finishedAt?.toISOString() ?? null,

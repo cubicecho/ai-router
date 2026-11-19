@@ -47,6 +47,23 @@ export interface RunAnswer {
   toolCalls?: HandedBackCall[];
 }
 
+/** The roles of the messages a request adds to a run. */
+export type InputRole = 'system' | 'developer' | 'user' | 'tool';
+
+/**
+ * One message a request added to a run: a system, developer or user message of a new run, or the app's answer to a
+ * call it was handed back, for a resume. Kept as text.
+ */
+export interface InputMessage {
+  role: InputRole;
+  /** Its text, the text parts joined. */
+  content: string;
+  /** The handed-back call a `tool` message answers. */
+  toolCallId?: string;
+  /** How many images a user message carried. Their data isn't kept. */
+  images?: number;
+}
+
 /**
  * What a waiting run needs to carry on: its transcript and loaded tools, its layers, and the app's tools. Kept only
  * while it waits.
@@ -96,6 +113,11 @@ export const runs = pgTable(
       .default(RunStatus.Running),
     /** The conversation it belongs to, from `X-Conversation-Id`. Set to null when the conversation is deleted. */
     conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
+    /**
+     * What its requests added, in the order they came: the messages of the request that started it (for a
+     * conversation, only the new ones), then the tool answers of each request that resumed it.
+     */
+    input: jsonb('input').$type<InputMessage[]>().notNull().default(sql`'[]'::jsonb`),
     /** The request's `user`, for the app's own reference. */
     user: text('user'),
     /** Whether the request that started it asked for a stream. */

@@ -19,7 +19,7 @@ const EVENT_TYPE_SDL = `
   type LiveRunEvent {
     "The run it belongs to."
     runId: UUID!
-    "Its place in the run, from 1, for ordering and dropping repeats."
+    "Its place in the run, from 1, for ordering and dropping repeats. A stored stretch of thinking or output carries its last event's."
     seq: Int!
     "When it happened, in milliseconds since the epoch."
     at: Float!
@@ -55,7 +55,7 @@ const RUN_EVENTS_FIELD = `
 /** A run's stored events, on the generated type. */
 const RUN_FIELD_SDL = `
   extend type Run {
-    "Its events, oldest first, from after afterSeq. folded joins each stretch of thinking or output into one event. Select id with it."
+    "Its events, oldest first, from after afterSeq: stored ones with each stretch of thinking or output already joined, then any not stored yet. folded joins the rest too. Select id with it."
     events(afterSeq: Int, limit: Int, folded: Boolean): [LiveRunEvent!]!
   }
 `;
