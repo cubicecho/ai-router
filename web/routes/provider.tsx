@@ -1,27 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { DeleteProviderDocument, MeDocument, ProviderDocument, UsageByProviderDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState, RowSkeleton } from '@/components/load-state';
-import { PageLayout, titleColumn } from '@/components/page-layout';
+import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft, KeyRound, Pencil } from '@/components/ui/icons';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
-import { openTab } from '@/lib/tab-search';
-import { cn } from '@/lib/utils';
 import { ApiKeyDialog } from '@/models/api-key-dialog';
 import { headersOf } from '@/models/headers';
 import { ModelsSection } from '@/models/models-section';
 import { ProviderDialog } from '@/models/provider-dialog';
-import { PROVIDER_TABS, type ProviderTab, validateProviderSearch } from '@/models/tabs';
+import { PROVIDER_TABS, type ProviderTab } from '@/models/tabs';
 import { UsageSection } from '@/models/usage-section';
 
 /** What each tab is called. */
@@ -49,7 +47,6 @@ function ProviderUsage({ providerId }: { providerId: string }) {
 /** One provider, in tabs: where it is and its key, what it serves now, and what it has been used for. */
 export function ProviderRoute() {
   const { providerId } = useParams({ from: '/app/providers/$providerId' });
-  const search = useSearch({ from: '/app/providers/$providerId' });
   const navigate = useNavigate({ from: '/providers/$providerId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
@@ -68,6 +65,7 @@ export function ProviderRoute() {
   });
   const record = provider.data?.provider ?? undefined;
   const isAdmin = me.data?.me.role === Role.Admin;
+  const { tab, showTab } = useDetailTab(PROVIDER_TABS);
   const back = (
     <Button
       variant="outline"
@@ -100,11 +98,7 @@ export function ProviderRoute() {
 
   const headers = Object.entries(headersOf(record.headers));
   return (
-    <Tabs
-      value={openTab(PROVIDER_TABS, search)}
-      onValueChange={(tab) => void navigate({ search: validateProviderSearch({ tab }), replace: true })}
-      className="h-full"
-    >
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={
           <span className="flex items-center gap-2">
@@ -127,20 +121,10 @@ export function ProviderRoute() {
             />
           </>
         }
-        headerBarSlot={
-          <div className={cn(titleColumn('page'), 'pb-3')}>
-            <TabsList aria-label="Provider">
-              {PROVIDER_TABS.map((tab) => (
-                <TabsTrigger key={tab} value={tab}>
-                  {TAB_LABELS[tab]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
-        }
+        headerBarSlot={<DetailTabBar tabs={PROVIDER_TABS} labels={TAB_LABELS} label="Provider" />}
         contentSlot={
           <>
-            <TabsContent value="overview" className="flex flex-col gap-4">
+            <DetailTabPanel value="overview">
               <PropertyList
                 contentSlot={
                   <>
@@ -204,18 +188,18 @@ export function ProviderRoute() {
                   )
                 }
               />
-            </TabsContent>
-            <TabsContent value="models">
+            </DetailTabPanel>
+            <DetailTabPanel value="models">
               <ModelsSection providerId={record.id} providerName={record.name} />
-            </TabsContent>
-            <TabsContent value="usage">
+            </DetailTabPanel>
+            <DetailTabPanel value="usage">
               <ProviderUsage providerId={record.id} />
-            </TabsContent>
+            </DetailTabPanel>
             <ProviderDialog open={isEditing} onOpenChange={setIsEditing} provider={record} />
             {isAdmin ? <ApiKeyDialog open={isSettingKey} onOpenChange={setIsSettingKey} provider={record} /> : null}
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

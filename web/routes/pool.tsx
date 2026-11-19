@@ -1,22 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { DeletePoolDocument, PoolDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { LoadState } from '@/components/load-state';
-import { PageLayout, titleColumn } from '@/components/page-layout';
+import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
-import { openTab } from '@/lib/tab-search';
-import { cn } from '@/lib/utils';
 import { AFFINITIES, PoolDialog, STRATEGIES } from '@/models/pool-dialog';
 import { PoolTargetsSection } from '@/models/pool-targets-section';
-import { POOL_TABS, type PoolTab, validatePoolSearch } from '@/models/tabs';
+import { POOL_TABS, type PoolTab } from '@/models/tabs';
 
 /** What each tab is called. */
 const TAB_LABELS = {
@@ -27,7 +25,6 @@ const TAB_LABELS = {
 /** One pool, in tabs: how it picks a target, and its targets with their load. */
 export function PoolRoute() {
   const { poolId } = useParams({ from: '/app/pools/$poolId' });
-  const search = useSearch({ from: '/app/pools/$poolId' });
   const navigate = useNavigate({ from: '/pools/$poolId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
@@ -40,6 +37,7 @@ export function PoolRoute() {
     },
   });
   const record = pool.data?.pool ?? undefined;
+  const { tab, showTab } = useDetailTab(POOL_TABS);
   const back = (
     <Button variant="outline" size="sm" iconSlot={<ArrowLeft />} linkSlot={<Link to="/pools" />} content="Pools" />
   );
@@ -59,11 +57,7 @@ export function PoolRoute() {
   }
 
   return (
-    <Tabs
-      value={openTab(POOL_TABS, search)}
-      onValueChange={(tab) => void navigate({ search: validatePoolSearch({ tab }), replace: true })}
-      className="h-full"
-    >
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={
           <span className="flex items-center gap-2">
@@ -87,25 +81,16 @@ export function PoolRoute() {
           </>
         }
         headerBarSlot={
-          <div className={cn(titleColumn('page'), 'pb-3')}>
-            <TabsList aria-label="Pool">
-              {POOL_TABS.map((tab) => (
-                <TabsTrigger
-                  key={tab}
-                  value={tab}
-                  trailingSlot={
-                    tab === 'targets' ? <Badge variant="secondary">{record.targets.length}</Badge> : undefined
-                  }
-                >
-                  {TAB_LABELS[tab]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+          <DetailTabBar
+            tabs={POOL_TABS}
+            labels={TAB_LABELS}
+            label="Pool"
+            trailing={{ targets: <Badge variant="secondary">{record.targets.length}</Badge> }}
+          />
         }
         contentSlot={
           <>
-            <TabsContent value="overview">
+            <DetailTabPanel value="overview">
               <PropertyList
                 contentSlot={
                   <>
@@ -132,14 +117,14 @@ export function PoolRoute() {
                   </>
                 }
               />
-            </TabsContent>
-            <TabsContent value="targets">
+            </DetailTabPanel>
+            <DetailTabPanel value="targets">
               <PoolTargetsSection pool={record} providers={pool.data?.providers ?? []} />
-            </TabsContent>
+            </DetailTabPanel>
             <PoolDialog open={isEditing} onOpenChange={setIsEditing} pool={record} />
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

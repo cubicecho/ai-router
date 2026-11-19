@@ -1,28 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { DeleteServerDocument, MeDocument, ServerDocument, UpdateServerDocument } from '@/__generated__/graphql';
 import { ConfirmButton } from '@/components/confirm-button';
+import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
 import { LoadState } from '@/components/load-state';
-import { PageLayout, titleColumn } from '@/components/page-layout';
+import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
-import { openTab } from '@/lib/tab-search';
-import { cn } from '@/lib/utils';
 import { ActivitySection } from '@/tools/activity-section';
 import { InstancesSection } from '@/tools/instances-section';
 import { LoginSection } from '@/tools/login-section';
 import { isRequiredSecretUnset, SecretsSection } from '@/tools/secrets-section';
 import { ServerDialog } from '@/tools/server-dialog';
-import { SERVER_TABS, type ServerTab, serverTabsOf, validateServerSearch } from '@/tools/server-tabs';
+import { SERVER_TABS, type ServerTab, serverTabsOf } from '@/tools/server-tabs';
 import {
   BUILTIN,
   commandLine,
@@ -57,7 +55,6 @@ const TAB_LABELS = {
  */
 export function ServerRoute() {
   const { serverId } = useParams({ from: '/app/mcp-servers/$serverId' });
-  const search = useSearch({ from: '/app/mcp-servers/$serverId' });
   const navigate = useNavigate({ from: '/mcp-servers/$serverId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
@@ -81,6 +78,15 @@ export function ServerRoute() {
   const record = server.data?.server ?? undefined;
   const defaults = server.data?.serverDefaults;
   const isAdmin = me.data?.me.role === Role.Admin;
+  // The tabs this server's page has, once it has loaded. A link to one it lacks opens the first.
+  const tabs =
+    record === undefined
+      ? SERVER_TABS
+      : serverTabsOf({
+          isBuiltin: transportOf(record.transport).type === BUILTIN,
+          hasLogin: record.login !== null && record.login !== undefined,
+        });
+  const { tab, showTab } = useDetailTab(SERVER_TABS, tabs);
   const back = (
     <Button
       variant="outline"
@@ -113,18 +119,10 @@ export function ServerRoute() {
     ([name, meta]) => meta.isSecret !== true && env.some(([set]) => set === name) === false,
   );
   const { login } = record;
-  const tabs = serverTabsOf({ isBuiltin, hasLogin: login !== null && login !== undefined });
-  // The address is checked against every tab a server can have, so a link to one this server lacks opens the first.
-  const named = openTab(SERVER_TABS, search);
-  const tab = tabs.includes(named) ? named : SERVER_TABS[0];
   const hasEnv = transport.type === STDIO || env.length > 0 || unsetEnv.length > 0;
 
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(next) => void navigate({ search: validateServerSearch({ tab: next }), replace: true })}
-      className="h-full"
-    >
+    <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={
           <span className="flex items-center gap-2">
@@ -158,27 +156,20 @@ export function ServerRoute() {
           )
         }
         headerBarSlot={
-          <div className={cn(titleColumn('page'), 'pb-3')}>
-            <TabsList aria-label="MCP server">
-              {tabs.map((value) => (
-                <TabsTrigger
-                  key={value}
-                  value={value}
-                  trailingSlot={
-                    value === 'secrets' && isRequiredSecretUnset(record.secrets, envMeta) ? (
-                      <Badge variant="warning" label="A required secret is not set" />
-                    ) : undefined
-                  }
-                >
-                  {TAB_LABELS[value]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+          <DetailTabBar
+            tabs={tabs}
+            labels={TAB_LABELS}
+            label="MCP server"
+            trailing={{
+              secrets: isRequiredSecretUnset(record.secrets, envMeta) ? (
+                <Badge variant="warning" label="A required secret is not set" />
+              ) : undefined,
+            }}
+          />
         }
         contentSlot={
           <>
-            <TabsContent value="overview" className="flex flex-col gap-4">
+            <DetailTabPanel value="overview">
               <PropertyList
                 contentSlot={
                   <>
@@ -288,20 +279,20 @@ export function ServerRoute() {
                   }
                 />
               ) : null}
-            </TabsContent>
-            <TabsContent value="tools">
+            </DetailTabPanel>
+            <DetailTabPanel value="tools">
               <ToolsSection
                 serverId={record.id}
                 serverName={record.name}
                 enabled={record.enabled}
                 canTry={isBuiltin === false}
               />
-            </TabsContent>
-            <TabsContent value="instances">
+            </DetailTabPanel>
+            <DetailTabPanel value="instances">
               <InstancesSection serverId={record.id} />
-            </TabsContent>
+            </DetailTabPanel>
             {isBuiltin ? null : (
-              <TabsContent value="secrets">
+              <DetailTabPanel value="secrets">
                 <SecretsSection
                   serverId={record.id}
                   serverName={record.name}
@@ -310,18 +301,18 @@ export function ServerRoute() {
                   envMeta={envMeta}
                   isAdmin={isAdmin}
                 />
-              </TabsContent>
+              </DetailTabPanel>
             )}
             {login === null || login === undefined ? null : (
               // Kept mounted while hidden: a sign-in started here reports back by message from its popup, which has
               // to find the section listening even after the reader moves to another tab.
-              <TabsContent value="login" forceMount className="data-[state=inactive]:hidden">
+              <DetailTabPanel value="login" forceMount>
                 <LoginSection server={{ ...record, login }} isAdmin={isAdmin} />
-              </TabsContent>
+              </DetailTabPanel>
             )}
-            <TabsContent value="activity">
+            <DetailTabPanel value="activity">
               <ActivitySection serverId={record.id} />
-            </TabsContent>
+            </DetailTabPanel>
             {isBuiltin ? null : (
               <ServerDialog
                 key={record.updatedAt}
@@ -335,6 +326,6 @@ export function ServerRoute() {
           </>
         }
       />
-    </Tabs>
+    </DetailTabs>
   );
 }

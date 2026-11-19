@@ -24,10 +24,17 @@ export function tabSearch<TTab extends string>(
  * Reads the open tab.
  *
  * @typeParam TTab - The page's tabs.
- * @param tabs - Every tab the page has, the default first.
- * @param search - The route's search, as {@link tabSearch} left it.
- * @returns The tab to show.
+ * @param tabs - Every tab the page can have, the default first.
+ * @param shown - The tabs this record's page has.
+ * @param named - The address's `tab`.
+ * @returns The tab it names, or the first when it names none, or one this page lacks.
  */
-export function openTab<TTab extends string>(tabs: readonly [TTab, ...TTab[]], search: TabSearch<TTab>): TTab {
-  return search.tab ?? tabs[0];
+export function openTab<TTab extends string>(
+  tabs: readonly [TTab, ...TTab[]],
+  shown: readonly TTab[],
+  named: unknown,
+): TTab {
+  const [first] = tabs;
+  const tab = tabs.find((candidate) => candidate === named);
+  return tab !== undefined && shown.includes(tab) ? tab : first;
 }

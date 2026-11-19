@@ -16,8 +16,10 @@ describe('tabSearch', () => {
     expect(validate({})).toEqual({ tab: undefined });
   });
 
-  it('opens the first tab when none is named', () => {
-    expect(openTab(TABS, {})).toBe('agents');
-    expect(openTab(TABS, { tab: 'usage' })).toBe('usage');
+  it('opens the first tab when none is named, or one the page lacks', () => {
+    expect(openTab(TABS, TABS, undefined)).toBe('agents');
+    expect(openTab(TABS, TABS, 'usage')).toBe('usage');
+    expect(openTab(TABS, TABS, 'settings')).toBe('agents');
+    expect(openTab(TABS, ['agents', 'keys'], 'usage')).toBe('agents');
   });
 });
