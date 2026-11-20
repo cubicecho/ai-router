@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { AgentWorkspaceChoicesDocument, DeleteWorkspaceAgentDocument } from '@/__generated__/graphql';
+import { type AgentQuery, AgentWorkspaceChoicesDocument, DeleteWorkspaceAgentDocument } from '@/__generated__/graphql';
 import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
@@ -9,6 +9,7 @@ import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { Button } from '@/components/ui/button';
 import { Plus } from '@/components/ui/icons';
+import { joinStats } from '@/lib/format';
 import { request } from '@/lib/gql';
 import type { AgentRecord } from './agent-overview';
 import { AgentWorkspaceDialog } from './agent-workspace-dialog';
@@ -18,10 +19,12 @@ export interface AgentWorkspacesSectionProps {
   agent: AgentRecord;
   /** What the agent is called on screen. */
   displayName: string;
+  /** The servers each workspace granted it, by the workspace's entry for it. */
+  grants: AgentQuery['agentGrants'];
 }
 
 /** The workspaces offering an agent: the only ones whose apps may run it. Untitled: its tab names it. */
-export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSectionProps) {
+export function AgentWorkspacesSection({ agent, displayName, grants }: AgentWorkspacesSectionProps) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const choices = useQuery({
@@ -55,7 +58,7 @@ export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSe
   return (
     <CardLayout
       level={2}
-      description="An app sees the agents its workspace offers, so only apps with these workspaces' keys may run it."
+      description="Only apps with these workspaces' keys may run it. Each workspace chooses the MCP servers it may use there, on its Agents tab."
       actionSlot={agent.workspaces.length > 0 ? add : undefined}
       contentSlot={
         <>
@@ -66,10 +69,16 @@ export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSe
               label="Workspaces"
               contentSlot={agent.workspaces.map((entry) => {
                 const name = entry.workspace?.name ?? 'A deleted workspace';
+                const serverNames = grants.flatMap((grant) =>
+                  grant.workspaceAgentId === entry.id && grant.server !== null && grant.server !== undefined
+                    ? [grant.server.displayName ?? grant.server.name]
+                    : [],
+                );
                 return (
                   <ListItem
                     key={entry.id}
                     title={name}
+                    description={serverNames.length === 0 ? 'No MCP servers' : joinStats(...serverNames)}
                     linkSlot={
                       entry.workspace === null ? undefined : (
                         <Link to="/workspaces/$workspaceId" params={{ workspaceId: entry.workspace.id }} />

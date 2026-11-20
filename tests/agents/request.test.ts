@@ -26,6 +26,9 @@ const AGENT: AgentSpec = {
   tasks: { title: { model: 'ollama/qwen3:0.6b' } },
 };
 
+/** The servers the run's workspace granted the agent. */
+const GRANTED = ['actual', 'finance-docs'];
+
 /**
  * Builds a server entry for the snapshot.
  *
@@ -346,7 +349,7 @@ describe('stacking the layers', () => {
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    const { agent: resolved, prompt } = resolveRun(AGENT, request, SNAPSHOT);
+    const { agent: resolved, prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
     expect(resolved.baseUrl).toBe(MODELS_BASE_URL);
     expect(resolved.model).toBe('ollama/qwen3:32b');
     expect(prompt.parts.map(({ name, owner, mark }) => ({ name, owner, mark }))).toEqual([
@@ -382,7 +385,7 @@ describe('stacking the layers', () => {
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    const { prompt } = resolveRun(AGENT, request, SNAPSHOT);
+    const { prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
     expect(prompt.parts.map((part) => part.name)).toEqual(['role', 'format']);
     expect(prompt.warnings.map(({ part, rule }) => ({ part, rule }))).toEqual([
       { part: 'role', rule: 'replace-not-allowed' },
@@ -391,29 +394,35 @@ describe('stacking the layers', () => {
     ]);
   });
 
-  it('narrows the servers to those the agent has, and never widens them', () => {
+  it('reaches the servers its workspace granted, never the ones its document names', () => {
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const namesGithub: AgentSpec = { ...AGENT, tools: { servers: ['github'] } };
+    expect(resolveRun(namesGithub, ['actual'], plain, SNAPSHOT).agent.servers).toEqual(['actual']);
+    const namesNone: AgentSpec = { ...AGENT, tools: {} };
+    expect(resolveRun(namesNone, ['actual'], plain, SNAPSHOT).agent.servers).toEqual(['actual']);
+    expect(resolveRun(AGENT, [], plain, SNAPSHOT).agent.servers).toEqual([]);
+  });
+
+  it('narrows the granted servers to those the request names, and never widens them', () => {
     const narrowed = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['finance-docs', 'github'] } },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    expect(resolveRun(AGENT, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs']);
+    expect(resolveRun(AGENT, GRANTED, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs']);
     const none = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['github'] } },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    expect(resolveRun(AGENT, none, SNAPSHOT).agent.servers).toEqual([]);
-    const everyServer = { ...AGENT, tools: {} };
-    expect(resolveRun(everyServer, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs', 'github']);
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
-    expect(resolveRun(everyServer, plain, SNAPSHOT).agent.servers).toBeUndefined();
+    expect(resolveRun(AGENT, GRANTED, none, SNAPSHOT).agent.servers).toEqual([]);
+    expect(resolveRun(AGENT, [], narrowed, SNAPSHOT).agent.servers).toEqual([]);
   });
 
   it("gives the run's fetch to the router's endpoints only, and leaves an agent's own endpoint alone", () => {
     const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     const fetch: typeof globalThis.fetch = async () => new Response(null);
-    const config = withRouterFetch(resolveRun(AGENT, plain, SNAPSHOT).agent, fetch);
+    const config = withRouterFetch(resolveRun(AGENT, GRANTED, plain, SNAPSHOT).agent, fetch);
     expect(config.fetch).toBe(fetch);
     expect(config.tasks.title?.endpoint.fetch).toBe(fetch);
     const ownEndpoint: AgentSpec = {
@@ -421,7 +430,7 @@ describe('stacking the layers', () => {
       endpoint: { baseUrl: 'http://gpu:8080/v1' },
       tasks: { title: { model: 'small', endpoint: { baseUrl: MODELS_BASE_URL } } },
     };
-    const own = withRouterFetch(resolveRun(ownEndpoint, plain, SNAPSHOT).agent, fetch);
+    const own = withRouterFetch(resolveRun(ownEndpoint, GRANTED, plain, SNAPSHOT).agent, fetch);
     expect(own.baseUrl).toBe('http://gpu:8080/v1');
     expect(own.fetch).toBeUndefined();
     expect(own.apiKey).toBe('');

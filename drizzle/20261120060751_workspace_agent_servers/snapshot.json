@@ -1,0 +1,300 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ba61ce18-1847-42f5-9f72-df911acadd93",
+  "prevIds": [
+    "45b87a22-0f28-4404-bd58-fa92c2e63a00"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_servers"
+      ],
+      "writes": [
+        "s|tbl|public.workspace_agent_servers",
+        "n|tbl|public.workspace_agent_servers",
+        "e|tbl|public.workspace_agent_servers",
+        "n|rel|public.workspace_agent_servers",
+        "n|type|public.workspace_agent_servers",
+        "n|rel|public.workspace_agent_servers_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_servers",
+        "uq_workspace_agent_servers_workspace_agent_id_server_id"
+      ],
+      "writes": [
+        "s|idx|public.uq_workspace_agent_servers_workspace_agent_id_server_id",
+        "n|idx|public.uq_workspace_agent_servers_workspace_agent_id_server_id",
+        "e|idx|public.uq_workspace_agent_servers_workspace_agent_id_server_id",
+        "n|rel|public.uq_workspace_agent_servers_workspace_agent_id_server_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_servers.workspace_agent_id",
+        "n|col|public.workspace_agent_servers.server_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_servers",
+        "idx_workspace_agent_servers_server_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_workspace_agent_servers_server_id",
+        "n|idx|public.idx_workspace_agent_servers_server_id",
+        "e|idx|public.idx_workspace_agent_servers_server_id",
+        "n|rel|public.idx_workspace_agent_servers_server_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_servers.server_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_servers"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_servers.workspace_agent_servers_F4RH4WORxIlx_fkey",
+        "n|fk|public.workspace_agent_servers.workspace_agent_servers_F4RH4WORxIlx_fkey",
+        "e|fk|public.workspace_agent_servers.workspace_agent_servers_F4RH4WORxIlx_fkey",
+        "n|con|public.workspace_agent_servers.workspace_agent_servers_F4RH4WORxIlx_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_servers",
+        "n|sch|public",
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|col|public.workspace_agent_servers.workspace_agent_id",
+        "n|col|public.workspace_agents.id",
+        "e|uniqueness|public.workspace_agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_servers"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_servers.workspace_agent_servers_server_id_servers_id_fkey",
+        "n|fk|public.workspace_agent_servers.workspace_agent_servers_server_id_servers_id_fkey",
+        "e|fk|public.workspace_agent_servers.workspace_agent_servers_server_id_servers_id_fkey",
+        "n|con|public.workspace_agent_servers.workspace_agent_servers_server_id_servers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_servers",
+        "n|sch|public",
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_servers.server_id",
+        "n|col|public.servers.id",
+        "e|uniqueness|public.servers.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "workspace_agent_servers",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "workspace_agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "server_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "uq_workspace_agent_servers_workspace_agent_id_server_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "idx_workspace_agent_servers_server_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "workspace_agent_servers_F4RH4WORxIlx_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspace_agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "workspace_agent_servers_server_id_servers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "server_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "servers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_servers",
+        "name": "workspace_agent_servers_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

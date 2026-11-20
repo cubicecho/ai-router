@@ -4,7 +4,7 @@ import { titleOf } from '../../server/agents/run-sessions.ts';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
 import { createClient, createWorkspaceWithKey, workspaceCaller } from '../helpers.ts';
-import { CREATE_AGENT, GRANT, lastMessage, QUESTION, useRunHarness } from './run-harness.ts';
+import { CREATE_AGENT, lastMessage, QUESTION, useRunHarness } from './run-harness.ts';
 
 // A session is the runs one workspace's app sent under one key, `X-Conversation-Id` or else `X-Session-Id`, whichever
 // agents ran them. It is a label: the runs screen groups by it, and an app lists a session's runs at /runs.
@@ -49,7 +49,7 @@ async function addAgent(id: string): Promise<void> {
   const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
     document: { spec: 'cubicecho.agent/2', id, model: { model: 'fake/m1' }, tools: { servers: [] } },
   });
-  await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
+  await h.offer(h.workspaceId, createAgent.id, []);
   await h.snapshot.rebuild();
 }
 
@@ -81,7 +81,7 @@ describe('runSessions', () => {
     const { base } = await h.startRouter();
     await addAgent('titler');
     const other = await createWorkspaceWithKey(h.db, 'min-agent');
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: other.workspaceId, agentId: h.agentId } });
+    await h.offer(other.workspaceId, h.agentId);
     await h.snapshot.rebuild();
 
     await runOnce(base, 'helper', { 'x-session-id': 'chat-1' });
@@ -199,7 +199,7 @@ describe('GET /runs', () => {
     const loose = await runOnce(base, 'helper');
     const second = await runOnce(base, 'helper', { 'x-session-id': 'chat-1' });
     const other = await createWorkspaceWithKey(h.db, 'min-agent');
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: other.workspaceId, agentId: h.agentId } });
+    await h.offer(other.workspaceId, h.agentId);
     await h.snapshot.rebuild();
     await runOnce(base, 'helper', { 'x-session-id': 'chat-1', authorization: `Bearer ${other.secret}` });
 

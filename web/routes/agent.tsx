@@ -122,7 +122,7 @@ export function AgentRoute() {
               <HistorySection liveRevisionId={liveRevisionId} revisions={record.revisions} />
             </DetailTabPanel>
             <DetailTabPanel value="workspaces">
-              <AgentWorkspacesSection agent={record} displayName={displayName} />
+              <AgentWorkspacesSection agent={record} displayName={displayName} grants={agent.data?.agentGrants ?? []} />
             </DetailTabPanel>
             <DetailTabPanel value="runs">
               <RecentRunsSection

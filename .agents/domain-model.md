@@ -56,18 +56,19 @@ Dependencies point one way:
 - **`agents`** knows `models`, `tools` and the general folders.
 - **`workspaces`** knows all of the above.
 - **Assembly:** only `graphql/` and `http/` put the areas together.
-- **Reach and configuration:** a run's models and servers come from the agent's document
-  (`agents/reach`), and each server's configuration from the calling workspace's entry for it
+- **Reach and configuration:** a run's models come from the agent's document, its servers from
+  what the calling workspace granted that agent (`agents/reach`, read from the snapshot), and
+  each server's configuration from the calling workspace's entry for it
   (`workspaces/`), so `agents` never imports `workspaces`.
 
 ## Actors
 
 | Actor | Is | Reaches the system through | May change |
 |---|---|---|---|
-| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings, roles and override policies. Creates and revokes workspace keys, promotes revisions, and chooses each agent's override policy from those an admin wrote |
+| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings, roles and override policies. Creates and revokes workspace keys, grants each agent its servers in a workspace, promotes revisions, and chooses each agent's override policy from those an admin wrote |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client, any MCP client | `/v1`, `/runs` and `/mcp`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run the agents its workspace grants, and send layers the agent's override policy accepts |
-| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the tools and models in the agent's reach. When the agent names the admin server, it may read and write what its workspace's roles allow, and never the admin server itself |
+| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the agent's models and the servers its workspace granted the agent. When granted the admin server, it may read and write what its workspace's roles allow, never the admin server itself, and never a grant |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, the state of server instances, and which pool targets its health checks found down (in memory only). Never config, so a config change by anything other than a user is a bug |
 
@@ -252,7 +253,7 @@ created (shown once) --> in use --revoke--> deleted
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
-| A workspace decides which agents an app may run, and how their servers are configured for its runs, through its server entries. The agent decides which servers and models it uses, and a server entry never adds a server to a run. Without an entry, a run uses the base instance | `workspaces/`, `agents/reach` |
+| A workspace decides which agents an app may run and, per agent, which servers its runs there reach: exactly those granted, and none without a grant. The agent decides its models; its document's `tools.servers` is ignored. Only a person grants a server: no admin-server role reaches `setWorkspaceAgentServers`, so a run never widens its own reach. A server entry configures a server for the workspace's runs and never grants one; without an entry, a run uses the base instance | `workspaces/resolvers` `setWorkspaceAgentServers`, `graphql/permissions`, `agents/layers` `resolveRun`, `agents/reach` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`agent_core.servers`) is intersected with the agent's list. Sampling settings change only as the agent's override policy allows, and never reach its side tasks. A field the router doesn't read and the policy doesn't list refuses the request, naming the field; with the unlisted-fields setting at `ignore` it is dropped instead, and the answer's `X-AI-Router-Ignored` header names every field dropped, streamed or not. Under `ignore`, a `stream_options` key other than `include_usage` is dropped too and named `stream_options.<key>`; under `refuse` it refuses. Ignoring never reaches the messages, the tools, `tool_choice`, `functions`, `n`, `response_format`, `include_usage`, `agent_core` (an app part agent-core's `parseAppParts` can't read included), `ai_router` (its old name, refused with a pointer to the new one), or a bad value of a listed field: those refuse whatever the setting | `agents/request`, `agents/layers`, read from `agents/policy` |
 | An app's parts and its system messages are stacked on the agent's by agent-core's `stackAppParts`, never by rules of the router's own. Every app name gets `app_`, and no agent's part name has `app` as its first word (agent-core refuses such a document), so an app never overwrites or deletes an agent's part. It extends or replaces one only where the part's `allowedModes` lets it. A part that breaks that, or is named `system`, is dropped, never refused: a notice event and the answer's `agent_core.warnings` say so. No policy switches app parts or system messages off | `agents/layers` `resolveRun`, agent-core `stackAppParts` |
 | `app_system` comes only from a request's leading `system` or `developer` messages, and is written last in the system prompt, after the loop's server instructions and catalogue. Later system messages stay in the transcript where they are | `agents/request`, agent-core `writeSystemPrompt` |
@@ -277,8 +278,8 @@ created (shown once) --> in use --revoke--> deleted
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client, and names the agent's parts with the `allowedModes` its document states, never their text | `agents/routes`; `agent_core.kind`, `agent_core.prompt`, `agents/layers` `agentPartRules` |
 | What the router keeps is in agent-core 7's words: every revision holds a version 2 document, no policy holds a prompt switch, and a waiting run keeps its system messages and app parts. A version 1 document sent to be saved is upgraded first, with a warning; stored ones were upgraded once at boot, which named each agent whose policy had refused system messages | `agents/document` `checkDocument`, `agents/upgrade` `upgradeStored`, the `agent_core_7` migration |
 | Every agent has exactly one override policy, the seeded default until a user chooses another, and a run is checked against the one its agent has when the request arrives. Only an admin writes a policy; any user chooses one. The default is never deleted, and neither is a policy an agent uses. A policy's sampling fields are OpenAI wire names, each once, and never a field the router reads itself | `db/schema`: `agents.override_policy_id` (restrict on delete), `agents/policy-resolvers`, `agents/policy` `overridePolicyInputSchema`; `graphql/permissions` |
-| An agent's `tools.servers` keeps three meanings. Absent means every enabled server, `[]` means none, and a list means exactly those. A list that names only unknown servers means none, never all | `agent-core` `resolveAgentSpec`, `agents/reach` |
-| The admin server is never in "every server". An agent reaches it only by naming it | `agents/reach` |
+| A run's servers are an exact list, the grant as the request narrowed it. There is no "every server": no grant, a list naming only unknown servers, or a narrowing to nothing means none, never all | `agents/layers` `withGrantedServers`, `agents/reach` |
+| The admin server is reached only when the workspace grants it to the agent, and lists only what that workspace's roles reach | `agents/reach`, `admin/server` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
@@ -353,8 +354,14 @@ Everything about the code comes after `Owner:`.
 
 ### Workspaces
 
-- **Workspace:** what one app may run: chosen agents, and how their servers are configured for
-  its runs. Owner: `workspaces/`; the `workspaces` table and its join tables.
+- **Workspace:** what one app may run: chosen agents, the servers each may use there, and how
+  those servers are configured for its runs. Owner: `workspaces/`; the `workspaces` table and its
+  join tables.
+- **Server grant:** a server one agent may use in one workspace. A run reaches exactly its
+  workspace's grants for its agent, and none without one. Only a person grants, replacing the
+  agent's whole list at once. Removing the agent from the workspace, or the server, removes the
+  grant. Owner: `workspaces/resolvers` `setWorkspaceAgentServers`; the `workspace_agent_servers`
+  table, read into the snapshot as `SnapshotAgent.workspaces`.
 - **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
   account's credentials. A workspace's entry for the admin server holds roles instead. Owner:
   `workspace_servers`, with its overrides and `roles`; its secret overrides are `server_secrets` rows that
@@ -473,8 +480,8 @@ Everything about the code comes after `Owner:`.
   `saved_by_workspace_id`, `saved_by_agent_id`, `based_on_id`). Retired is `promoted_at` set and
   not live.
 - **Warnings:** what a save found worth a person's attention, kept on its revision: agent-core's,
-  and the router's own (a provider, pool or server the router lacks; reach over every server; an
-  agent calling its own address). Never a reason to refuse. Owner: `agents/document`;
+  and the router's own (a provider or pool the router lacks; a `tools.servers` the router
+  ignores; an agent calling its own address). Never a reason to refuse. Owner: `agents/document`;
   `agent_revisions.warnings`, and `checkAgent` to see them before saving.
 - **Draft:** a revision waiting for a user to promote it, made by an agent run rather than a
   person. Owner: `agents/revisions` (`savesAsDraft`, `isDraft`); `promoted_at` null.
@@ -517,9 +524,9 @@ Everything about the code comes after `Owner:`.
   Owner: `agents/policy` (`DEFAULT_POLICY_RULES`, the input rules), `agents/policy-resolvers`
   (`createOverridePolicy`, `updateOverridePolicy`, `deleteOverridePolicy`,
   `setAgentOverridePolicy`); the `override_policies` table and `agents.override_policy_id`.
-- **Reach:** the models and servers an agent may use, taken from the agent itself, not from the
-  app's workspace. The workspace can still configure those servers for its own runs, but never
-  add to them. Owner: `agents/reach`.
+- **Reach:** the models and servers a run may use: the models from the agent's document, the
+  servers from the calling workspace's grant for that agent, as the request narrowed them.
+  Owner: `agents/reach`, `agents/layers`.
 - **Run:** one agent answering one request through the router, recorded with the revision it
   ran, how it ended (completed, failed, cancelled or expired), its token counts, counted as it
   goes, and its answer. A run that hands app tool calls back waits for the app's answer and

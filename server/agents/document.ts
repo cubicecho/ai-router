@@ -78,15 +78,10 @@ function routerWarnings(spec: AgentSpec, snapshot: Snapshot): string[] {
       }
     }
   }
-  const servers = spec.tools?.servers;
-  if (servers === undefined) {
-    warnings.push('tools.servers: absent means every server the router has, now and later.');
-  } else {
-    for (const server of servers) {
-      if (snapshot.servers.has(server) === false) {
-        warnings.push(`tools.servers: no server is named "${server}".`);
-      }
-    }
+  const namesServers = spec.tools?.servers !== undefined;
+  if (namesServers) {
+    // A workspace decides which servers an agent uses there, so a list in the document changes nothing here.
+    warnings.push("tools.servers: ai-router ignores it. Choose the agent's servers on each workspace that runs it.");
   }
   return warnings;
 }

@@ -17,7 +17,6 @@ import {
   dataLines,
   ECHO,
   FIXTURE,
-  GRANT,
   INSTALL,
   lastMessage,
   PROVIDER_CONTEXT_LENGTH,
@@ -49,7 +48,7 @@ describe('the agents endpoint', () => {
       document: { spec: 'cubicecho.agent/2', id: 'elsewhere', model: { model: 'gone/m1' }, tools: { servers: [] } },
     });
     for (const agent of [stated, unknown]) {
-      await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: agent.id } });
+      await h.offer(h.workspaceId, agent.id, []);
     }
     const response = await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${h.keySecret}` } });
     expect(response.status).toBe(HttpStatus.Ok);
@@ -90,7 +89,7 @@ describe('the agents endpoint', () => {
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
       document: { spec: 'cubicecho.agent/2', id: 'unpromoted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
+    await h.offer(h.workspaceId, createAgent.id, []);
     await h.db.update(agents).set({ liveRevisionId: null }).where(eq(agents.id, createAgent.id));
     await h.snapshot.rebuild();
 
@@ -354,7 +353,7 @@ describe('the agents endpoint', () => {
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
       document: { spec: 'cubicecho.agent/2', id: 'everything', model: { model: 'fake/m1' } },
     });
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
+    await h.offer(h.workspaceId, createAgent.id, [SERVER, 'broken']);
     const { base, runs: runService } = await h.startRouter();
     const response = await h.complete(base, { model: 'everything', messages: [QUESTION] });
     expect(response.status).toBe(HttpStatus.Ok);
@@ -424,7 +423,7 @@ describe('Idempotency-Key', () => {
 
   it('keeps keys apart per workspace', async () => {
     const other = await createWorkspaceWithKey(h.db, 'min-agent');
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: other.workspaceId, agentId: h.agentId } });
+    await h.offer(other.workspaceId, h.agentId);
     const { base } = await h.startRouter();
     const body = { model: 'helper', messages: [QUESTION] };
     const mine = await h.complete(base, body, { 'idempotency-key': 'same' });

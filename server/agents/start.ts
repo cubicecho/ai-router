@@ -6,7 +6,11 @@ import type { RunRequest } from './request.ts';
 import type { Idempotency, RepeatedRun, RunService, StartedRun } from './run.ts';
 
 /** An agent a workspace may run: one with a live revision, whose document the snapshot holds. */
-export type RunnableAgent = SnapshotAgent & { document: Readonly<Record<string, unknown>> };
+export type RunnableAgent = SnapshotAgent & {
+  document: Readonly<Record<string, unknown>>;
+  /** The servers the workspace granted it, by name: its runs there reach exactly these. */
+  servers: readonly string[];
+};
 
 /** A new run, as a door to the agents asks for it. */
 export interface NewRun {
@@ -35,11 +39,12 @@ export function runnableAgent(
   name: string | null,
 ): RunnableAgent | null {
   const agent = name === null ? undefined : agents.get(name);
-  if (agent === undefined || agent.workspaceIds.has(workspaceId) === false) {
+  const servers = agent?.workspaces.get(workspaceId);
+  if (agent === undefined || servers === undefined) {
     return null;
   }
   const { document } = agent;
-  return agent.liveRevisionId === null || document === null ? null : { ...agent, document };
+  return agent.liveRevisionId === null || document === null ? null : { ...agent, document, servers };
 }
 
 /**
@@ -73,7 +78,12 @@ export function beginRun(
   { workspace, agent, request, conversation, sessionKey, idempotency }: NewRun,
 ): Promise<StartedRun | RepeatedRun> {
   const withConversation = conversation === null ? request : withHistory(request, conversation);
-  const { agent: resolved, prompt } = resolveRun(agentLayer(agent.name, agent.document), withConversation, snapshot);
+  const { agent: resolved, prompt } = resolveRun(
+    agentLayer(agent.name, agent.document),
+    agent.servers,
+    withConversation,
+    snapshot,
+  );
   const fetch = forwarder.fetchFor({
     workspaceId: workspace.id,
     workspaceName: workspace.slug,

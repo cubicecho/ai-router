@@ -1,19 +1,9 @@
 /**
  * The agent editor's form: the parts of a `cubicecho.agent/2` document people usually set, read out of a document
  * and written back into it. Everything else the document holds (endpoint, side tasks, hooks, a bundle, extensions,
- * a later 2.x's keys) is kept as it was.
+ * a later 2.x's keys) is kept as it was. That includes `tools.servers`, which ai-router ignores: a workspace decides
+ * which servers an agent uses there.
  */
-
-/** Which MCP servers an agent may use: `tools.servers` absent, `[]`, or a list. */
-export const ServerReach = {
-  /** Absent: every server the router has, now and later. The admin server is never one of them. */
-  Every: 'every',
-  /** `[]`: none. */
-  None: 'none',
-  /** A list: exactly these. */
-  Chosen: 'chosen',
-} as const;
-export type ServerReach = (typeof ServerReach)[keyof typeof ServerReach];
 
 /** How the parts are written for the model, as `promptLayout` spells them. Absent is plain. */
 export const PromptLayout = { Plain: 'plain', Markdown: 'markdown', Xml: 'xml' } as const;
@@ -63,9 +53,6 @@ export interface AgentFormValues {
   /** The prompt's parts, in order. Ignored when {@link isPromptEditable} says the form can't hold them. */
   prompt: PromptPartValues[];
   promptLayout: PromptLayout;
-  serverReach: ServerReach;
-  /** The servers chosen, read only when `serverReach` is `chosen`. */
-  servers: string[];
   maxIterations: number | null;
 }
 
@@ -193,19 +180,6 @@ function layoutOf(value: unknown): PromptLayout {
 }
 
 /**
- * Says which servers a `tools.servers` reaches.
- *
- * @param servers - Its names, or null when it is absent.
- * @returns Every server for absent, none for `[]`, and the chosen ones for a list.
- */
-function reachOf(servers: readonly string[] | null): ServerReach {
-  if (servers === null) {
-    return ServerReach.Every;
-  }
-  return servers.length === 0 ? ServerReach.None : ServerReach.Chosen;
-}
-
-/**
  * Reads the form's fields out of a document.
  *
  * @param document - The document.
@@ -214,9 +188,6 @@ function reachOf(servers: readonly string[] | null): ServerReach {
 export function formValuesOf(document: Readonly<Record<string, unknown>>): AgentFormValues {
   const model = isRecord(document.model) ? document.model : {};
   const tools = isRecord(document.tools) ? document.tools : {};
-  const servers = Array.isArray(tools.servers)
-    ? tools.servers.filter((server): server is string => typeof server === 'string')
-    : null;
   const prompt = Array.isArray(document.prompt) && isPromptEditable(document) ? document.prompt : [];
   return {
     id: textOf(document.id),
@@ -228,8 +199,6 @@ export function formValuesOf(document: Readonly<Record<string, unknown>>): Agent
     reasoningEffort: textOf(model.reasoningEffort),
     prompt: prompt.filter(isRecord).map(partValuesOf),
     promptLayout: layoutOf(document.promptLayout),
-    serverReach: reachOf(servers),
-    servers: servers ?? [],
     maxIterations: numberOf(tools.maxIterations),
   };
 }
@@ -265,19 +234,6 @@ function keyText(value: string): string | undefined {
 }
 
 /**
- * Reads what `tools.servers` should hold.
- *
- * @param values - The form.
- * @returns `undefined` for every server, `[]` for none, or the chosen names.
- */
-function serversOf(values: AgentFormValues): string[] | undefined {
-  if (values.serverReach === ServerReach.Every) {
-    return undefined;
-  }
-  return values.serverReach === ServerReach.None ? [] : [...values.servers];
-}
-
-/**
  * Writes the form's fields into a document, keeping everything the form doesn't show.
  *
  * @param base - The document the form was filled from.
@@ -295,7 +251,6 @@ export function documentFrom(
     reasoningEffort: keyText(values.reasoningEffort),
   });
   const tools = withKeys(isRecord(base.tools) ? base.tools : {}, {
-    servers: serversOf(values),
     maxIterations: values.maxIterations ?? undefined,
   });
   const prompt = isPromptEditable(base) ? values.prompt.map(partOf) : base.prompt;

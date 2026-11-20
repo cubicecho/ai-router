@@ -11,8 +11,10 @@ import { LoadState } from '@/components/load-state';
 import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Plus } from '@/components/ui/icons';
+import { Plug, Plus } from '@/components/ui/icons';
+import { joinStats } from '@/lib/format';
 import { request } from '@/lib/gql';
+import { AgentServersDialog } from './agent-servers-dialog';
 import { displayNameOf } from './shapes';
 import { WorkspaceAgentDialog } from './workspace-agent-dialog';
 
@@ -22,12 +24,14 @@ export interface WorkspaceAgentsSectionProps {
 }
 
 /**
- * The agents a workspace offers: the only ones an app calling with its keys may list and run. Untitled: its tab names
- * it.
+ * The agents a workspace offers: the only ones an app calling with its keys may list and run, each with the MCP servers
+ * it may use here. Untitled: its tab names it.
  */
 export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionProps) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
+  // The entry whose servers are being chosen, by id.
+  const [choosingFor, setChoosingFor] = useState<string | null>(null);
   const entries = useQuery({
     queryKey: ['workspaces', workspaceId, 'agents'],
     queryFn: () => request(WorkspaceAgentsDocument, { workspaceId }),
@@ -42,6 +46,12 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
   });
   const rows = entries.data?.workspaceAgents ?? [];
   const taken = new Set(rows.map((row) => row.agentId));
+  const choosingEntry = rows.find((row) => row.id === choosingFor);
+  const serverChoices = entries.data?.serverChoices ?? [];
+  const serverNames = new Map(serverChoices.map((server) => [server.id, server.displayName ?? server.name]));
+  /** The ids of the servers one entry's agent may use here. */
+  const grantedTo = (entryId: string): string[] =>
+    (entries.data?.grants ?? []).flatMap((grant) => (grant.workspaceAgentId === entryId ? [grant.serverId] : []));
   const choices = (entries.data?.agents ?? []).filter((agent) => taken.has(agent.id) === false);
   const add = (
     <Button
@@ -83,10 +93,12 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
             label="Agents"
             contentSlot={rows.map((entry) => {
               const name = entry.agent === null ? 'A deleted agent' : displayNameOf(entry.agent);
+              const granted = grantedTo(entry.id).flatMap((serverId) => serverNames.get(serverId) ?? []);
               return (
                 <ListItem
                   key={entry.id}
                   title={name}
+                  description={granted.length === 0 ? 'No MCP servers' : joinStats(...granted)}
                   meta={
                     <RowMeta
                       facts={[entry.agent === null ? null : rowNameFact(name, entry.agent.name)]}
@@ -101,19 +113,40 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
                     )
                   }
                   actionSlot={
-                    <ConfirmButton
-                      size="sm"
-                      title={`Stop offering ${name} here?`}
-                      description="Apps with this workspace's keys are refused it from their next request. The agent itself is kept."
-                      confirmLabel="Remove"
-                      onConfirm={() => remove.mutate(entry.id)}
-                      content="Remove"
-                    />
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconSlot={<Plug />}
+                        onClick={() => setChoosingFor(entry.id)}
+                        content="MCP servers"
+                      />
+                      <ConfirmButton
+                        size="sm"
+                        title={`Stop offering ${name} here?`}
+                        description="Apps with this workspace's keys are refused it from their next request. The agent itself is kept."
+                        confirmLabel="Remove"
+                        onConfirm={() => remove.mutate(entry.id)}
+                        content="Remove"
+                      />
+                    </>
                   }
                 />
               );
             })}
           />
+          {choosingEntry === undefined ? null : (
+            <AgentServersDialog
+              key={choosingEntry.id}
+              open
+              onOpenChange={(open) => (open ? undefined : setChoosingFor(null))}
+              workspaceId={workspaceId}
+              workspaceAgentId={choosingEntry.id}
+              agentName={choosingEntry.agent === null ? 'a deleted agent' : displayNameOf(choosingEntry.agent)}
+              granted={grantedTo(choosingEntry.id)}
+              choices={serverChoices}
+            />
+          )}
           {isAdding ? (
             <WorkspaceAgentDialog open onOpenChange={setIsAdding} workspaceId={workspaceId} choices={choices} />
           ) : null}

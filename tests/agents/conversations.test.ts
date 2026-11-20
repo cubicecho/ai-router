@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { HttpStatus } from '../../server/core/wire.ts';
 import { conversations } from '../../server/db/tables/conversations.ts';
 import { runs } from '../../server/db/tables/runs.ts';
-import { CREATE_AGENT, GRANT, lastMessage, type Reply, sentMessages, until, useRunHarness } from './run-harness.ts';
+import { CREATE_AGENT, lastMessage, type Reply, sentMessages, until, useRunHarness } from './run-harness.ts';
 
 // X-Conversation-Id: the router keeps the history, so the app sends only what is new, and one run at a time.
 
@@ -116,7 +116,7 @@ describe('conversations', () => {
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
       document: { spec: 'cubicecho.agent/2', id: 'other', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
+    await h.offer(h.workspaceId, createAgent.id, []);
     await h.snapshot.rebuild();
     const joined = await h.complete(
       base,

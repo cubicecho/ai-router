@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documentFrom, formValuesOf, isPromptEditable, ServerReach } from '../../web/agents/agent-form.ts';
+import { documentFrom, formValuesOf, isPromptEditable } from '../../web/agents/agent-form.ts';
 
 /** A document with something in every part the form shows, and parts it doesn't. */
 const DOCUMENT = {
@@ -42,16 +42,8 @@ describe('formValuesOf', () => {
         { role: 'system', name: 'format', content: 'A short table.', appsExtend: true, appsReplace: true },
       ],
       promptLayout: 'xml',
-      serverReach: ServerReach.Chosen,
-      servers: ['actual', 'finance-docs'],
       maxIterations: 12,
     });
-  });
-
-  it('reads tools.servers as its three meanings', () => {
-    expect(formValuesOf({}).serverReach).toBe(ServerReach.Every);
-    expect(formValuesOf({ tools: { servers: [] } }).serverReach).toBe(ServerReach.None);
-    expect(formValuesOf({ tools: { servers: ['git'] } }).serverReach).toBe(ServerReach.Chosen);
   });
 
   it('leaves a field blank where the document leaves it out', () => {
@@ -78,18 +70,18 @@ describe('documentFrom', () => {
       tasks: DOCUMENT.tasks,
       extensions: DOCUMENT.extensions,
       model: { model: 'openai/gpt-5.1', temperature: 0.4, maxTokens: 2048, extraBody: { top_k: 20 } },
-      tools: { discovery: 'ondemand' },
+      tools: { servers: ['actual', 'finance-docs'], discovery: 'ondemand' },
     });
   });
 
-  it('writes the three meanings of tools.servers, never collapsing one into another', () => {
-    const values = formValuesOf(DOCUMENT);
-    const every = documentFrom(DOCUMENT, { ...values, serverReach: ServerReach.Every });
-    expect(every.tools).toEqual({ maxIterations: 12, discovery: 'ondemand' });
-    const none = documentFrom(DOCUMENT, { ...values, serverReach: ServerReach.None });
-    expect(none.tools).toMatchObject({ servers: [] });
-    const chosen = documentFrom(DOCUMENT, { ...values, servers: ['git'] });
-    expect(chosen.tools).toMatchObject({ servers: ['git'] });
+  it('leaves tools.servers as the document has it, which a workspace decides instead', () => {
+    const values = { ...formValuesOf(DOCUMENT), maxIterations: 3 };
+    expect(documentFrom(DOCUMENT, values).tools).toEqual({
+      servers: ['actual', 'finance-docs'],
+      maxIterations: 3,
+      discovery: 'ondemand',
+    });
+    expect(documentFrom({}, values).tools).toEqual({ maxIterations: 3 });
   });
 
   it('leaves out a blank field, and keeps a zero', () => {
@@ -111,7 +103,6 @@ describe('documentFrom', () => {
       ...formValuesOf(bare),
       model: '',
       maxIterations: null,
-      serverReach: ServerReach.Every,
     });
     expect(emptied).toEqual({ spec: 'cubicecho.agent/2', id: 'a' });
   });
