@@ -1,3 +1,13 @@
+# [0.13.0](https://github.com/cubicecho/ai-router/compare/v0.12.0...v0.13.0) (2026-11-20)
+
+* feat(agents)!: a workspace decides which MCP servers each agent uses ([50c3de5](https://github.com/cubicecho/ai-router/commit/50c3de59148ae3c09d7df67eea31904ff9e2d5bb))
+
+### BREAKING CHANGES
+
+* an agent's tools.servers is ignored, and an agent in a
+  workspace reaches no MCP servers until a person grants them on the
+  workspace's Agents tab. Existing workspaces start with none.
+
 # [0.12.0](https://github.com/cubicecho/ai-router/compare/v0.11.0...v0.12.0) (2026-11-20)
 
 ### Features
