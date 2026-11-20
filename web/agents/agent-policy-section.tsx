@@ -74,7 +74,7 @@ function ChoosePolicyDialog({ open, onOpenChange, agentId, currentId }: ChoosePo
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <SelectField form={form} name="policyId" label="Policy" options={options} />
           <form.Subscribe selector={(state) => state.values.policyId}>
             {(policyId) => {
@@ -86,7 +86,7 @@ function ChoosePolicyDialog({ open, onOpenChange, agentId, currentId }: ChoosePo
               );
             }}
           </form.Subscribe>
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

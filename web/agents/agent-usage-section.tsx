@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { UsageByAgentDocument } from '@/__generated__/graphql';
-import { LoadError, RowSkeleton } from '@/components/load-state';
 import { request } from '@/lib/gql';
 import { UsageSection } from '@/models/usage-section';
 
@@ -18,17 +17,5 @@ export function AgentUsageSection({ agentId }: AgentUsageSectionProps) {
     queryKey: ['usage', 'agent', agentId],
     queryFn: () => request(UsageByAgentDocument, { agentId }),
   });
-  if (usage.isError) {
-    return <LoadError error={usage.error} onRetry={usage.refetch} what="its usage" />;
-  }
-  if (usage.isPending) {
-    return <RowSkeleton />;
-  }
-  return (
-    <UsageSection
-      rows={usage.data.usageCounts}
-      groupBy={(row) => row.workspaceName ?? NO_WORKSPACE}
-      groupLabel="Workspace"
-    />
-  );
+  return <UsageSection query={usage} groupBy={(row) => row.workspaceName ?? NO_WORKSPACE} groupLabel="Workspace" />;
 }

@@ -1,14 +1,17 @@
 import { Link } from '@tanstack/react-router';
 import type { RunFilters, RunSessionsQuery } from '@/__generated__/graphql';
 import { CollapsibleRow } from '@/components/collapsible-row';
+import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
-import { LoadError, RowSkeleton } from '@/components/load-state';
+import { LoadState } from '@/components/load-state';
+import { RowMeta } from '@/components/row-meta';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons';
+import { formatCount } from '@/lib/format';
 import { useOpenRows } from '@/lib/use-open-rows';
 import { RunStatusBadge } from './run-status-badge';
 import { RunsList } from './runs-list';
-import { formatCount, formatDuration, formatTokens, isOpen, RunStatus, startedOf } from './shapes';
+import { formatDuration, formatTokens, isOpen, RunStatus, startedOf } from './shapes';
 import { useNow, useRuns } from './use-runs';
 
 /** One session, as the Sessions tab reads it. */
@@ -50,15 +53,18 @@ function SessionRuns({ session }: { session: RunSessionRow }) {
   const runs = useRuns({ where: sessionRunsWhere(session), limit: SESSION_RUNS, offset: 0 });
   const rows = runs.data?.runs ?? [];
   const now = useNow(rows.some((run) => isOpen(run.status)));
-  if (runs.isError) {
-    return <LoadError error={runs.error} onRetry={runs.refetch} what="its runs" compact />;
-  }
-  if (runs.isPending) {
-    return <RowSkeleton rows={2} />;
-  }
-  const isCut = session.runCount > rows.length;
+  // Not while its runs are loading, when none are shown yet.
+  const isCut = runs.data !== undefined && session.runCount > rows.length;
   return (
     <div className="grid gap-3">
+      <LoadState
+        compact
+        query={runs}
+        what="its runs"
+        count={rows.length}
+        rows={2}
+        emptySlot={<EmptyState compact title="No runs found." />}
+      />
       <RunsList rows={rows} now={now} label={`Runs of ${session.key}`} hideWorkspace />
       {isCut ? (
         <Button
@@ -94,7 +100,7 @@ export function SessionsList({ sessions }: SessionsListProps) {
       label="Sessions"
       contentSlot={sessions.map((session) => {
         const id = `${session.workspaceId ?? session.workspaceName}/${session.key}`;
-        const runCount = `${formatCount(session.runCount)} ${session.runCount === 1 ? 'run' : 'runs'}`;
+        const runCount = formatCount(session.runCount, 'run');
         const key = <span className="font-mono">{session.key}</span>;
         return (
           <CollapsibleRow
@@ -112,20 +118,24 @@ export function SessionsList({ sessions }: SessionsListProps) {
               </span>
             }
             meta={
-              <span className="flex items-center gap-4 text-foreground/60 text-xs tabular-nums">
-                <span>{runCount}</span>
-                {session.failedRunCount > 0 ? (
-                  <span className="text-destructive" title={session.lastError ?? undefined}>
-                    {`${formatCount(session.failedRunCount)} failed`}
-                  </span>
-                ) : null}
-                {session.cancelledRunCount > 0 ? (
-                  <span>{`${formatCount(session.cancelledRunCount)} cancelled`}</span>
-                ) : null}
-                <span title="The time its runs took, added up">{formatDuration(session.runMs)}</span>
-                <span>{formatTokens(session)}</span>
-                <RunStatusBadge status={session.openRunCount > 0 ? RunStatus.Running : session.lastStatus} />
-              </span>
+              <RowMeta
+                facts={[
+                  runCount,
+                  session.failedRunCount > 0 ? (
+                    <span key="failed" className="text-destructive" title={session.lastError ?? undefined}>
+                      {`${formatCount(session.failedRunCount)} failed`}
+                    </span>
+                  ) : null,
+                  session.cancelledRunCount > 0 ? `${formatCount(session.cancelledRunCount)} cancelled` : null,
+                  <span key="time" title="The time its runs took, added up">
+                    {formatDuration(session.runMs)}
+                  </span>,
+                  formatTokens(session),
+                ]}
+                badgesSlot={
+                  <RunStatusBadge status={session.openRunCount > 0 ? RunStatus.Running : session.lastStatus} />
+                }
+              />
             }
             contentSlot={<SessionRuns session={session} />}
           />

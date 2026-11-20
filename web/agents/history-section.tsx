@@ -1,17 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import { type AgentRevisionFieldsFragment, PromoteRevisionDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Eye, Undo2 } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { formatDateTime } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { RevisionDialog } from './revision-dialog';
 import { RevisionStanding, standingOf, whoOf } from './revisions';
-import { whenOf } from './shapes';
 
 /** What the history is given. */
 export interface HistorySectionProps {
@@ -22,7 +23,7 @@ export interface HistorySectionProps {
 }
 
 /** The badge for each standing. Retired was live once; a draft never has been. */
-const STANDING_BADGES: Record<RevisionStanding, ReactNode> = {
+const STANDING_BADGES: Record<RevisionStanding, ReactElement> = {
   [RevisionStanding.Live]: <Badge variant="positive-soft">Live</Badge>,
   [RevisionStanding.Retired]: <Badge variant="secondary">Retired</Badge>,
   [RevisionStanding.Draft]: <Badge variant="info-soft">Draft</Badge>,
@@ -47,7 +48,8 @@ export function HistorySection({ liveRevisionId, revisions }: HistorySectionProp
   const live = revisions.find((revision) => revision.id === liveRevisionId);
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="Every revision kept, drafts included. Making a retired one live again rolls the agent back; nothing is lost."
       contentSlot={
         <>
@@ -56,13 +58,13 @@ export function HistorySection({ liveRevisionId, revisions }: HistorySectionProp
             contentSlot={revisions.map((revision) => {
               const standing = standingOf(revision, liveRevisionId);
               const isOlder = live !== undefined && revision.number < live.number;
-              const said = `${whoOf(revision)}, ${whenOf(revision.createdAt)}`;
+              const said = `${whoOf(revision)}, ${formatDateTime(revision.createdAt)}`;
               return (
                 <ListItem
                   key={revision.id}
                   title={`Revision ${revision.number}`}
                   description={revision.message === '' ? said : `${revision.message} · ${said}`}
-                  meta={STANDING_BADGES[standing]}
+                  meta={<RowMeta badgesSlot={STANDING_BADGES[standing]} />}
                   actionSlot={
                     standing === RevisionStanding.Live ? null : (
                       <>

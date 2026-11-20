@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { KeyRound, LogOut, Settings } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { formatDateTime } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { LoginClientDialog } from './login-client-dialog';
 
@@ -180,7 +181,7 @@ export function LoginSection({ server, isAdmin }: LoginSectionProps) {
                   hint={
                     login.expiresAt === null || login.expiresAt === undefined
                       ? undefined
-                      : `The token runs out ${new Date(login.expiresAt).toLocaleString()}; the router refreshes it.`
+                      : `The token runs out ${formatDateTime(login.expiresAt)}; the router refreshes it.`
                   }
                 />
                 <PropertyRow

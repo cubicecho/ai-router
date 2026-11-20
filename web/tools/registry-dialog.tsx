@@ -55,7 +55,7 @@ export function RegistryDialog({ open, onOpenChange, registry }: RegistryDialogP
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -78,7 +78,7 @@ export function RegistryDialog({ open, onOpenChange, registry }: RegistryDialogP
               onChange: ({ value }) => (URL.canParse(value.trim()) ? undefined : 'Enter an http or https URL.'),
             }}
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

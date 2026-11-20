@@ -6,15 +6,17 @@ import {
   OverridePoliciesDocument,
   type OverridePolicyFieldsFragment,
 } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Pencil, Plus } from '@/components/ui/icons';
-import { countOf } from '@/lib/format';
+import { formatCount } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { PolicyDialog } from '@/policies/policy-dialog';
@@ -36,7 +38,7 @@ function usedBy(policy: OverridePolicyFieldsFragment): string {
   }
   return rest.length === 0
     ? `Used by ${first.name}`
-    : `Used by ${first.name} and ${countOf(rest.length, 'more', 'more')}`;
+    : `Used by ${first.name} and ${formatCount(rest.length, 'more', 'more')}`;
 }
 
 /** Every override policy: what apps may change on an agent's runs. Every user reads them; admins write them. */
@@ -76,51 +78,59 @@ export function PoliciesRoute() {
       contentSlot={
         <>
           <LoadState query={policies} what="the override policies" count={rows.length} />
-          <List
-            label="Override policies"
-            contentSlot={rows.map((policy) => {
-              const { isDefault } = policy;
-              const isInUse = policy.agents.length > 0;
-              return (
-                <ListItem
-                  key={policy.id}
-                  title={policy.name}
-                  titleClassName="font-mono"
-                  description={[policy.description, summaryOf(rulesOf(policy.rules))]
-                    .filter((part) => part !== '')
-                    .join(' ')}
-                  meta={
-                    <span className="flex items-center gap-2">
-                      {isDefault ? <Badge variant="secondary">Default</Badge> : null}
-                      <span className="text-foreground/60 text-xs">{usedBy(policy)}</span>
-                    </span>
-                  }
-                  actionSlot={
-                    isAdmin ? (
-                      <span className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          iconSlot={<Pencil />}
-                          aria-label={`Edit ${policy.name}`}
-                          onClick={() => setEditing({ kind: 'edit', policy })}
-                        />
-                        {isDefault || isInUse ? null : (
-                          <ConfirmButton
-                            size="sm"
-                            title={`Delete ${policy.name}?`}
-                            description="No agent uses it, so nothing changes for any app. It can't be brought back."
-                            onConfirm={() => remove.mutate(policy.id)}
-                            content="Delete"
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title="All override policies"
+              contentSlot={
+                <List
+                  label="Override policies"
+                  contentSlot={rows.map((policy) => {
+                    const { isDefault } = policy;
+                    const isInUse = policy.agents.length > 0;
+                    return (
+                      <ListItem
+                        key={policy.id}
+                        title={policy.name}
+                        // Two sentences, so a space between them rather than a " · ".
+                        description={[policy.description, summaryOf(rulesOf(policy.rules))]
+                          .filter((part) => part !== '')
+                          .join(' ')}
+                        meta={
+                          <RowMeta
+                            facts={[usedBy(policy)]}
+                            badgesSlot={isDefault ? <Badge variant="secondary">Default</Badge> : null}
                           />
-                        )}
-                      </span>
-                    ) : undefined
-                  }
+                        }
+                        actionSlot={
+                          isAdmin ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                iconSlot={<Pencil />}
+                                aria-label={`Edit ${policy.name}`}
+                                onClick={() => setEditing({ kind: 'edit', policy })}
+                              />
+                              {isDefault || isInUse ? null : (
+                                <ConfirmButton
+                                  size="sm"
+                                  title={`Delete ${policy.name}?`}
+                                  description="No agent uses it, so nothing changes for any app. It can't be brought back."
+                                  onConfirm={() => remove.mutate(policy.id)}
+                                  content="Delete"
+                                />
+                              )}
+                            </>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
                 />
-              );
-            })}
-          />
+              }
+            />
+          ) : null}
           {editing.kind === 'closed' ? null : (
             <PolicyDialog
               open

@@ -117,7 +117,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
       title={`${pool.name}'s targets`}
       description="Where a call to this pool may go: a provider and the model's id there. A target of weight 2 takes twice the calls of one of weight 1. Order breaks ties."
       contentSlot={
-        <div className="grid gap-4">
+        <>
           {targets.length === 0 ? (
             <EmptyState compact title="No targets yet. Add one below." />
           ) : (
@@ -127,6 +127,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
                 <ListItem
                   key={`${target.providerId}\n${target.model}`}
                   title={`${target.providerName}/${target.model}`}
+                  titleClassName="font-mono"
                   actionSlot={
                     <>
                       <Input
@@ -192,7 +193,7 @@ export function TargetsDialog({ open, onOpenChange, pool, providers }: TargetsDi
               content="Add"
             />
           </div>
-        </div>
+        </>
       }
       footerActionsSlot={(dismiss) => (
         <>

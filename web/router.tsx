@@ -12,7 +12,7 @@ import { sessionToken } from '@/lib/session';
 import { tabSearch } from '@/lib/tab-search';
 import { validatePoolSearch, validateProviderSearch } from '@/models/tabs';
 import { RUN_TABS, validateRunsSearch } from '@/runs/search';
-import { validateServerSearch } from '@/tools/server-tabs';
+import { validateServerSearch, validateServersSearch } from '@/tools/server-tabs';
 import { WORKSPACE_TABS } from '@/workspaces/tabs';
 
 const rootRoute = createRootRoute({ component: Outlet });
@@ -129,6 +129,7 @@ const poolRoute = createRoute({
 const serversRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/mcp-servers',
+  validateSearch: validateServersSearch,
   component: lazyRouteComponent(() => import('@/routes/servers'), 'ServersRoute'),
 });
 

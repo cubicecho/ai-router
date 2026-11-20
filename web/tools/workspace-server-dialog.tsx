@@ -154,7 +154,7 @@ export function WorkspaceServerDialog({
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           {isEdit ? null : (
             <SelectField
               form={form}
@@ -212,7 +212,7 @@ export function WorkspaceServerDialog({
               }}
             />
           ) : null}
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { type RunFilters, RunsDocument } from '@/__generated__/graphql';
 import { request } from '@/lib/gql';
+import { RUNS_PER_PAGE } from './search';
 import { isOpen } from './shapes';
 
 /** How often a list with a running run in it is read again, so its row ends without a reload. */
@@ -32,6 +33,18 @@ export function useRuns({ where, limit, offset, enabled = true }: RunsPage) {
     refetchInterval: (query) => (query.state.data?.runs.some((run) => isOpen(run.status)) ? LIVE_REFETCH_MS : false),
     placeholderData: (previous) => previous,
   });
+}
+
+/**
+ * Counts the runs that match, for a tab's count. It reads the same first page a Runs tab draws (`RecentRunsSection`
+ * with `limit={RUNS_PER_PAGE}`), so the tab and its count share one request.
+ *
+ * @param where - Which runs.
+ * @param [enabled] - Whether to read it: false until the page knows which runs.
+ * @returns How many match, or `undefined` until it is known.
+ */
+export function useRunCount(where: RunFilters, enabled = true): number | undefined {
+  return useRuns({ where, limit: RUNS_PER_PAGE, offset: 0, enabled }).data?.runsAggregate.count;
 }
 
 /**

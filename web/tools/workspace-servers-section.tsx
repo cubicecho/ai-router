@@ -6,15 +6,16 @@ import {
   type WorkspaceServerFieldsFragment,
   WorkspaceServersDocument,
 } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { KeyRound, Pencil, Plug, Plus } from '@/components/ui/icons';
+import { KeyRound, Pencil, Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { describeRoles, rolesOf } from './admin-roles';
 import { SecretDialog, type SecretKind } from './secret-dialog';
@@ -89,22 +90,19 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
   );
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="An entry sets a server's settings for this workspace's agent runs, such as an account's login. It never adds the server to a run."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
         <>
           <LoadState
+            compact
             query={entries}
             what="its MCP Servers"
             count={rows.length}
             emptySlot={
-              <EmptyState
-                iconSlot={<Plug />}
-                title="No entries yet"
-                description="Runs here use each MCP Server as it is. Add an entry to give one an account's login or other settings here."
-                actionSlot={add}
-              />
+              <EmptyState compact title="No entries yet, so runs here use each MCP Server as it is." actionSlot={add} />
             }
           />
           <List
@@ -123,7 +121,16 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
                   key={entry.id}
                   title={entry.server?.displayName ?? name}
                   description={overridesOf(entry, secretsOf(entry.serverId))}
-                  meta={isBuiltinServer ? <Badge variant="secondary">Built in</Badge> : undefined}
+                  meta={
+                    <RowMeta
+                      facts={[
+                        entry.server === null || entry.server === undefined
+                          ? null
+                          : rowNameFact(entry.server.displayName, name),
+                      ]}
+                      badgesSlot={isBuiltinServer ? <Badge variant="secondary">Built in</Badge> : null}
+                    />
+                  }
                   linkSlot={
                     entry.server === null || entry.server === undefined ? undefined : (
                       <Link to="/mcp-servers/$serverId" params={{ serverId: entry.serverId }} />

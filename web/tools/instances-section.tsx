@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RestartServerDocument, ServerInstancesDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { LoadState } from '@/components/load-state';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from '@/components/ui/icons';
@@ -49,14 +50,18 @@ export function InstancesSection({ serverId }: { serverId: string }) {
     instances.data?.workspaces.find((workspace) => workspace.id === id)?.name ?? 'A workspace';
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="Started on the first call and stopped once idle. A workspace that overrides its settings gets its own."
       contentSlot={
-        instances.isError ? (
-          <LoadError error={instances.error} onRetry={instances.refetch} what="its instances" compact />
-        ) : rows.length === 0 && instances.isPending === false ? (
-          <EmptyState compact title="Not running. The next call starts it." />
-        ) : (
+        <>
+          <LoadState
+            compact
+            query={instances}
+            what="its instances"
+            count={rows.length}
+            emptySlot={<EmptyState compact title="Not running. The next call starts it." />}
+          />
           <List
             label="Instances"
             contentSlot={rows.map((instance) => {
@@ -71,10 +76,10 @@ export function InstancesSection({ serverId }: { serverId: string }) {
                   }
                   description={instance.error ?? undefined}
                   meta={
-                    <span className="flex items-center gap-2">
-                      <Badge variant={state.variant}>{state.label}</Badge>
-                      <span className="text-foreground/60 text-xs tabular-nums">{instance.inFlight} in flight</span>
-                    </span>
+                    <RowMeta
+                      facts={[`${instance.inFlight} in flight`]}
+                      badgesSlot={<Badge variant={state.variant}>{state.label}</Badge>}
+                    />
                   }
                   actionSlot={
                     <Button
@@ -90,7 +95,7 @@ export function InstancesSection({ serverId }: { serverId: string }) {
               );
             })}
           />
-        )
+        </>
       }
     />
   );

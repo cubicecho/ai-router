@@ -81,7 +81,7 @@ export function SecretDialog({ open, onOpenChange, serverId, serverName, workspa
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           {isNew ? (
             <>
               <SelectField form={form} name="kind" label="Kind" options={KINDS} />
@@ -113,7 +113,7 @@ export function SecretDialog({ open, onOpenChange, serverId, serverName, workspa
             autoComplete="off"
             description="Left blank, it clears the value set."
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

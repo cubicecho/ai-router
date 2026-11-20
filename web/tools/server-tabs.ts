@@ -33,3 +33,16 @@ export function serverTabsOf({ isBuiltin, hasLogin }: ServerTabsOf): ServerTab[]
     return true;
   });
 }
+
+/** The MCP Servers page's tabs, the default first: the servers, and the registries they are installed from. */
+export const SERVERS_PAGE_TABS = ['servers', 'registries'] as const;
+export type ServersPageTab = (typeof SERVERS_PAGE_TABS)[number];
+
+/** What each of the MCP Servers page's tabs is called. */
+export const SERVERS_PAGE_TAB_LABELS: Readonly<Record<ServersPageTab, string>> = {
+  servers: 'Servers',
+  registries: 'Registries',
+};
+
+/** The MCP Servers route's `validateSearch`: the open tab. */
+export const validateServersSearch = tabSearch(SERVERS_PAGE_TABS);

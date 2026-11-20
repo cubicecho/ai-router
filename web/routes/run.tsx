@@ -7,6 +7,7 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
 import { LoadError, LoadState } from '@/components/load-state';
+import { Markdown } from '@/components/markdown';
 import { PageLayout } from '@/components/page-layout';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
@@ -304,7 +305,7 @@ export function RunRoute() {
                     answer.content === '' ? (
                       <EmptyState compact title="It wrote nothing." />
                     ) : (
-                      <p className="whitespace-pre-wrap break-words text-sm">{answer.content}</p>
+                      <Markdown content={answer.content} />
                     )
                   }
                 />
