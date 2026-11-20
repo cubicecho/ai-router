@@ -74,7 +74,7 @@ export function AgentsRoute() {
               <EmptyState
                 iconSlot={<Bot />}
                 title="No agents yet"
-                description="Paste a cubicecho.agent/1 document, or start from the one the editor offers."
+                description="Paste a cubicecho.agent/2 document, or start from the one the editor offers."
                 actionSlot={add}
               />
             }

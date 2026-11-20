@@ -7,9 +7,7 @@ import { rulesOf, summaryOf } from '../../web/policies/rules.ts';
 describe("a policy's rules", () => {
   it('read as stored, and anything missing or mistyped as not allowed', () => {
     expect(rulesOf(DEFAULT_POLICY_RULES)).toEqual(DEFAULT_POLICY_RULES);
-    expect(rulesOf({ hostPrompt: 'yes', sampling: ['seed', 3] })).toEqual({
-      hostPrompt: false,
-      taskPrompt: false,
+    expect(rulesOf({ narrowServers: 'yes', sampling: ['seed', 3], hostPrompt: true })).toEqual({
       narrowServers: false,
       sampling: ['seed'],
       responseFormat: false,
@@ -18,10 +16,10 @@ describe("a policy's rules", () => {
   });
 
   it('say what they allow, or that they allow nothing', () => {
-    expect(summaryOf(rulesOf({ hostPrompt: true, sampling: ['seed'] }))).toBe(
-      'An app may send system messages and 1 sampling field.',
+    expect(summaryOf(rulesOf({ narrowServers: true, sampling: ['seed'] }))).toBe(
+      'An app may send narrower servers and 1 sampling field.',
     );
-    expect(summaryOf(rulesOf({ taskPrompt: true }))).toBe('An app may send the task.');
+    expect(summaryOf(rulesOf({ responseFormat: true }))).toBe('An app may send response_format.');
     expect(summaryOf(rulesOf({}))).toBe('An app may change nothing.');
   });
 });

@@ -124,7 +124,7 @@ export function AgentOverview({ agent }: AgentOverviewProps) {
       {live === null || text === null ? null : (
         <Section
           title="Live document"
-          description="The cubicecho.agent/1 document every run starts from, as it was saved."
+          description="The cubicecho.agent/2 document every run starts from, as it was saved."
           contentSlot={
             <CodeBlock
               title={`${agent.name}.json`}

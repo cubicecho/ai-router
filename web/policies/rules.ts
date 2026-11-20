@@ -7,8 +7,6 @@ export type PolicyRules = OverridePolicyRulesInput;
 
 /** What a policy that says nothing allows: nothing. */
 const NOTHING: PolicyRules = {
-  hostPrompt: false,
-  taskPrompt: false,
   narrowServers: false,
   sampling: [],
   responseFormat: false,
@@ -24,10 +22,8 @@ export function rulesOf(rules: unknown): PolicyRules {
   if (isRecord(rules) === false) {
     return NOTHING;
   }
-  const { hostPrompt, taskPrompt, narrowServers, sampling, responseFormat } = rules;
+  const { narrowServers, sampling, responseFormat } = rules;
   return {
-    hostPrompt: hostPrompt === true,
-    taskPrompt: taskPrompt === true,
     narrowServers: narrowServers === true,
     sampling: Array.isArray(sampling) ? sampling.filter((field) => typeof field === 'string') : [],
     responseFormat: responseFormat === true,
@@ -38,13 +34,11 @@ export function rulesOf(rules: unknown): PolicyRules {
  * Says in a line what a policy lets an app do.
  *
  * @param rules - The policy's rules.
- * @returns Such as "An app may send system messages, the task, narrower servers and 12 sampling fields."
+ * @returns Such as "An app may send narrower servers, 12 sampling fields and response_format."
  */
 export function summaryOf(rules: PolicyRules): string {
   const count = rules.sampling.length;
   const allowed = [
-    rules.hostPrompt ? 'system messages' : undefined,
-    rules.taskPrompt ? 'the task' : undefined,
     rules.narrowServers ? 'narrower servers' : undefined,
     count === 0 ? undefined : `${count} sampling ${count === 1 ? 'field' : 'fields'}`,
     rules.responseFormat ? 'response_format' : undefined,
