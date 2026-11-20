@@ -1,17 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ServerActivityDocument, type ServerActivityQuery } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
-import { LoadError, RowSkeleton } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { LoadState } from '@/components/load-state';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatCount, formatDateTime } from '@/lib/format';
 import { request } from '@/lib/gql';
 
 /** How many of the latest calls the section shows. */
 const RECENT_CALLS = 50;
-
-const NUMBER = new Intl.NumberFormat();
 
 /** One recorded call, as the section reads it. */
 type ActivityRow = ServerActivityQuery['activities'][number];
@@ -57,56 +56,60 @@ export function ActivitySection({ serverId }: { serverId: string }) {
   const rows = activity.data?.activities ?? [];
 
   const body = () => {
-    if (activity.isError) {
-      return <LoadError error={activity.error} onRetry={activity.refetch} what="its activity" compact />;
-    }
-    if (activity.isPending) {
-      return <RowSkeleton rows={3} />;
-    }
-    if (rows.length === 0) {
-      return <EmptyState compact title="No calls yet." />;
-    }
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>When</TableHead>
-            <TableHead>Tool</TableHead>
-            <TableHead>From</TableHead>
-            <TableHead className="text-right">Took</TableHead>
-            <TableHead>Result</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell className="whitespace-nowrap text-xs">{new Date(row.at).toLocaleString()}</TableCell>
-              <TableCell className="font-mono text-xs">{row.tool}</TableCell>
-              <TableCell className="text-xs">
-                <CallerCell row={row} />
-              </TableCell>
-              <TableCell className="text-right text-xs tabular-nums">{NUMBER.format(row.durationMs)} ms</TableCell>
-              <TableCell className="text-xs">
-                {row.ok ? (
-                  <Badge variant="positive-soft">OK</Badge>
-                ) : (
-                  <span className="grid gap-1">
-                    <Badge variant="destructive-soft">Failed</Badge>
-                    {row.error === null || row.error === undefined ? null : (
-                      <span className="text-foreground/70">{row.error}</span>
+      <>
+        <LoadState
+          compact
+          query={activity}
+          what="its activity"
+          count={rows.length}
+          rows={3}
+          emptySlot={<EmptyState compact title="No calls yet." />}
+        />
+        {rows.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Tool</TableHead>
+                <TableHead>From</TableHead>
+                <TableHead className="text-right">Took</TableHead>
+                <TableHead>Result</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="whitespace-nowrap text-xs">{formatDateTime(row.at)}</TableCell>
+                  <TableCell className="font-mono text-xs">{row.tool}</TableCell>
+                  <TableCell className="text-xs">
+                    <CallerCell row={row} />
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">{formatCount(row.durationMs)} ms</TableCell>
+                  <TableCell className="text-xs">
+                    {row.ok ? (
+                      <Badge variant="positive-soft">OK</Badge>
+                    ) : (
+                      <span className="grid gap-1">
+                        <Badge variant="destructive-soft">Failed</Badge>
+                        {row.error === null || row.error === undefined ? null : (
+                          <span className="text-foreground/70">{row.error}</span>
+                        )}
+                      </span>
                     )}
-                  </span>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : null}
+      </>
     );
   };
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description={`The latest ${RECENT_CALLS} calls through it, kept for 30 days. Never what was sent or answered.`}
       contentSlot={body()}
     />

@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from '@/components/ui/icons';
-import { formatCount } from './shapes';
+import { formatCount } from '@/lib/format';
 
 /** What the pager is given. */
 export interface PagerProps {

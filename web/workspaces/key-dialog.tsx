@@ -5,7 +5,7 @@ import { InputField, NumberField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { CodeBlock } from '@/components/ui/code';
+import { Code, CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { FormElement } from '@/components/ui/form-element';
 import { KeyRound } from '@/components/ui/icons';
@@ -51,7 +51,7 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
         iconSlot={<KeyRound />}
         title="Your new key"
         contentSlot={
-          <div className="grid gap-4">
+          <>
             <Alert
               variant="warning"
               title="Copy it now"
@@ -59,10 +59,9 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
             />
             <CodeBlock content={secret} wrap actionSlot={<CopyButton value={secret} label="Copy key" />} />
             <p className="text-foreground/60 text-sm">
-              Apps send it as <code className="font-mono">Authorization: Bearer</code> or{' '}
-              <code className="font-mono">x-api-key</code>.
+              Apps send it as <Code>Authorization: Bearer</Code> or <Code>x-api-key</Code>.
             </p>
-          </div>
+          </>
         }
         footerActionsSlot={(dismiss) => <Button variant="default" onClick={dismiss} content="Done" />}
       />
@@ -84,7 +83,7 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -101,7 +100,7 @@ export function KeyDialog({ open, onOpenChange, workspaceId }: KeyDialogProps) {
             integer
             min={1}
           />
-        </div>
+        </>
       }
       footerActionsSlot={(dismiss) => (
         <>

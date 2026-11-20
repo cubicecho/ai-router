@@ -83,7 +83,7 @@ export function ProviderDialog({ open, onOpenChange, provider, onSaved }: Provid
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -124,7 +124,7 @@ export function ProviderDialog({ open, onOpenChange, provider, onSaved }: Provid
             label="Takes calls"
             description="Off, agents and pools pass it over."
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

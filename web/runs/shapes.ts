@@ -1,3 +1,5 @@
+import { formatCount } from '../lib/format';
+
 /** Where a run is in its life, as the runs table spells it. */
 export const RunStatus = {
   Running: 'running',
@@ -52,8 +54,6 @@ const MAX_SECONDS_SHOWN = 90;
 /** How many characters of an error a row shows. */
 export const SHORT_ERROR_LENGTH = 90;
 
-const NUMBER = new Intl.NumberFormat();
-
 /**
  * How long a run took, or has taken so far.
  *
@@ -88,16 +88,6 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / MINUTES_PER_HOUR);
   const rest = minutes % MINUTES_PER_HOUR;
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
-}
-
-/**
- * Formats a count.
- *
- * @param count - The number.
- * @returns It with the reader's digit grouping.
- */
-export function formatCount(count: number): string {
-  return NUMBER.format(count);
 }
 
 /**

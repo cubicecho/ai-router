@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DeleteUserDocument, MeDocument, SetUserRoleDocument, UsersDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { countOf, formatDate } from '@/lib/format';
+import { formatCount, formatDate, joinStats } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 
@@ -19,7 +21,7 @@ import { Role } from '@/lib/roles';
  * @returns Such as "4 users · 1 admin".
  */
 function headcountOf(users: number, admins: number): string {
-  return `${countOf(users, 'user', 'users')} · ${countOf(admins, 'admin', 'admins')}`;
+  return `${formatCount(users, 'user', 'users')} · ${formatCount(admins, 'admin', 'admins')}`;
 }
 
 /** Everyone who has signed in, and who of them is an admin. Admin only. */
@@ -51,53 +53,64 @@ export function UsersRoute() {
       contentSlot={
         <>
           <LoadState query={users} what="the users" count={rows.length} />
-          <List
-            label="Users"
-            contentSlot={rows.map((user) => {
-              const isAdmin = user.role === Role.Admin;
-              const isMe = user.id === me.data?.me.id;
-              // The router refuses to demote or delete the last admin, so the page doesn't offer it.
-              const isOnlyAdmin = isAdmin && adminCount === 1;
-              return (
-                <ListItem
-                  key={user.id}
-                  title={user.name ?? user.email}
-                  description={
-                    isOnlyAdmin
-                      ? `${user.email} · The only admin: make someone else admin to change this one.`
-                      : user.email
-                  }
-                  meta={
-                    <span className="flex items-center gap-2 text-foreground/60 text-xs">
-                      <span>Joined {formatDate(user.createdAt)}</span>
-                      {isMe ? <Badge variant="info-soft">You</Badge> : null}
-                      {isAdmin ? <Badge>Admin</Badge> : null}
-                    </span>
-                  }
-                  actionSlot={
-                    isOnlyAdmin ? undefined : (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          loading={setRole.isPending && setRole.variables?.id === user.id}
-                          onClick={() => setRole.mutate({ id: user.id, role: isAdmin ? Role.User : Role.Admin })}
-                          content={isAdmin ? 'Make user' : 'Make admin'}
-                        />
-                        <ConfirmButton
-                          size="sm"
-                          title={isMe ? 'Delete your own account?' : `Delete ${user.name ?? user.email}?`}
-                          description="They are signed out everywhere. They can sign in again if your provider still lets them."
-                          onConfirm={() => remove.mutate(user.id)}
-                          content="Delete"
-                        />
-                      </>
-                    )
-                  }
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title="All users"
+              contentSlot={
+                <List
+                  label="Users"
+                  contentSlot={rows.map((user) => {
+                    const isAdmin = user.role === Role.Admin;
+                    const isMe = user.id === me.data?.me.id;
+                    // The router refuses to demote or delete the last admin, so the page doesn't offer it.
+                    const isOnlyAdmin = isAdmin && adminCount === 1;
+                    return (
+                      <ListItem
+                        key={user.id}
+                        title={user.name ?? user.email}
+                        description={joinStats(
+                          user.name === null ? undefined : user.email,
+                          isOnlyAdmin ? 'The only admin: make someone else admin to change this one.' : undefined,
+                        )}
+                        meta={
+                          <RowMeta
+                            facts={[`Joined ${formatDate(user.createdAt)}`]}
+                            badgesSlot={
+                              <>
+                                {isAdmin ? <Badge variant="secondary">Admin</Badge> : null}
+                                {isMe ? <Badge variant="info-soft">You</Badge> : null}
+                              </>
+                            }
+                          />
+                        }
+                        actionSlot={
+                          isOnlyAdmin ? undefined : (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                loading={setRole.isPending && setRole.variables?.id === user.id}
+                                onClick={() => setRole.mutate({ id: user.id, role: isAdmin ? Role.User : Role.Admin })}
+                                content={isAdmin ? 'Make user' : 'Make admin'}
+                              />
+                              <ConfirmButton
+                                size="sm"
+                                title={isMe ? 'Delete your own account?' : `Delete ${user.name ?? user.email}?`}
+                                description="They are signed out everywhere. They can sign in again if your provider still lets them."
+                                onConfirm={() => remove.mutate(user.id)}
+                                content="Delete"
+                              />
+                            </>
+                          )
+                        }
+                      />
+                    );
+                  })}
                 />
-              );
-            })}
-          />
+              }
+            />
+          ) : null}
         </>
       }
     />

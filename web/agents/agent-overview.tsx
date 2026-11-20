@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { RotateCcwClock } from '@/components/ui/icons';
+import { formatDateTime } from '@/lib/format';
 import { AgentPolicySection } from './agent-policy-section';
 import { Findings } from './findings';
 import { whoOf } from './revisions';
-import { describeServers, describeTaskModel, documentText, factsOf, stringsOf, whenOf } from './shapes';
+import { describeServers, describeTaskModel, documentText, factsOf, stringsOf } from './shapes';
 
 /** One agent as its page reads it. */
 export type AgentRecord = NonNullable<AgentQuery['agent']>;
@@ -74,7 +75,9 @@ export function AgentOverview({ agent }: AgentOverviewProps) {
       <Section
         title="Live revision"
         description={
-          live === null ? undefined : `Revision ${live.number}, saved by ${whoOf(live)}, ${whenOf(live.createdAt)}.`
+          live === null
+            ? undefined
+            : `Revision ${live.number}, saved by ${whoOf(live)}, ${formatDateTime(live.createdAt)}.`
         }
         contentSlot={
           <PropertyList

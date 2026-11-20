@@ -3,9 +3,10 @@ import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
+import { formatDateTime } from '@/lib/format';
 import { Findings } from './findings';
 import { whoOf } from './revisions';
-import { documentText, stringsOf, whenOf } from './shapes';
+import { documentText, stringsOf } from './shapes';
 
 /** What the revision dialog is given. */
 export interface RevisionDialogProps {
@@ -18,7 +19,7 @@ export interface RevisionDialogProps {
 export function RevisionDialog({ open, onOpenChange, revision }: RevisionDialogProps) {
   const text = documentText(revision.document);
   const basedOn = revision.basedOn === null ? '' : ` Based on revision ${revision.basedOn.number}.`;
-  const saved = `Saved by ${whoOf(revision)}, ${whenOf(revision.createdAt)}.${basedOn}`;
+  const saved = `Saved by ${whoOf(revision)}, ${formatDateTime(revision.createdAt)}.${basedOn}`;
 
   return (
     <DialogLayout
@@ -28,7 +29,7 @@ export function RevisionDialog({ open, onOpenChange, revision }: RevisionDialogP
       description={revision.message === '' ? saved : `“${revision.message}” ${saved}`}
       size="lg"
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <Findings findings={{ errors: [], warnings: stringsOf(revision.warnings) }} />
           <CodeBlock
             title="Document"
@@ -37,7 +38,7 @@ export function RevisionDialog({ open, onOpenChange, revision }: RevisionDialogP
             maxHeight="lg"
             actionSlot={<CopyButton value={text} label={`Copy revision ${revision.number}`} />}
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => <Button variant="outline" onClick={close} content="Close" />}
     />

@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import type { RunRowFieldsFragment } from '@/__generated__/graphql';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
+import { RowMeta } from '@/components/row-meta';
 import { RunStatusBadge } from './run-status-badge';
 import { durationOf, formatDuration, formatTokens, isOpen, shortError, startedOf } from './shapes';
 
@@ -57,11 +58,10 @@ export function RunsList({ rows, now, label, hideAgent = false, hideWorkspace = 
               </span>
             }
             meta={
-              <span className="flex items-center gap-4 text-foreground/60 text-xs tabular-nums">
-                <span>{`${formatDuration(durationOf(run, now))}${soFar}`}</span>
-                <span>{`${formatTokens(run)}${soFar}`}</span>
-                <RunStatusBadge status={run.status} />
-              </span>
+              <RowMeta
+                facts={[`${formatDuration(durationOf(run, now))}${soFar}`, `${formatTokens(run)}${soFar}`]}
+                badgesSlot={<RunStatusBadge status={run.status} />}
+              />
             }
             linkSlot={<Link to="/agent-runs/$runId" params={{ runId: run.id }} />}
           />

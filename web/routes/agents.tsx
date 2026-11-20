@@ -5,49 +5,49 @@ import { AgentsDocument, type AgentsQuery } from '@/__generated__/graphql';
 import { AgentEditorDialog } from '@/agents/agent-editor-dialog';
 import { RevisionStanding, standingOf } from '@/agents/revisions';
 import { factsOf } from '@/agents/shapes';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Bot, Plus } from '@/components/ui/icons';
+import { formatCount } from '@/lib/format';
 import { request } from '@/lib/gql';
 
 /** One agent as the list reads it. */
 type AgentRow = AgentsQuery['agents'][number];
 
-/**
- * Says how many workspaces offer an agent.
- *
- * @param count - How many.
- * @returns Such as "In 2 workspaces", or "In no workspace".
- */
-function describeOffers(count: number): string {
-  if (count === 0) {
-    return 'In no workspace';
-  }
-  return count === 1 ? 'In 1 workspace' : `In ${count} workspaces`;
-}
-
 /** The facts at the end of an agent's row: its id, model and revision, where it is offered, and what needs a look. */
 function AgentMeta({ agent }: { agent: AgentRow }) {
   const facts = factsOf(agent.liveRevision?.document);
-  const title = facts.name ?? agent.name;
   const liveRevisionId = agent.liveRevisionId ?? null;
   const drafts = agent.revisions.filter(
     (revision) => standingOf(revision, liveRevisionId) === RevisionStanding.Draft,
   ).length;
   return (
-    <span className="flex items-center gap-4 text-foreground/60 text-xs">
-      {title === agent.name ? null : <span className="font-mono">{agent.name}</span>}
-      {facts.model === null ? null : <span className="font-mono">{facts.model}</span>}
-      {agent.liveRevision === null ? null : <span className="tabular-nums">Revision {agent.liveRevision.number}</span>}
-      <span>{describeOffers(agent.workspaces.length)}</span>
-      {drafts === 0 ? null : <Badge variant="info-soft">{drafts === 1 ? '1 draft' : `${drafts} drafts`}</Badge>}
-      {liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : null}
-    </span>
+    <RowMeta
+      facts={[
+        rowNameFact(facts.name, agent.name),
+        facts.model === null ? null : (
+          <span key="model" className="font-mono">
+            {facts.model}
+          </span>
+        ),
+        agent.liveRevision === null ? null : `Revision ${agent.liveRevision.number}`,
+        agent.workspaces.length === 0 ? null : `In ${formatCount(agent.workspaces.length, 'workspace', 'workspaces')}`,
+      ]}
+      badgesSlot={
+        <>
+          {drafts === 0 ? null : <Badge variant="info-soft">{formatCount(drafts, 'draft', 'drafts')}</Badge>}
+          {liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : null}
+          {agent.workspaces.length === 0 ? <Badge variant="warning-soft">In no workspace</Badge> : null}
+        </>
+      }
+    />
   );
 }
 
@@ -79,21 +79,29 @@ export function AgentsRoute() {
               />
             }
           />
-          <List
-            label="Agents"
-            contentSlot={rows.map((agent) => {
-              const facts = factsOf(agent.liveRevision?.document);
-              return (
-                <ListItem
-                  key={agent.id}
-                  title={facts.name ?? agent.name}
-                  description={facts.description ?? undefined}
-                  meta={<AgentMeta agent={agent} />}
-                  linkSlot={<Link to="/agents/$agentId" params={{ agentId: agent.id }} />}
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title="All agents"
+              contentSlot={
+                <List
+                  label="Agents"
+                  contentSlot={rows.map((agent) => {
+                    const facts = factsOf(agent.liveRevision?.document);
+                    return (
+                      <ListItem
+                        key={agent.id}
+                        title={facts.name ?? agent.name}
+                        description={facts.description ?? undefined}
+                        meta={<AgentMeta agent={agent} />}
+                        linkSlot={<Link to="/agents/$agentId" params={{ agentId: agent.id }} />}
+                      />
+                    );
+                  })}
                 />
-              );
-            })}
-          />
+              }
+            />
+          ) : null}
           {/* Mounted only while open, so each new agent starts from the starter document. */}
           {isAdding ? <AgentEditorDialog open onOpenChange={setIsAdding} agent={null} /> : null}
         </>

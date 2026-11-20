@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { ModelPricesDocument, ProviderModelsDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError, RowSkeleton } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { LoadState } from '@/components/load-state';
+import { RowMeta } from '@/components/row-meta';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { RefreshCw } from '@/components/ui/icons';
@@ -62,48 +63,50 @@ export function ModelsSection({ providerId, providerName }: ModelsSectionProps) 
   const rows = [...listed, ...unlisted];
 
   const body = () => {
-    if (models.isError) {
-      return <LoadError error={models.error} onRetry={models.refetch} what="its models" compact />;
-    }
-    if (models.isPending) {
-      return <RowSkeleton rows={3} />;
-    }
-    if (rows.length === 0) {
-      return <EmptyState compact title="It lists no models." />;
-    }
     return (
-      <List
-        label="Models"
-        contentSlot={rows.map((model) => {
-          const modelId = `${providerName}/${model.id}`;
-          const price = priceOf(model.id);
-          return (
-            <ListItem
-              key={model.id}
-              title={modelId}
-              titleClassName="font-mono"
-              description={price === null ? undefined : priceLine(price)}
-              meta={model.ownedBy ?? undefined}
-              actionSlot={
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPricing(model.id)}
-                    content={price === null ? 'Set price' : 'Price'}
-                  />
-                  <CopyButton value={modelId} label={`Copy ${modelId}`} />
-                </>
-              }
-            />
-          );
-        })}
-      />
+      <>
+        <LoadState
+          compact
+          query={models}
+          what="its models"
+          count={rows.length}
+          rows={3}
+          emptySlot={<EmptyState compact title="It lists no models." />}
+        />
+        <List
+          label="Models"
+          contentSlot={rows.map((model) => {
+            const modelId = `${providerName}/${model.id}`;
+            const price = priceOf(model.id);
+            return (
+              <ListItem
+                key={model.id}
+                title={modelId}
+                titleClassName="font-mono"
+                description={price === null ? undefined : priceLine(price)}
+                meta={<RowMeta facts={[model.ownedBy]} />}
+                actionSlot={
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPricing(model.id)}
+                      content={price === null ? 'Set price' : 'Price'}
+                    />
+                    <CopyButton value={modelId} label={`Copy ${modelId}`} />
+                  </>
+                }
+              />
+            );
+          })}
+        />
+      </>
     );
   };
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="What it serves now, from its own model list. An agent names each one as it is written here."
       actionSlot={
         <Button

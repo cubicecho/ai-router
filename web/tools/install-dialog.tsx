@@ -15,7 +15,8 @@ import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError, RowSkeleton } from '@/components/load-state';
+import { LoadState } from '@/components/load-state';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
@@ -245,38 +246,35 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
       {registryId === '' ? null : (
         <div className="grid gap-2">
           <SearchInput label="Search the registry" placeholder="Search by name" onSettledText={setSearch} />
-          {results.isError ? (
-            <LoadError error={results.error} onRetry={results.refetch} what="the registry's servers" compact />
-          ) : results.isPending ? (
-            <RowSkeleton rows={3} />
-          ) : entries.length === 0 ? (
-            <EmptyState compact title="Nothing matches." />
-          ) : (
-            <>
-              <List
-                label="Servers in the registry"
-                contentSlot={entries.map((entry) => (
-                  <ListItem
-                    key={`${entry.name}@${entry.version ?? ''}`}
-                    title={entry.title ?? entry.name}
-                    description={entry.description ?? entry.name}
-                    meta={entry.version ?? undefined}
-                    selected={chosen?.name === entry.name}
-                    onClick={() => choose(entry)}
-                  />
-                ))}
+          <LoadState
+            compact
+            query={results}
+            what="the registry's servers"
+            count={entries.length}
+            emptySlot={<EmptyState compact title="Nothing matches." />}
+          />
+          <List
+            label="Servers in the registry"
+            contentSlot={entries.map((entry) => (
+              <ListItem
+                key={`${entry.name}@${entry.version ?? ''}`}
+                title={entry.title ?? entry.name}
+                description={entry.description ?? undefined}
+                meta={<RowMeta facts={[rowNameFact(entry.title, entry.name), entry.version]} />}
+                selected={chosen?.name === entry.name}
+                onClick={() => choose(entry)}
               />
-              {results.hasNextPage ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={results.isFetchingNextPage}
-                  onClick={() => void results.fetchNextPage()}
-                  content="Show more"
-                />
-              ) : null}
-            </>
-          )}
+            ))}
+          />
+          {results.hasNextPage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              loading={results.isFetchingNextPage}
+              onClick={() => void results.fetchNextPage()}
+              content="Show more"
+            />
+          ) : null}
         </div>
       )}
       {chosen === null ? null : (
@@ -359,39 +357,44 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
         <form.Subscribe selector={(state) => state.values.headers.length}>
           {(count) =>
             count === 0 ? (
-              <p className="text-foreground/60 text-sm">No headers.</p>
+              <EmptyState compact title="No headers." />
             ) : (
               <div className="grid gap-3">
                 {Array.from({ length: count }, (_row, index) => (
                   // A row has no key of its own until its name is typed, and its place is what the fields bind to.
                   // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
                   <div key={index} className="flex items-end gap-2">
-                    <InputField
-                      form={form}
-                      name={`headers[${index}].name`}
-                      label="Name"
-                      placeholder="Authorization"
+                    <FieldRow
                       className="flex-1"
-                      required
-                      validators={{
-                        onChangeListenTo: ['headers'],
-                        onChange: ({ value, fieldApi }) =>
-                          fieldApi.form.getFieldValue('from') === 'http'
-                            ? headerNameError(value, fieldApi.form.getFieldValue('headers'))
-                            : undefined,
-                      }}
-                    />
-                    <PasswordField
-                      form={form}
-                      name={`headers[${index}].value`}
-                      label="Value"
-                      autoComplete="off"
-                      className="flex-1"
-                      required
-                      validators={{
-                        onChange: ({ value, fieldApi }) =>
-                          fieldApi.form.getFieldValue('from') === 'http' ? headerValueError(value) : undefined,
-                      }}
+                      contentSlot={
+                        <>
+                          <InputField
+                            form={form}
+                            name={`headers[${index}].name`}
+                            label="Name"
+                            placeholder="Authorization"
+                            required
+                            validators={{
+                              onChangeListenTo: ['headers'],
+                              onChange: ({ value, fieldApi }) =>
+                                fieldApi.form.getFieldValue('from') === 'http'
+                                  ? headerNameError(value, fieldApi.form.getFieldValue('headers'))
+                                  : undefined,
+                            }}
+                          />
+                          <PasswordField
+                            form={form}
+                            name={`headers[${index}].value`}
+                            label="Value"
+                            autoComplete="off"
+                            required
+                            validators={{
+                              onChange: ({ value, fieldApi }) =>
+                                fieldApi.form.getFieldValue('from') === 'http' ? headerValueError(value) : undefined,
+                            }}
+                          />
+                        </>
+                      }
                     />
                     <Button
                       variant="destructive-outline"
@@ -461,7 +464,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <SegmentedGroup aria-label="Where it comes from" value={from} onValueChange={pickFrom}>
             {FROM.map((choice) => (
               <SegmentedButton key={choice.value} value={choice.value}>
@@ -504,7 +507,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
               validators={{ onChange: ({ value }) => textToEnv(value).error ?? undefined }}
             />
           )}
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

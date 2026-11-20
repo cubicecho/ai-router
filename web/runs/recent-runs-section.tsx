@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router';
 import type { RunFilters } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
-import { LoadError, RowSkeleton } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { LoadState } from '@/components/load-state';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons';
 import { RunsList } from './runs-list';
@@ -31,29 +31,9 @@ export function RecentRunsSection({ where, search, hide, limit = RECENT_RUNS }: 
   const rows = runs.data?.runs ?? [];
   const now = useNow(rows.some((run) => isOpen(run.status)));
 
-  const body = () => {
-    if (runs.isError) {
-      return <LoadError error={runs.error} onRetry={runs.refetch} what="its runs" compact />;
-    }
-    if (runs.isPending) {
-      return <RowSkeleton rows={2} />;
-    }
-    if (rows.length === 0) {
-      return <EmptyState compact title="No runs yet." />;
-    }
-    return (
-      <RunsList
-        rows={rows}
-        now={now}
-        label="Recent runs"
-        hideAgent={hide === 'agent'}
-        hideWorkspace={hide === 'workspace'}
-      />
-    );
-  };
-
   return (
-    <Section
+    <CardLayout
+      level={2}
       title="Recent runs"
       description={`The latest ${limit}, newest first.`}
       actionSlot={
@@ -67,7 +47,25 @@ export function RecentRunsSection({ where, search, hide, limit = RECENT_RUNS }: 
           />
         )
       }
-      contentSlot={body()}
+      contentSlot={
+        <>
+          <LoadState
+            compact
+            query={runs}
+            what="its runs"
+            count={rows.length}
+            rows={2}
+            emptySlot={<EmptyState compact title="No runs yet." />}
+          />
+          <RunsList
+            rows={rows}
+            now={now}
+            label="Recent runs"
+            hideAgent={hide === 'agent'}
+            hideWorkspace={hide === 'workspace'}
+          />
+        </>
+      }
     />
   );
 }

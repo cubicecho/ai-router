@@ -60,7 +60,7 @@ export function LoginClientDialog({ open, onOpenChange, serverId, serverName, lo
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="clientId"
@@ -86,7 +86,7 @@ export function LoginClientDialog({ open, onOpenChange, serverId, serverName, lo
             label="Scope"
             description="What to ask for when the server does not say, such as read write."
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

@@ -7,6 +7,7 @@ import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/compon
 import { EmptyState } from '@/components/empty-state';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { PageTitle } from '@/components/page-title';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +18,7 @@ import { request } from '@/lib/gql';
 import { Role } from '@/lib/roles';
 import { ActivitySection } from '@/tools/activity-section';
 import { InstancesSection } from '@/tools/instances-section';
-import { LoginSection } from '@/tools/login-section';
+import { LoginBadge, LoginSection } from '@/tools/login-section';
 import { isRequiredSecretUnset, SecretsSection } from '@/tools/secrets-section';
 import { ServerDialog } from '@/tools/server-dialog';
 import { SERVER_TABS, type ServerTab, serverTabsOf } from '@/tools/server-tabs';
@@ -125,11 +126,16 @@ export function ServerRoute() {
     <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={
-          <span className="flex items-center gap-2">
-            {record.displayName ?? record.name}
-            {isBuiltin ? <Badge variant="secondary">Built in</Badge> : null}
-            {record.enabled ? null : <Badge variant="outline">Off</Badge>}
-          </span>
+          <PageTitle
+            title={record.displayName ?? record.name}
+            badgesSlot={
+              <>
+                {isBuiltin ? <Badge variant="secondary">Built in</Badge> : null}
+                <LoginBadge login={login} />
+                {record.enabled ? null : <Badge variant="outline">Off</Badge>}
+              </>
+            }
+          />
         }
         description={record.description === '' ? undefined : record.description}
         backSlot={back}
@@ -163,7 +169,9 @@ export function ServerRoute() {
             trailing={{
               secrets: isRequiredSecretUnset(record.secrets, envMeta) ? (
                 <Badge variant="warning" label="A required secret is not set" />
-              ) : undefined,
+              ) : (
+                <Badge variant="secondary">{record.secrets.length}</Badge>
+              ),
             }}
           />
         }

@@ -2,11 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { AgentWorkspaceChoicesDocument, DeleteWorkspaceAgentDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
 import { Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
@@ -53,7 +53,8 @@ export function AgentWorkspacesSection({ agent, displayName }: AgentWorkspacesSe
   );
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="An app sees the agents its workspace offers, so only apps with these workspaces' keys may run it."
       actionSlot={agent.workspaces.length > 0 ? add : undefined}
       contentSlot={

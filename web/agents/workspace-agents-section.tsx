@@ -2,15 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { DeleteWorkspaceAgentDocument, WorkspaceAgentsDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Bot, Plus } from '@/components/ui/icons';
+import { Plus } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { displayNameOf } from './shapes';
 import { WorkspaceAgentDialog } from './workspace-agent-dialog';
@@ -55,23 +56,24 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
   );
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="An app with this workspace's key sees only these agents."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
         <>
           <LoadState
+            compact
             query={entries}
             what="its agents"
             count={rows.length}
             emptySlot={
               <EmptyState
-                iconSlot={<Bot />}
-                title="No agents yet"
-                description={
+                compact
+                title={
                   choices.length === 0
-                    ? 'Add one on the Agents page, then offer it here.'
-                    : 'Apps here have nothing to run until an agent is offered.'
+                    ? 'No agents yet. Add one on the Agents page, then offer it here.'
+                    : 'No agents yet, so apps here have nothing to run.'
                 }
                 actionSlot={choices.length === 0 ? undefined : add}
               />
@@ -85,13 +87,13 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
                 <ListItem
                   key={entry.id}
                   title={name}
-                  description={
-                    entry.agent === null || entry.agent.name === name ? undefined : (
-                      <span className="font-mono text-foreground/60 text-xs">{entry.agent.name}</span>
-                    )
-                  }
                   meta={
-                    entry.agent?.liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : undefined
+                    <RowMeta
+                      facts={[entry.agent === null ? null : rowNameFact(name, entry.agent.name)]}
+                      badgesSlot={
+                        entry.agent?.liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : null
+                      }
+                    />
                   }
                   linkSlot={
                     entry.agent === null ? undefined : (

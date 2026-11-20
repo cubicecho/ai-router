@@ -6,19 +6,19 @@ import {
   PromoteRevisionDocument,
   SetAgentAutoPromoteDocument,
 } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
-import { Check, Eye, Trash2 } from '@/components/ui/icons';
+import { Check, Eye } from '@/components/ui/icons';
 import { SwitchField } from '@/components/ui/switch-field';
 import { useToast } from '@/components/ui/toast';
+import { formatDateTime } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { RevisionDialog } from './revision-dialog';
 import { whoOf } from './revisions';
-import { whenOf } from './shapes';
 
 /** What the drafts section is given. */
 export interface DraftsSectionProps {
@@ -37,7 +37,7 @@ export interface DraftsSectionProps {
  * @returns Its message, who saved it and when, and the revision it started from.
  */
 function describeDraft(draft: AgentRevisionFieldsFragment): string {
-  const said = `${whoOf(draft)}, ${whenOf(draft.createdAt)}`;
+  const said = `${whoOf(draft)}, ${formatDateTime(draft.createdAt)}`;
   const parts = [draft.message, said, draft.basedOn === null ? '' : `from revision ${draft.basedOn.number}`];
   return parts.filter((part) => part !== '').join(' · ');
 }
@@ -72,7 +72,8 @@ export function DraftsSection({ agentId, autoPromote, drafts }: DraftsSectionPro
   const isBusy = promote.isPending || discard.isPending;
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="Revisions an agent's run saved, waiting for a person to promote or discard them."
       contentSlot={
         <>
@@ -104,14 +105,13 @@ export function DraftsSection({ agentId, autoPromote, drafts }: DraftsSectionPro
                         onClick={() => setViewing(draft)}
                       />
                       <ConfirmButton
-                        size="icon-sm"
-                        aria-label={`Discard revision ${draft.number}`}
-                        iconSlot={<Trash2 />}
+                        size="sm"
                         disabled={isBusy}
                         title={`Discard revision ${draft.number}?`}
                         description="The draft is deleted and leaves no trace in the history. The live revision is unchanged."
                         confirmLabel="Discard"
                         onConfirm={() => discard.mutate(draft)}
+                        content="Discard"
                       />
                       <Button
                         variant="positive"

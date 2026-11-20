@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ServerToolsDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { LoadError, RowSkeleton } from '@/components/load-state';
-import { Section } from '@/components/section';
+import { LoadState } from '@/components/load-state';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Button } from '@/components/ui/button';
 import { Play, RefreshCw } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
@@ -36,37 +37,45 @@ export function ToolsSection({ serverId, serverName, enabled, canTry }: ToolsSec
     if (enabled === false) {
       return <EmptyState compact title="It is off, so its tools aren't listed." />;
     }
-    if (tools.isError) {
-      return <LoadError error={tools.error} onRetry={tools.refetch} what="its tools" compact />;
-    }
-    if (tools.isPending) {
-      return <RowSkeleton rows={3} />;
-    }
-    if (rows.length === 0) {
-      return <EmptyState compact title="It offers no tools." />;
-    }
     return (
-      <List
-        label="Tools"
-        contentSlot={rows.map((tool) => (
-          <ListItem
-            key={tool.name}
-            title={tool.title ?? tool.name}
-            description={tool.description ?? undefined}
-            meta={tool.title === null || tool.title === undefined ? undefined : tool.name}
-            actionSlot={
-              canTry ? (
-                <Button variant="outline" size="sm" iconSlot={<Play />} onClick={() => setTrying(tool)} content="Try" />
-              ) : undefined
-            }
-          />
-        ))}
-      />
+      <>
+        <LoadState
+          compact
+          query={tools}
+          what="its tools"
+          count={rows.length}
+          rows={3}
+          emptySlot={<EmptyState compact title="It offers no tools." />}
+        />
+        <List
+          label="Tools"
+          contentSlot={rows.map((tool) => (
+            <ListItem
+              key={tool.name}
+              title={tool.title ?? tool.name}
+              description={tool.description ?? undefined}
+              meta={<RowMeta facts={[rowNameFact(tool.title, tool.name)]} />}
+              actionSlot={
+                canTry ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    iconSlot={<Play />}
+                    onClick={() => setTrying(tool)}
+                    content="Try"
+                  />
+                ) : undefined
+              }
+            />
+          ))}
+        />
+      </>
     );
   };
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description={
         canTry
           ? `What it offers now. A run sees each as ${serverName}__<tool>. Listing them starts it if it isn't running.`

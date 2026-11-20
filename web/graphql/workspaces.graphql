@@ -48,6 +48,9 @@ query Workspace($id: UUID!) {
     serversAggregate {
       count
     }
+    runsAggregate {
+      count
+    }
   }
 }
 

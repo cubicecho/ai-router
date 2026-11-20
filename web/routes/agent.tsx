@@ -15,12 +15,14 @@ import { ConfirmButton } from '@/components/confirm-button';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { PageTitle } from '@/components/page-title';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Pencil } from '@/components/ui/icons';
 import { request } from '@/lib/gql';
 import { RecentRunsSection } from '@/runs/recent-runs-section';
 import { RUNS_PER_PAGE } from '@/runs/search';
+import { useRunCount } from '@/runs/use-runs';
 
 /** One agent, in tabs: its live revision, its drafts and history, the workspaces offering it, its runs and usage. */
 export function AgentRoute() {
@@ -42,6 +44,8 @@ export function AgentRoute() {
   });
   const { tab, showTab } = useDetailTab(AGENT_TABS);
   const record = agent.data?.agent ?? undefined;
+  // The same request the Runs tab makes, so the count costs nothing more once it is open.
+  const runCount = useRunCount({ agentName: { eq: record?.name ?? '' } }, record !== undefined);
   const back = (
     <Button variant="outline" size="sm" iconSlot={<ArrowLeft />} linkSlot={<Link to="/agents" />} content="Agents" />
   );
@@ -69,14 +73,25 @@ export function AgentRoute() {
   const drafts = record.revisions.filter((revision) => standingOf(revision, liveRevisionId) === RevisionStanding.Draft);
   const trailing: Partial<Record<AgentTab, ReactElement>> = {
     drafts: drafts.length > 0 ? <Badge variant="info-soft">{drafts.length}</Badge> : undefined,
-    workspaces:
-      record.workspaces.length === 0 ? <Badge variant="warning-soft" label="No workspace offers it" /> : undefined,
+    history: <Badge variant="secondary">{record.revisions.length}</Badge>,
+    workspaces: <Badge variant="secondary">{record.workspaces.length}</Badge>,
+    runs: runCount === undefined ? undefined : <Badge variant="secondary">{runCount}</Badge>,
   };
 
   return (
     <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
-        title={displayName}
+        title={
+          <PageTitle
+            title={displayName}
+            badgesSlot={
+              <>
+                {liveRevisionId === null ? <Badge variant="warning-soft">Can't run</Badge> : null}
+                {record.workspaces.length === 0 ? <Badge variant="warning-soft">In no workspace</Badge> : null}
+              </>
+            }
+          />
+        }
         description={facts.description ?? undefined}
         backSlot={back}
         width="page"

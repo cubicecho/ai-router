@@ -89,7 +89,7 @@ export function TryToolDialog({ open, onOpenChange, serverId, serverName, tool }
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <TextareaField
             form={form}
             name="arguments"
@@ -112,7 +112,7 @@ export function TryToolDialog({ open, onOpenChange, serverId, serverName, tool }
               actionSlot={<CopyButton value={result} label="Copy the answer" />}
             />
           )}
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

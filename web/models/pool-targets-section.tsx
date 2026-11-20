@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { type PoolFieldsFragment, PoolLoadDocument, type PoolLoadQuery } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Pencil } from '@/components/ui/icons';
@@ -65,7 +66,8 @@ export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps)
   );
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="Where its calls go, each taking a share of them by its weight, with how many each has in flight now. The router checks each target's provider in the background: one that is down, or that a call could not reach, is passed over and its calls go to the next."
       actionSlot={pool.targets.length > 0 ? edit : undefined}
       contentSlot={
@@ -89,16 +91,17 @@ export function PoolTargetsSection({ pool, providers }: PoolTargetsSectionProps)
                       )
                     }
                     meta={
-                      <span className="flex items-center gap-2">
-                        {target.provider?.enabled === false ? <Badge variant="outline">Provider off</Badge> : null}
-                        {targetLoad?.reachable === false ? (
-                          <Badge variant="warning-soft">Down, passed over</Badge>
-                        ) : null}
-                        <span className="text-foreground/60 text-xs tabular-nums">Weight {target.weight}</span>
-                        <span className="text-foreground/60 text-xs tabular-nums">
-                          {targetLoad?.inFlight ?? 0} in flight
-                        </span>
-                      </span>
+                      <RowMeta
+                        facts={[`Weight ${target.weight}`, `${targetLoad?.inFlight ?? 0} in flight`]}
+                        badgesSlot={
+                          <>
+                            {targetLoad?.reachable === false ? (
+                              <Badge variant="warning-soft">Down, passed over</Badge>
+                            ) : null}
+                            {target.provider?.enabled === false ? <Badge variant="outline">Provider off</Badge> : null}
+                          </>
+                        }
+                      />
                     }
                   />
                 );

@@ -3,10 +3,10 @@ import { CardLayout } from '@/components/card-layout';
 import { CollapsibleRow } from '@/components/collapsible-row';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
+import { Markdown } from '@/components/markdown';
 import { Settings, UserRound, Zap } from '@/components/ui/icons';
 import { useOpenRows } from '@/lib/use-open-rows';
 import { INPUT_ROLE_LABELS, type InputMessage, InputRole } from './input';
-import { PROSE_CLASS } from './prose';
 
 /** What the input card is given. */
 export interface RunInputProps {
@@ -74,7 +74,7 @@ export function RunInput({ messages }: RunInputProps) {
                 meta={facts === null ? undefined : <span className="text-foreground/60 text-xs">{facts}</span>}
                 description={isOpen ? undefined : message.content}
                 contentSlot={
-                  <p className={isInstruction ? `${PROSE_CLASS} text-foreground/70` : PROSE_CLASS}>{message.content}</p>
+                  <Markdown content={message.content} className={isInstruction ? 'text-foreground/70' : undefined} />
                 }
               />
             );

@@ -129,7 +129,7 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -182,7 +182,7 @@ export function PoolDialog({ open, onOpenChange, pool, onSaved }: PoolDialogProp
             label="Takes calls"
             description="Off, agents naming it are refused."
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

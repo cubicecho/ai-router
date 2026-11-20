@@ -158,13 +158,3 @@ export function refusalOf(error: unknown): DocumentFindings | null {
   const errors = stringsOf(error.extensions.errors);
   return errors.length === 0 ? null : { errors, warnings: stringsOf(error.extensions.warnings) };
 }
-
-/**
- * Formats a timestamp as a date and a time.
- *
- * @param iso - An ISO timestamp.
- * @returns Such as "18 Nov 2026, 09:14", in the reader's locale.
- */
-export function whenOf(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}

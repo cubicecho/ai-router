@@ -5,8 +5,9 @@ import { DeleteProviderDocument, MeDocument, ProviderDocument, UsageByProviderDo
 import { ConfirmButton } from '@/components/confirm-button';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
-import { LoadError, LoadState, RowSkeleton } from '@/components/load-state';
+import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { PageTitle } from '@/components/page-title';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Badge } from '@/components/ui/badge';
@@ -35,13 +36,7 @@ function ProviderUsage({ providerId }: { providerId: string }) {
     queryKey: ['usage', 'provider', providerId],
     queryFn: () => request(UsageByProviderDocument, { providerId }),
   });
-  if (usage.isError) {
-    return <LoadError error={usage.error} onRetry={usage.refetch} what="its usage" />;
-  }
-  if (usage.isPending) {
-    return <RowSkeleton rows={3} />;
-  }
-  return <UsageSection rows={usage.data.usageCounts} groupBy={(row) => row.model} groupLabel="Model" />;
+  return <UsageSection query={usage} groupBy={(row) => row.model} groupLabel="Model" />;
 }
 
 /** One provider, in tabs: where it is and its key, what it serves now, and what it has been used for. */
@@ -101,10 +96,15 @@ export function ProviderRoute() {
     <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={
-          <span className="flex items-center gap-2">
-            {record.displayName ?? record.name}
-            {record.enabled ? null : <Badge variant="outline">Off</Badge>}
-          </span>
+          <PageTitle
+            title={record.displayName ?? record.name}
+            badgesSlot={
+              <>
+                {record.apiKeySet ? <Badge variant="positive-soft">Key set</Badge> : null}
+                {record.enabled ? null : <Badge variant="outline">Off</Badge>}
+              </>
+            }
+          />
         }
         description={record.description === '' ? undefined : record.description}
         backSlot={back}

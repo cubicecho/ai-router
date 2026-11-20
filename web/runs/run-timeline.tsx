@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { CollapsibleRow } from '@/components/collapsible-row';
 import { List, ListRow } from '@/components/list';
 import { ListItem } from '@/components/list-item';
+import { Markdown } from '@/components/markdown';
 import { Badge } from '@/components/ui/badge';
 import { CodeBlock } from '@/components/ui/code';
 import {
@@ -19,9 +20,9 @@ import {
   UserRound,
   Zap,
 } from '@/components/ui/icons';
+import { formatCount } from '@/lib/format';
 import { useOpenRows } from '@/lib/use-open-rows';
-import { PROSE_CLASS } from './prose';
-import { formatCount, formatDuration } from './shapes';
+import { formatDuration } from './shapes';
 import { type TimelineEntry, type TimelineEvent, timelineOf } from './timeline';
 
 /** What the timeline is given. */
@@ -128,7 +129,7 @@ function rowOf(entry: TimelineEntry, isLive: boolean): TimelineRow {
       return {
         icon: <ListChecks />,
         title: entry.name === '' ? 'Exchange' : `Exchange ${entry.name}`,
-        body: entry.text === '' ? undefined : <p className={PROSE_CLASS}>{entry.text}</p>,
+        body: entry.text === '' ? undefined : <Markdown content={entry.text} />,
       };
     case 'decision':
       return { icon: <GitBranch />, title: `Chose ${entry.text}` };
@@ -138,10 +139,10 @@ function rowOf(entry: TimelineEntry, isLive: boolean): TimelineRow {
       return {
         icon: <Sparkles />,
         title: 'Thought',
-        body: <p className={`${PROSE_CLASS} text-foreground/70`}>{entry.text}</p>,
+        body: <Markdown content={entry.text} className="text-foreground/70" />,
       };
     case 'output':
-      return { icon: <Bot />, title: 'Wrote', body: <p className={PROSE_CLASS}>{entry.text}</p> };
+      return { icon: <Bot />, title: 'Wrote', body: <Markdown content={entry.text} /> };
     case 'tool':
       return {
         icon: <Zap />,
@@ -150,14 +151,14 @@ function rowOf(entry: TimelineEntry, isLive: boolean): TimelineRow {
         badge: callBadge(entry, isLive),
       };
     case 'input':
-      return { icon: <UserRound />, title: 'Input handed in', body: <p className={PROSE_CLASS}>{entry.text}</p> };
+      return { icon: <UserRound />, title: 'Input handed in', body: <Markdown content={entry.text} /> };
     case 'artifact':
       return { icon: <File />, title: entry.text, description: entry.uri ?? undefined };
     case 'log':
       return {
         icon: <FileText />,
         title: `${entry.name} logged`,
-        body: <p className={PROSE_CLASS}>{`${entry.level}: ${entry.text}`}</p>,
+        body: <CodeBlock content={`${entry.level}: ${entry.text}`} wrap maxHeight="md" />,
       };
     case 'usage': {
       const { usage } = entry;

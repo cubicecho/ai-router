@@ -2,11 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { PoolsDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Layers, Plus } from '@/components/ui/icons';
@@ -56,28 +58,31 @@ export function PoolsRoute() {
               />
             }
           />
-          <List
-            label="Pools"
-            contentSlot={rows.map((pool) => (
-              <ListItem
-                key={pool.id}
-                title={pool.displayName ?? pool.name}
-                description={[
-                  pool.displayName === null ? undefined : pool.name,
-                  STRATEGIES.find((strategy) => strategy.value === pool.strategy)?.label,
-                ]
-                  .filter((part) => part !== undefined)
-                  .join(' · ')}
-                meta={
-                  <span className="flex items-center gap-2">
-                    {pool.enabled ? null : <Badge variant="outline">Off</Badge>}
-                    <span className="text-foreground/60 text-xs tabular-nums">{targetCount(pool.targets.length)}</span>
-                  </span>
-                }
-                linkSlot={<Link to="/pools/$poolId" params={{ poolId: pool.id }} />}
-              />
-            ))}
-          />
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title="All pools"
+              contentSlot={
+                <List
+                  label="Pools"
+                  contentSlot={rows.map((pool) => (
+                    <ListItem
+                      key={pool.id}
+                      title={pool.displayName ?? pool.name}
+                      description={STRATEGIES.find((strategy) => strategy.value === pool.strategy)?.label}
+                      meta={
+                        <RowMeta
+                          facts={[rowNameFact(pool.displayName, pool.name), targetCount(pool.targets.length)]}
+                          badgesSlot={pool.enabled ? null : <Badge variant="outline">Off</Badge>}
+                        />
+                      }
+                      linkSlot={<Link to="/pools/$poolId" params={{ poolId: pool.id }} />}
+                    />
+                  ))}
+                />
+              }
+            />
+          ) : null}
           <PoolDialog open={isCreating} onOpenChange={setIsCreating} pool={null} />
         </>
       }

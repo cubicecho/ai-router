@@ -67,7 +67,7 @@ export function WorkspaceDialog({ open, onOpenChange, workspace, onSaved }: Work
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="slug"
@@ -86,7 +86,7 @@ export function WorkspaceDialog({ open, onOpenChange, workspace, onSaved }: Work
             validators={{ onChange: ({ value }) => (value.trim() === '' ? 'Give it a name.' : undefined) }}
           />
           <TextareaField form={form} name="description" label="Description" rows={3} />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

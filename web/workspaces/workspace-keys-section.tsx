@@ -1,14 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { type KeyFieldsFragment, RevokeWorkspaceKeyDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { ConfirmButton } from '@/components/confirm-button';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { KeyRound, Plus } from '@/components/ui/icons';
+import { Plus } from '@/components/ui/icons';
 import { formatDate } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { KeyDialog } from './key-dialog';
@@ -46,7 +47,7 @@ function expiryOf(expiresAt: string | null, now: number) {
   if (hasExpired) {
     return <Badge variant="destructive-soft">Expired</Badge>;
   }
-  return <Badge variant="secondary">Expires {formatDate(expiresAt)}</Badge>;
+  return null;
 }
 
 /** The keys a workspace's apps call with: one per app or device, each revoked on its own. Untitled: its tab names it. */
@@ -63,16 +64,16 @@ export function WorkspaceKeysSection({ workspaceId, keys }: WorkspaceKeysSection
   );
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description="Each app sends one with every request. A key sees this workspace and nothing else."
       actionSlot={keys.length > 0 ? makeKey : undefined}
       contentSlot={
         <>
           {keys.length === 0 ? (
             <EmptyState
-              iconSlot={<KeyRound />}
-              title="No keys yet"
-              description="Make one for each app or device, so each can be revoked on its own."
+              compact
+              title="No keys yet. Make one for each app or device, so each can be revoked on its own."
               actionSlot={makeKey}
             />
           ) : (
@@ -84,10 +85,17 @@ export function WorkspaceKeysSection({ workspaceId, keys }: WorkspaceKeysSection
                   title={key.name}
                   description={madeOf(key)}
                   meta={
-                    <span className="flex items-center gap-2 text-foreground/60 text-xs">
-                      <span className="font-mono">{key.start}…</span>
-                      {expiryOf(key.expiresAt, now)}
-                    </span>
+                    <RowMeta
+                      facts={[
+                        <span key="start" className="font-mono">
+                          {key.start}…
+                        </span>,
+                        key.expiresAt === null || Date.parse(key.expiresAt) <= now
+                          ? null
+                          : `Expires ${formatDate(key.expiresAt)}`,
+                      ]}
+                      badgesSlot={expiryOf(key.expiresAt, now)}
+                    />
                   }
                   actionSlot={
                     <ConfirmButton

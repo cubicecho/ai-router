@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type ModelPriceInput, SetModelPriceDocument } from '@/__generated__/graphql';
 import { NumberField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
+import { FieldRow } from '@/components/field-row';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
@@ -66,26 +67,30 @@ export function PriceDialog({ open, onOpenChange, providerId, modelId, model, pr
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4 sm:grid-cols-2">
-          <NumberField
-            form={form}
-            name="inputPerMillion"
-            label="Per million tokens in"
-            min={0}
-            step={0.01}
-            required
-            validators={{ onChange: required }}
-          />
-          <NumberField
-            form={form}
-            name="outputPerMillion"
-            label="Per million tokens out"
-            min={0}
-            step={0.01}
-            required
-            validators={{ onChange: required }}
-          />
-        </div>
+        <FieldRow
+          contentSlot={
+            <>
+              <NumberField
+                form={form}
+                name="inputPerMillion"
+                label="Per million tokens in"
+                min={0}
+                step={0.01}
+                required
+                validators={{ onChange: required }}
+              />
+              <NumberField
+                form={form}
+                name="outputPerMillion"
+                label="Per million tokens out"
+                min={0}
+                step={0.01}
+                required
+                validators={{ onChange: required }}
+              />
+            </>
+          }
+        />
       }
       footerActionsSlot={(close) => (
         <>

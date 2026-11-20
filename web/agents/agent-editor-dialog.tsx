@@ -12,6 +12,7 @@ import {
   useAppForm,
 } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
+import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
 import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
@@ -410,7 +411,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
                         />
                       </div>
                     ))}
-                    {parts.length === 0 ? <p className="text-foreground/60 text-sm">No prompt yet.</p> : null}
+                    {parts.length === 0 ? <EmptyState compact title="No prompt yet." /> : null}
                     {partNameError(parts) === undefined || parts.length === 0 ? null : (
                       <Alert variant="warning" title="Check the part names" description={partNameError(parts)} />
                     )}
@@ -525,7 +526,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <SegmentedGroup aria-label="How to edit it" value={view} onValueChange={switchView}>
             <SegmentedButton value={EditorView.Form}>Form</SegmentedButton>
             <SegmentedButton value={EditorView.Json}>JSON</SegmentedButton>
@@ -539,7 +540,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
           {save.isError && refusal === null ? (
             <Alert variant="destructive" title="It wasn't saved" description={save.error.message} />
           ) : null}
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

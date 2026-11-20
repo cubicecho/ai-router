@@ -78,7 +78,7 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -116,7 +116,7 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
             options={fieldOptions}
             placeholder="None"
           />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

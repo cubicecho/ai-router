@@ -2,11 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ProvidersDocument } from '@/__generated__/graphql';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Plus, Server } from '@/components/ui/icons';
@@ -43,25 +45,36 @@ export function ProvidersRoute() {
               />
             }
           />
-          <List
-            label="Providers"
-            contentSlot={rows.map((provider) => (
-              <ListItem
-                key={provider.id}
-                title={provider.displayName ?? provider.name}
-                description={
-                  provider.displayName === null ? provider.baseUrl : `${provider.name} · ${provider.baseUrl}`
-                }
-                meta={
-                  <span className="flex items-center gap-1">
-                    {provider.enabled ? null : <Badge variant="outline">Off</Badge>}
-                    {provider.apiKeySet ? <Badge variant="outline">Key set</Badge> : null}
-                  </span>
-                }
-                linkSlot={<Link to="/providers/$providerId" params={{ providerId: provider.id }} />}
-              />
-            ))}
-          />
+          {rows.length > 0 ? (
+            <CardLayout
+              level={2}
+              title="All providers"
+              contentSlot={
+                <List
+                  label="Providers"
+                  contentSlot={rows.map((provider) => (
+                    <ListItem
+                      key={provider.id}
+                      title={provider.displayName ?? provider.name}
+                      description={provider.baseUrl}
+                      meta={
+                        <RowMeta
+                          facts={[rowNameFact(provider.displayName, provider.name)]}
+                          badgesSlot={
+                            <>
+                              {provider.apiKeySet ? <Badge variant="positive-soft">Key set</Badge> : null}
+                              {provider.enabled ? null : <Badge variant="outline">Off</Badge>}
+                            </>
+                          }
+                        />
+                      }
+                      linkSlot={<Link to="/providers/$providerId" params={{ providerId: provider.id }} />}
+                    />
+                  ))}
+                />
+              }
+            />
+          ) : null}
           <ProviderDialog open={isAdding} onOpenChange={setIsAdding} provider={null} />
         </>
       }

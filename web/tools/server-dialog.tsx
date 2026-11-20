@@ -165,7 +165,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
         </form.AppForm>
       )}
       contentSlot={
-        <div className="grid gap-4">
+        <>
           <InputField
             form={form}
             name="name"
@@ -269,7 +269,7 @@ export function ServerDialog({ open, onOpenChange, server, defaults, isAdmin }: 
           />
           <TextareaField form={form} name="description" label="Description" rows={2} />
           <SwitchField form={form} name="enabled" label="Takes calls" description="Off, runs don't see its tools." />
-        </div>
+        </>
       }
       footerActionsSlot={(close) => (
         <>

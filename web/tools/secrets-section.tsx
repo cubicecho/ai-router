@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { CardLayout } from '@/components/card-layout';
 import { EmptyState } from '@/components/empty-state';
 import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
-import { Section } from '@/components/section';
+import { RowMeta } from '@/components/row-meta';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { KeyRound, Plus } from '@/components/ui/icons';
@@ -87,7 +88,8 @@ export function SecretsSection({ serverId, serverName, transport, secrets, envMe
   ) : undefined;
 
   return (
-    <Section
+    <CardLayout
+      level={2}
       description={
         isAdmin
           ? 'Env values and headers the router keeps for it. Once saved a value is never shown again.'
@@ -108,16 +110,18 @@ export function SecretsSection({ serverId, serverName, transport, secrets, envMe
                   titleClassName="font-mono"
                   description={row.meta?.description}
                   meta={
-                    <span className="flex gap-1">
-                      <Badge variant="outline">{row.kind === 'env' ? 'Env var' : 'Header'}</Badge>
-                      {row.isSet ? (
-                        <Badge variant="positive-soft">Set</Badge>
-                      ) : (
-                        <Badge variant={row.meta?.isRequired === true ? 'warning-soft' : 'outline'}>
-                          {row.meta?.isRequired === true ? 'Required, not set' : 'Not set'}
-                        </Badge>
-                      )}
-                    </span>
+                    <RowMeta
+                      facts={[row.kind === 'env' ? 'Env var' : 'Header']}
+                      badgesSlot={
+                        row.isSet ? (
+                          <Badge variant="positive-soft">Set</Badge>
+                        ) : (
+                          <Badge variant={row.meta?.isRequired === true ? 'warning-soft' : 'outline'}>
+                            {row.meta?.isRequired === true ? 'Required, not set' : 'Not set'}
+                          </Badge>
+                        )
+                      }
+                    />
                   }
                   actionSlot={
                     isAdmin ? (
