@@ -371,7 +371,12 @@ export function createAgentRoutes({
           );
         }
         const layers = resumedLayers(runRequest, waiting.resume);
-        const { agent: resolved, prompt } = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
+        const { agent: resolved, prompt } = resolveRun(
+          agentLayer(agent.name, waiting.document),
+          agent.servers,
+          layers,
+          current,
+        );
         const fetch = forwarder.fetchFor({
           workspaceId,
           workspaceName: workspace.slug,

@@ -74,6 +74,14 @@ query Agent($id: UUID!) {
       }
     }
   }
+  # What each workspace granted it: one flat list, so the cost doesn't multiply by its workspaces.
+  agentGrants: workspaceAgentServers(where: { workspaceAgent: { agentId: { eq: $id } } }, limit: 500) {
+    workspaceAgentId
+    server {
+      name
+      displayName
+    }
+  }
 }
 
 # The workspaces an agent can be offered in, from its page.
@@ -166,9 +174,26 @@ query WorkspaceAgents($workspaceId: UUID!) {
       ...WorkspaceAgentChoice
     }
   }
+  # Which servers each of them may use here: one flat list, so the cost doesn't multiply by the agents.
+  grants: workspaceAgentServers(where: { workspaceAgent: { workspaceId: { eq: $workspaceId } } }, limit: 500) {
+    workspaceAgentId
+    serverId
+  }
   agents(orderBy: { name: { direction: asc, priority: 1 } }) {
     ...WorkspaceAgentChoice
   }
+  # What an agent may be granted here: every server, the admin server included.
+  serverChoices: servers(orderBy: { name: { direction: asc, priority: 1 } }, limit: 500) {
+    id
+    name
+    displayName
+    enabled
+    transport
+  }
+}
+
+mutation SetWorkspaceAgentServers($workspaceAgentId: UUID!, $serverIds: [UUID!]!) {
+  setWorkspaceAgentServers(workspaceAgentId: $workspaceAgentId, serverIds: $serverIds)
 }
 
 mutation CreateWorkspaceAgent($workspaceId: UUID!, $agentId: UUID!) {

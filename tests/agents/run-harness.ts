@@ -51,7 +51,11 @@ export const QUESTION = { role: 'user', content: 'hello there' };
 export const INSTALL = `mutation ($input: InstallServerInput!) { installServer(input: $input) { id name } }`;
 export const CREATE_PROVIDER = 'mutation ($values: CreateProviderInput!) { createProvider(values: $values) { id } }';
 export const CREATE_AGENT = 'mutation ($document: JSON!) { createAgent(document: $document) { id liveRevisionId } }';
-export const GRANT = 'mutation ($v: CreateWorkspaceAgentInput!) { createWorkspaceAgent(values: $v) { id } }';
+export const OFFER = 'mutation ($v: CreateWorkspaceAgentInput!) { createWorkspaceAgent(values: $v) { id } }';
+/** Sets which servers an agent may use in a workspace. */
+const SET_SERVERS = `mutation ($workspaceAgentId: UUID!, $serverIds: [UUID!]!) {
+  setWorkspaceAgentServers(workspaceAgentId: $workspaceAgentId, serverIds: $serverIds)
+}`;
 export const CREATE_ENTRY =
   'mutation ($values: CreateWorkspaceServerInput!) { createWorkspaceServer(values: $values) { id } }';
 
@@ -250,6 +254,25 @@ export class RunHarness {
   };
 
   /**
+   * Lets a workspace's apps run an agent, and grants it servers there, as a person does on the workspace's Agents tab.
+   *
+   * @param workspaceId - The workspace.
+   * @param agentId - The agent.
+   * @param [serverNames] - The servers it may use there: the harness's own, unless told otherwise.
+   */
+  async offer(workspaceId: string, agentId: string, serverNames: readonly string[] = [SERVER]): Promise<void> {
+    const { createWorkspaceAgent } = await this.asUser.expectOk(OFFER, { v: { workspaceId, agentId } });
+    const serverIds = serverNames.map((name) => {
+      const id = this.snapshot.current().servers.get(name)?.id;
+      if (id === undefined) {
+        throw new Error(`The router has no server ${name}.`);
+      }
+      return id;
+    });
+    await this.asUser.expectOk(SET_SERVERS, { workspaceAgentId: createWorkspaceAgent.id, serverIds });
+  }
+
+  /**
    * Starts the router on a real socket.
    *
    * @param [overrides] - Run settings that differ.
@@ -383,7 +406,7 @@ export function useRunHarness(): RunHarness {
     });
     h.agentId = createAgent.id;
     h.revisionId = createAgent.liveRevisionId;
-    await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: h.agentId } });
+    await h.offer(h.workspaceId, h.agentId);
   });
 
   afterEach(async () => {

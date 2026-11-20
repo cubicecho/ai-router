@@ -3,7 +3,6 @@ import type { AgentQuery } from '@/__generated__/graphql';
 import { PropertyList, PropertyRow } from '@/components/property-list';
 import { Section } from '@/components/section';
 import { Alert } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -12,7 +11,7 @@ import { formatDateTime } from '@/lib/format';
 import { AgentPolicySection } from './agent-policy-section';
 import { Findings } from './findings';
 import { whoOf } from './revisions';
-import { describeServers, describeTaskModel, documentText, factsOf, stringsOf } from './shapes';
+import { describeTaskModel, documentText, factsOf, stringsOf } from './shapes';
 
 /** One agent as its page reads it. */
 export type AgentRecord = NonNullable<AgentQuery['agent']>;
@@ -22,29 +21,7 @@ export interface AgentOverviewProps {
   agent: AgentRecord;
 }
 
-/**
- * Shows the servers an agent names, one badge each, or what naming none or leaving them out means.
- *
- * @param servers - `tools.servers`, as `factsOf` reads it.
- * @returns The badges, or the words.
- */
-function ServersValue({ servers }: { servers: readonly string[] | null }) {
-  const hasNames = servers !== null && servers.length > 0;
-  if (hasNames === false) {
-    return describeServers(servers);
-  }
-  return (
-    <span className="flex flex-wrap gap-1">
-      {servers.map((server) => (
-        <Badge key={server} variant="outline" className="font-mono">
-          {server}
-        </Badge>
-      ))}
-    </span>
-  );
-}
-
-/** The live revision of an agent: its name, model, MCP Servers and side tasks, and the document itself. */
+/** The live revision of an agent: its name, model and side tasks, and the document itself. Its MCP servers are each workspace's to choose. */
 export function AgentOverview({ agent }: AgentOverviewProps) {
   const live = agent.liveRevision ?? null;
   const facts = factsOf(live?.document);
@@ -97,15 +74,6 @@ export function AgentOverview({ agent }: AgentOverviewProps) {
                       value={facts.model ?? 'None named, so it cannot run'}
                       valueClassName={facts.model === null ? undefined : 'font-mono'}
                       hint={facts.temperature === null ? undefined : `Temperature ${facts.temperature}`}
-                    />
-                    <PropertyRow
-                      label="MCP Servers"
-                      value={<ServersValue servers={facts.servers} />}
-                      hint={
-                        facts.servers === null
-                          ? 'Every enabled server except the admin server.'
-                          : 'Its tools come from these.'
-                      }
                     />
                     {facts.tasks.map((task) => (
                       <PropertyRow

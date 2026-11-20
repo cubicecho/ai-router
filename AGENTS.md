@@ -160,15 +160,19 @@ non-negotiables apply on top of these.
 
 ### Agents
 
-- **An agent runs with its own reach.** The workspace decides which agents an app may run, and
-  the agent's document decides its models and servers. Don't intersect an agent's servers with
-  the workspace's. The calling workspace's server entry decides how each of those servers is
-  configured, so its workspace instance is used. Without an entry, the base instance is used.
-  An entry never adds a server. The admin server is never part of "every server".
+- **A workspace decides an agent's servers.** The workspace decides which agents an app may run,
+  and, per agent, which MCP servers its runs there reach: exactly those granted
+  (`workspace_agent_servers`, set by the people-only `setWorkspaceAgentServers`), and none
+  without a grant. The agent's document decides its models; ai-router ignores its
+  `tools.servers` (a save warns) until the spec drops it. No admin-server role reaches the grants,
+  so a run never widens its own reach. The admin server is reached only when granted, and its
+  tools still only as far as the workspace's roles. The calling workspace's server entry decides
+  how each server is configured, so its workspace instance is used; without an entry, the base
+  instance. An entry configures a server and never grants one.
 - **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
   Everything above the agent passes the override policy before `resolveAgentSpec`. `endpoint`
   and the model never change for a request, and a caller's `servers` is intersected with the
-  agent's. Sampling settings pass only if the policy allows them, and never reach side tasks.
+  workspace's grant. Sampling settings pass only if the policy allows them, and never reach side tasks.
 - **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
   refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
   named in `X-AI-Router-Ignored`, set before the first byte, as is any `stream_options` key but
@@ -196,8 +200,9 @@ non-negotiables apply on top of these.
   parts' `allowedModes`. Policies widen what apps may do, so only an admin
   writes one, as with settings; any user chooses among them. The default and any policy in use
   are never deleted.
-- **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
-  means exactly those. An emptied list means none, never all.
+- **A run's servers are an exact list.** `resolveRun` puts the workspace's grant in place of the
+  document's `tools.servers`, so there is no "every server": no grant means none, and an emptied
+  list means none, never all.
 - **An app tool that duplicates the agent's own is pruned, never refused.** Older apps send their
   own MCP servers' tools. The same name as one of the agent's tools is always dropped. The same
   tool under another server's name (equal after the first `__`, deep-equal input schemas) is

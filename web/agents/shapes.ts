@@ -15,7 +15,7 @@ export const STARTER_DOCUMENT = {
   description: 'What it is for, in a line.',
   model: { model: 'provider/model', temperature: 0.3 },
   prompt: [{ role: 'system', name: 'identity', content: 'Who it is, and how it helps.' }],
-  tools: { servers: [], maxIterations: 20 },
+  tools: { maxIterations: 20 },
 };
 
 /** What a check or a refused save found in a document. */
@@ -32,8 +32,6 @@ export interface DocumentFacts {
   description: string | null;
   model: string | null;
   temperature: number | null;
-  /** `tools.servers`: null when absent (every server), `[]` for none, or exactly these. */
-  servers: string[] | null;
   /** Each side task and the model it runs on: null for the agent's own, `''` for turned off. */
   tasks: { name: string; model: string | null }[];
 }
@@ -68,32 +66,17 @@ export function stringsOf(value: unknown): string[] {
 export function factsOf(document: unknown): DocumentFacts {
   const spec = isRecord(document) ? document : {};
   const model = isRecord(spec.model) ? spec.model : {};
-  const tools = isRecord(spec.tools) ? spec.tools : {};
   const tasks = isRecord(spec.tasks) ? spec.tasks : {};
   return {
     name: stringOf(spec.name),
     description: stringOf(spec.description),
     model: stringOf(model.model),
     temperature: typeof model.temperature === 'number' ? model.temperature : null,
-    servers: Array.isArray(tools.servers) ? stringsOf(tools.servers) : null,
     tasks: Object.entries(tasks).map(([name, settings]) => ({
       name,
       model: isRecord(settings) ? stringOf(settings.model) : null,
     })),
   };
-}
-
-/**
- * Says which servers an agent may use tools from.
- *
- * @param servers - `tools.servers`, as {@link factsOf} reads it.
- * @returns "Every MCP server", "None" or the names.
- */
-export function describeServers(servers: readonly string[] | null): string {
-  if (servers === null) {
-    return 'Every MCP server';
-  }
-  return servers.length === 0 ? 'None' : servers.join(', ');
 }
 
 /**

@@ -1,16 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
-import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument, ServersDocument } from '@/__generated__/graphql';
-import {
-  CheckboxField,
-  ComboboxField,
-  InputField,
-  NumberField,
-  SelectField,
-  TextareaField,
-  useAppForm,
-} from '@/components/app-form';
+import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument } from '@/__generated__/graphql';
+import { CheckboxField, InputField, NumberField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
@@ -23,7 +15,6 @@ import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { useToast } from '@/components/ui/toast';
 import { request } from '@/lib/gql';
 import { NAME_HINT, NAME_PATTERN } from '@/models/names';
-import { BUILTIN, transportOf } from '@/tools/shapes';
 import {
   type AgentFormValues,
   documentFrom,
@@ -32,7 +23,6 @@ import {
   NEW_PART,
   PromptLayout,
   type PromptPartValues,
-  ServerReach,
 } from './agent-form';
 import { Findings } from './findings';
 import { documentText, parseDocument, refusalOf, STARTER_DOCUMENT, stringsOf } from './shapes';
@@ -45,13 +35,6 @@ const PART_ROWS = 4;
 /** The editor's two views of one document. */
 const EditorView = { Form: 'form', Json: 'json' } as const;
 type EditorView = (typeof EditorView)[keyof typeof EditorView];
-
-/** The MCP Servers choices, as people read them. */
-const REACH_OPTIONS = [
-  { value: ServerReach.Every, label: 'Every MCP server, now and later' },
-  { value: ServerReach.None, label: 'None' },
-  { value: ServerReach.Chosen, label: 'Only the ones chosen' },
-];
 
 /** The layouts, as people read them. */
 const LAYOUT_OPTIONS = [
@@ -138,11 +121,6 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
   // What the form doesn't show is kept from here: the document it was last filled from.
   const [base, setBase] = useState<Record<string, unknown>>(initial);
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const servers = useQuery({ queryKey: ['servers'], queryFn: () => request(ServersDocument), enabled: open });
-  const serverOptions = (servers.data?.servers ?? []).map((server) => ({
-    value: server.name,
-    label: transportOf(server.transport).type === BUILTIN ? `${server.name} (the admin server)` : server.name,
-  }));
 
   const check = useMutation({
     mutationFn: async (document: Record<string, unknown>) =>
@@ -429,34 +407,17 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
         }
       />
       <Section
-        title="MCP Servers"
-        description="Which MCP servers it may use tools from. The admin server is never one of every server: choose it by name."
+        title="Tools"
+        description="Its MCP servers are chosen on each workspace that runs it, on the workspace's Agents tab."
         contentSlot={
-          <div className="grid gap-4">
-            <SelectField form={form} name="serverReach" label="Reaches" options={REACH_OPTIONS} />
-            <form.Subscribe selector={(state) => state.values.serverReach}>
-              {(reach) =>
-                reach === ServerReach.Chosen ? (
-                  <ComboboxField
-                    form={form}
-                    name="servers"
-                    label="MCP Servers"
-                    multiple
-                    options={serverOptions}
-                    placeholder="Choose MCP servers"
-                  />
-                ) : null
-              }
-            </form.Subscribe>
-            <NumberField
-              form={form}
-              name="maxIterations"
-              label="Most tool rounds"
-              description="Where a tool loop stops. Blank leaves it to the router's default."
-              integer
-              min={1}
-            />
-          </div>
+          <NumberField
+            form={form}
+            name="maxIterations"
+            label="Most tool rounds"
+            description="Where a tool loop stops. Blank leaves it to the router's default."
+            integer
+            min={1}
+          />
         }
       />
       <InputField

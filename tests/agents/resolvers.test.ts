@@ -42,7 +42,7 @@ const FINANCE = {
   name: 'Personal Finance',
   model: { model: 'ollama/qwen3:32b', temperature: 0.3 },
   prompt: [{ role: 'system', name: 'identity', content: 'You help me run my household money.' }],
-  tools: { servers: ['actual'], maxIterations: 20 },
+  tools: { maxIterations: 20 },
   tasks: { title: { model: 'small' } },
 };
 
@@ -170,7 +170,7 @@ describe('creating an agent', () => {
 });
 
 describe('warnings', () => {
-  it('name what the router lacks, and every-server reach, without refusing', async () => {
+  it('name what the router lacks, without refusing', async () => {
     const { checkAgent } = await asUser.expectOk(CHECK, {
       document: {
         spec: 'cubicecho.agent/2',
@@ -184,9 +184,18 @@ describe('warnings', () => {
       expect.arrayContaining([
         expect.stringContaining('no provider is named "nowhere"'),
         expect.stringContaining('no pool is named "no-such-pool"'),
-        expect.stringContaining('every server'),
       ]),
     );
+  });
+
+  it('say the router ignores a server list, which a workspace decides instead', async () => {
+    const { checkAgent } = await asUser.expectOk(CHECK, {
+      document: { ...FINANCE, tools: { servers: ['actual'] } },
+    });
+    expect(checkAgent).toEqual({
+      errors: [],
+      warnings: [expect.stringContaining('tools.servers: ai-router ignores it')],
+    });
   });
 
   it('are none for a document that names only what the router has', async () => {
@@ -251,7 +260,8 @@ describe('the snapshot', () => {
       document: FINANCE,
       policy: DEFAULT_POLICY_RULES,
     });
-    expect([...(agent?.workspaceIds ?? [])]).toEqual([workspaceId]);
+    // Offered with no servers granted yet, so its runs there reach none.
+    expect([...(agent?.workspaces ?? [])]).toEqual([[workspaceId, []]]);
   });
 });
 

@@ -14,6 +14,7 @@ import { providers } from './tables/providers.ts';
 import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
 import { settings } from './tables/settings.ts';
+import { workspaceAgentServers } from './tables/workspace-agent-servers.ts';
 import { workspaceAgents } from './tables/workspace-agents.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
 import { workspaceServers } from './tables/workspace-servers.ts';
@@ -126,8 +127,11 @@ export interface SnapshotAgent {
   document: Readonly<Record<string, unknown>> | null;
   /** What the layers above it may change. */
   policy: OverridePolicyRules;
-  /** The workspaces whose apps may run it. */
-  workspaceIds: ReadonlySet<string>;
+  /**
+   * The workspaces whose apps may run it, each with the servers it may use there, by name: exactly those, and none
+   * when the list is empty. The agent's own `tools.servers` is not read.
+   */
+  workspaces: ReadonlyMap<string, readonly string[]>;
 }
 
 /** Everything requests route by, read once and held in memory. */
@@ -249,7 +253,8 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     entryRows,
     agentRows,
     policyRows,
-    grantRows,
+    offerRows,
+    serverGrantRows,
     [settingsRow],
   ] = await Promise.all([
     db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
@@ -288,10 +293,21 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
       .from(agents)
       .leftJoin(agentRevisions, eq(agentRevisions.id, agents.liveRevisionId)),
     db.select({ id: overridePolicies.id, rules: overridePolicies.rules }).from(overridePolicies),
-    db.select({ workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId }).from(workspaceAgents),
+    db
+      .select({ id: workspaceAgents.id, workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId })
+      .from(workspaceAgents),
+    db
+      .select({ workspaceAgentId: workspaceAgentServers.workspaceAgentId, serverId: workspaceAgentServers.serverId })
+      .from(workspaceAgentServers),
     db.select({ values: settings.values }).from(settings),
   ]);
   const policies = new Map(policyRows.map((row) => [row.id, row.rules]));
+  const serverNames = new Map(serverRows.map((row) => [row.id, row.name]));
+  /** The names of the servers one workspace's offer of an agent grants it. */
+  const serverNamesOf = (workspaceAgentId: string): string[] =>
+    serverGrantRows.flatMap((grant) =>
+      grant.workspaceAgentId === workspaceAgentId ? (serverNames.get(grant.serverId) ?? []) : [],
+    );
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
   for (const { poolId, providerId, model, weight } of targetRows) {
@@ -307,8 +323,10 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
         if (policy === undefined) {
           return [];
         }
-        const workspaceIds = new Set(
-          grantRows.filter((grant) => grant.agentId === row.id).map((grant) => grant.workspaceId),
+        const workspaces = new Map(
+          offerRows
+            .filter((offer) => offer.agentId === row.id)
+            .map((offer) => [offer.workspaceId, serverNamesOf(offer.id)] as const),
         );
         const agent: SnapshotAgent = {
           id: row.id,
@@ -316,7 +334,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
           liveRevisionId: row.liveRevisionId,
           document: row.document,
           policy,
-          workspaceIds,
+          workspaces,
         };
         return [[row.name, agent] as const];
       }),
