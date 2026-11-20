@@ -9,12 +9,12 @@ const BAD_USER_INPUT = 'BAD_USER_INPUT';
 
 /** What a new agent's editor starts with: every part a person usually sets, to change. */
 export const STARTER_DOCUMENT = {
-  spec: 'cubicecho.agent/1',
+  spec: 'cubicecho.agent/2',
   id: 'my-agent',
   name: 'My agent',
   description: 'What it is for, in a line.',
   model: { model: 'provider/model', temperature: 0.3 },
-  prompt: [{ id: 'identity', text: 'Who it is, and how it helps.' }],
+  prompt: [{ role: 'system', name: 'identity', content: 'Who it is, and how it helps.' }],
   tools: { servers: [], maxIterations: 20 },
 };
 

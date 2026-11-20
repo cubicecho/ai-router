@@ -1,7 +1,8 @@
-import { progressChunk, type RunEvent, withProgress } from '@cubicecho/agent-core';
+import { progressChunk, type RunEvent, RunEventKind, type StackWarning, withProgress } from '@cubicecho/agent-core';
 import type { Response } from 'express';
 import { HttpStatus, MS_PER_SECOND } from '../core/wire.ts';
 import type { OpenAiErrorBody } from '../models/openai-error.ts';
+import { AGENT_CORE_FIELD } from './request.ts';
 import type { FinishedRun } from './run.ts';
 
 /** The header every agent answer names its run in, once there is one. */
@@ -17,6 +18,8 @@ const EVENT_STREAM_TYPE = 'text/event-stream';
 const STREAM_END = '[DONE]';
 /** A comment line, which every SSE client skips. */
 const HEARTBEAT = ': keep-alive\n\n';
+/** What sets a line about a tool apart from the reasoning around it. */
+const REASONING_BREAK = '\n\n';
 
 /** What every completion and chunk of one run says about it. */
 export interface CompletionMeta {
@@ -78,13 +81,48 @@ function messageOf(finished: FinishedRun) {
 }
 
 /**
+ * Writes the app's parts a run dropped as the answer's `agent_core.warnings`.
+ *
+ * @param warnings - The parts, from `StartedRun.warnings`.
+ * @returns The field to spread into a body or chunk, or nothing when there are none.
+ */
+function warningsField(warnings: readonly StackWarning[]): { [AGENT_CORE_FIELD]?: { warnings: StackWarning[] } } {
+  return warnings.length === 0 ? {} : { [AGENT_CORE_FIELD]: { warnings: [...warnings] } };
+}
+
+/**
+ * Says what a run's event is in the words a chat client shows as a model's reasoning.
+ *
+ * @param event - The event.
+ * @returns The scratchpad's text as it streams, a line for a tool called or come back, or null for any other event.
+ */
+export function reasoningText(event: RunEvent): string | null {
+  if (event.kind === RunEventKind.Thinking) {
+    return event.text;
+  }
+  if (event.kind === RunEventKind.ToolCall) {
+    return `${REASONING_BREAK}Calling \`${event.name}\`…${REASONING_BREAK}`;
+  }
+  if (event.kind === RunEventKind.ToolResult) {
+    const said = event.ok === false ? 'failed' : 'came back';
+    return `${REASONING_BREAK}\`${event.name}\` ${said}.${REASONING_BREAK}`;
+  }
+  return null;
+}
+
+/**
  * Builds the non-streamed answer of a completed or waiting run.
  *
  * @param finished - The run. It completed or waits, so it has an answer.
- * @param [events] - Its events, when the app asked for progress: they go beside `choices`, as `ai_router.events`.
+ * @param [events] - Its events, when the app asked for progress: they go beside `choices`, as `agent_core.events`.
+ * @param [warnings] - The app's parts the run dropped, beside `choices` as `agent_core.warnings`.
  * @returns A `chat.completion`.
  */
-export function completionBody(finished: FinishedRun, events: RunEvent[] | null = null) {
+export function completionBody(
+  finished: FinishedRun,
+  events: RunEvent[] | null = null,
+  warnings: readonly StackWarning[] = [],
+) {
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
   const completion = {
     ...header(meta),
@@ -98,8 +136,13 @@ export function completionBody(finished: FinishedRun, events: RunEvent[] | null 
     ],
     usage: usageOf(finished),
   };
+  const warned = { ...completion, ...warningsField(warnings) };
+  if (events === null) {
+    return warned;
+  }
   // agent-core's own encoder, so what min-agent and task_server decode can't drift from what is sent.
-  return events === null ? completion : withProgress(completion, finished.runId, events);
+  const withEvents = withProgress(completion, finished.runId, events);
+  return { ...withEvents, [AGENT_CORE_FIELD]: { ...withEvents[AGENT_CORE_FIELD], ...warned[AGENT_CORE_FIELD] } };
 }
 
 /** Writes a run's answer to the app as OpenAI's `chat.completion.chunk` stream. */
@@ -111,8 +154,15 @@ export interface ChunkStream {
    */
   text(content: string): void;
   /**
+   * Sends the run's work as reasoning so far, in `delta.reasoning_content`, which chat clients fold away above the
+   * answer.
+   *
+   * @param content - What `reasoningText` wrote.
+   */
+  reasoning(content: string): void;
+  /**
    * Sends one of the run's events as a progress chunk: empty `choices`, so a standard client skips it, and the event
-   * as `ai_router.event`.
+   * as `agent_core.event`.
    *
    * @param event - The event.
    */
@@ -122,8 +172,9 @@ export interface ChunkStream {
    * and `[DONE]`.
    *
    * @param finished - The run.
+   * @param [warnings] - The app's parts the run dropped, on the finish chunk as `agent_core.warnings`.
    */
-  end(finished: FinishedRun): void;
+  end(finished: FinishedRun, warnings?: readonly StackWarning[]): void;
   /**
    * Ends a run that didn't complete, with an error the OpenAI client reads as one.
    *
@@ -209,13 +260,14 @@ export function openChunkStream(
   send(chunk({ role: 'assistant', content: '' }, null));
   return {
     text: (content) => send(chunk({ content }, null)),
+    reasoning: (content) => send(chunk({ reasoning_content: content }, null)),
     event: (event) => send(progressChunk(event, header(meta))),
-    end: (finished) => {
+    end: (finished, warnings = []) => {
       const toolCalls = (finished.answer?.toolCalls ?? []).map((call, index) => ({ index, ...call }));
       if (toolCalls.length > 0) {
         send(chunk({ tool_calls: toolCalls }, null));
       }
-      send(chunk({}, finished.answer?.finishReason ?? 'stop'));
+      send({ ...chunk({}, finished.answer?.finishReason ?? 'stop'), ...warningsField(warnings) });
       if (includeUsage) {
         send({ ...header(meta), object: 'chat.completion.chunk', choices: [], usage: usageOf(finished) });
       }

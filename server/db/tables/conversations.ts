@@ -20,8 +20,8 @@ export const conversations = pgTable(
     /** The agent it is with. Another agent can't join it. */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     agentName: text('agent_name').notNull(),
-    /** The host text of its latest run, which a request that sends no system messages carries on with. */
-    hostText: text('host_text'),
+    /** The app's system messages of its latest run, which a request that sends none carries on with. */
+    systemText: text('system_text'),
     /** The transcript so far, without the system prompt: every run's messages, tool calls and results included. */
     messages: jsonb('messages').$type<AgentLoopOptions['messages']>().notNull().default(sql`'[]'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

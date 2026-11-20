@@ -1,6 +1,7 @@
 import './core/preflight.ts';
 
 import path from 'node:path';
+import { upgradeStored } from './agents/upgrade.ts';
 import { createAuthHost } from './auth/auth-host.ts';
 import { appUrl, dbConnectTimeoutMs, oidcRedirectUri, port, ROOT, secureLocalNet } from './core/config.ts';
 import { errorMessage } from './core/errors.ts';
@@ -21,6 +22,7 @@ try {
   await database.claim();
   // At boot, so `docker compose up` on a fresh volume is the whole install.
   await database.migrate();
+  await upgradeStored(database.db);
 } catch (error) {
   console.error(`[db] ${errorMessage(error)}`);
   await database.close().catch(() => {});

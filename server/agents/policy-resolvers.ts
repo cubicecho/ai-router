@@ -19,10 +19,6 @@ const NAMED_AGENTS = 5;
 const POLICIES_SDL = parse(`
   "What a policy lets the layers above an agent do. Nothing it leaves out is quietly trimmed: a request that needs it is refused."
   input OverridePolicyRulesInput {
-    "The app's leading system or developer messages become the agent's host prompt part."
-    hostPrompt: Boolean!
-    "ai_router.task becomes the agent's task prompt part."
-    taskPrompt: Boolean!
     "A request may narrow the agent's servers. It never widens them."
     narrowServers: Boolean!
     "The request fields an app may set, by their OpenAI wire names: temperature, max_tokens, top_p and the like."

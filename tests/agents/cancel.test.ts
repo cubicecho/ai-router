@@ -77,7 +77,7 @@ describe('POST /runs/<id>/cancel', () => {
       model: 'helper',
       messages: [QUESTION],
       stream: true,
-      ai_router: { progress: true },
+      agent_core: { progress: true },
     });
     const runId = response.headers.get('x-run-id') ?? '';
     const lines = dataLines(response);
@@ -93,7 +93,7 @@ describe('POST /runs/<id>/cancel', () => {
     });
     const streamed = await lines;
     // The done event as a progress chunk, then the error, as any OpenAI client reads a failed stream.
-    expect(streamed.at(-2)).toMatchObject({ choices: [], ai_router: { event: { kind: 'done', ok: false } } });
+    expect(streamed.at(-2)).toMatchObject({ choices: [], agent_core: { event: { kind: 'done', ok: false } } });
     expect(streamed.at(-1)).toEqual({
       error: expect.objectContaining({
         code: 'run_cancelled',

@@ -47,7 +47,7 @@ async function runOnce(base: string, model: string, headers: Record<string, stri
  */
 async function addAgent(id: string): Promise<void> {
   const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
-    document: { spec: 'cubicecho.agent/1', id, model: { model: 'fake/m1' }, tools: { servers: [] } },
+    document: { spec: 'cubicecho.agent/2', id, model: { model: 'fake/m1' }, tools: { servers: [] } },
   });
   await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
   await h.snapshot.rebuild();

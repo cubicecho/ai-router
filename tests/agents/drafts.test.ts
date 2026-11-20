@@ -49,7 +49,7 @@ const REVISIONS = `query ($id: UUID!) {
  * @returns The document.
  */
 const document = (id: string, description = '') => ({
-  spec: 'cubicecho.agent/1',
+  spec: 'cubicecho.agent/2',
   id,
   description,
   model: { model: 'ollama/m' },

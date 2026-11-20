@@ -27,7 +27,7 @@ const AGENTS_SDL = parse(`
   }
 
   extend type Mutation {
-    "Adds an agent from a cubicecho.agent/1 document, named by its id. Its first revision goes live, whoever saves it."
+    "Adds an agent from a cubicecho.agent/2 document (a version 1 one is upgraded), named by its id. Its first revision goes live, whoever saves it."
     createAgent(document: JSON!, message: String): Agent!
     """
     Saves a new revision of an agent. A person's save goes live at once. A run's save is a draft until a person

@@ -1,0 +1,39 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "45b87a22-0f28-4404-bd58-fa92c2e63a00",
+  "prevIds": [
+    "49f41cc9-6bb7-4c8c-abfa-ed7738854290"
+  ],
+  "footprints": [
+    {
+      "statementType": "rename_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "conversations",
+        "host_text"
+      ],
+      "writes": [
+        "s|col|public.conversations.host_text",
+        "n|col|public.conversations.host_text",
+        "s|col|public.conversations.system_text",
+        "n|col|public.conversations.system_text"
+      ],
+      "reads": [
+        "n|tbl|public.conversations",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "rename",
+      "key": "columns\u0000[\"public\",\"conversations\",\"host_text\"]",
+      "set": {
+        "name": "system_text"
+      }
+    }
+  ]
+}

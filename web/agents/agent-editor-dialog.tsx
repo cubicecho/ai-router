@@ -2,7 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument, ServersDocument } from '@/__generated__/graphql';
-import { ComboboxField, InputField, NumberField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
+import {
+  CheckboxField,
+  ComboboxField,
+  InputField,
+  NumberField,
+  SelectField,
+  TextareaField,
+  useAppForm,
+} from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { FieldRow } from '@/components/field-row';
 import { Section } from '@/components/section';
@@ -20,6 +28,8 @@ import {
   documentFrom,
   formValuesOf,
   isPromptEditable,
+  NEW_PART,
+  PromptLayout,
   type PromptPartValues,
   ServerReach,
 } from './agent-form';
@@ -40,6 +50,13 @@ const REACH_OPTIONS = [
   { value: ServerReach.Every, label: 'Every MCP server, now and later' },
   { value: ServerReach.None, label: 'None' },
   { value: ServerReach.Chosen, label: 'Only the ones chosen' },
+];
+
+/** The layouts, as people read them. */
+const LAYOUT_OPTIONS = [
+  { value: PromptLayout.Plain, label: 'Plain: the parts one after another' },
+  { value: PromptLayout.Markdown, label: 'Markdown: each part under a heading' },
+  { value: PromptLayout.Xml, label: 'XML: each part in its own tag' },
 ];
 
 /** The agent a new revision is for. */
@@ -93,17 +110,17 @@ function warningCount(count: number): string {
 }
 
 /**
- * Finds what is wrong with the prompt's part ids.
+ * Finds what is wrong with the prompt's part names.
  *
  * @param parts - The parts.
  * @returns The first problem, or undefined.
  */
-function partIdError(parts: readonly PromptPartValues[]): string | undefined {
-  const ids = parts.map((part) => part.id.trim());
-  if (ids.some((id) => id === '')) {
-    return 'Every part needs an id.';
+function partNameError(parts: readonly PromptPartValues[]): string | undefined {
+  const names = parts.map((part) => part.name.trim());
+  if (names.some((name) => name === '')) {
+    return 'Every part needs a name.';
   }
-  return new Set(ids).size === ids.length ? undefined : 'Two parts have the same id.';
+  return new Set(names).size === names.length ? undefined : 'Two parts have the same name.';
 }
 
 /**
@@ -325,61 +342,89 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
       />
       <Section
         title="Prompt"
-        description="Its parts, in order, joined with blank lines. An app's own instructions come after them."
+        description="Its parts, in order. An app's own parts and system messages come after them, and can't change them but as each part allows."
         actionSlot={
           promptEditable ? (
             <Button
               variant="positive"
               size="sm"
               iconSlot={<Plus />}
-              onClick={() => form.pushFieldValue('prompt', { id: '', text: '' })}
+              onClick={() => form.pushFieldValue('prompt', { ...NEW_PART })}
               content="Add part"
             />
           ) : undefined
         }
         contentSlot={
-          promptEditable ? (
-            <form.Subscribe selector={(state) => state.values.prompt}>
-              {(parts) => (
-                <div className="grid gap-4">
-                  {parts.map((_part, index) => (
-                    // A part has no key of its own until its id is typed, and its place is what the fields bind to.
-                    // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
-                    <div key={index} className="grid gap-2">
-                      <div className="flex items-end gap-2">
-                        <InputField
-                          form={form}
-                          name={`prompt[${index}].id`}
-                          label="Part id"
-                          placeholder="identity"
-                          className="flex-1"
-                          required
-                        />
-                        <Button
-                          variant="destructive-outline"
-                          size="icon"
-                          aria-label={`Remove part ${index + 1}`}
-                          iconSlot={<Trash2 />}
-                          onClick={() => form.removeFieldValue('prompt', index)}
+          <div className="grid gap-4">
+            <SelectField
+              form={form}
+              name="promptLayout"
+              label="Layout"
+              description="How the parts are written for the model. Which reads best depends on the model."
+              options={LAYOUT_OPTIONS}
+            />
+            {promptEditable ? (
+              <form.Subscribe selector={(state) => state.values.prompt}>
+                {(parts) => (
+                  <div className="grid gap-4">
+                    {parts.map((_part, index) => (
+                      // A part has no key of its own until its name is typed, and its place is what the fields bind to.
+                      // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
+                      <div key={index} className="grid gap-2">
+                        <div className="flex items-end gap-2">
+                          <InputField
+                            form={form}
+                            name={`prompt[${index}].name`}
+                            label="Part name"
+                            placeholder="identity"
+                            description="What it is for: identity, rules, format. It can't start with the word app."
+                            className="flex-1"
+                            required
+                          />
+                          <Button
+                            variant="destructive-outline"
+                            size="icon"
+                            aria-label={`Remove part ${index + 1}`}
+                            iconSlot={<Trash2 />}
+                            onClick={() => form.removeFieldValue('prompt', index)}
+                          />
+                        </div>
+                        <TextareaField form={form} name={`prompt[${index}].content`} label="Text" rows={PART_ROWS} />
+                        <FieldRow
+                          contentSlot={
+                            <>
+                              <CheckboxField
+                                form={form}
+                                name={`prompt[${index}].appsExtend`}
+                                label="Apps may extend it"
+                                description="An app's part adds to it. The model is told this part wins where they conflict."
+                              />
+                              <CheckboxField
+                                form={form}
+                                name={`prompt[${index}].appsReplace`}
+                                label="Apps may replace it"
+                                description="An app's part takes its place, and the model follows the app's."
+                              />
+                            </>
+                          }
                         />
                       </div>
-                      <TextareaField form={form} name={`prompt[${index}].text`} label="Text" rows={PART_ROWS} />
-                    </div>
-                  ))}
-                  {parts.length === 0 ? <p className="text-foreground/60 text-sm">No prompt yet.</p> : null}
-                  {partIdError(parts) === undefined || parts.length === 0 ? null : (
-                    <Alert variant="warning" title="Check the part ids" description={partIdError(parts)} />
-                  )}
-                </div>
-              )}
-            </form.Subscribe>
-          ) : (
-            <Alert
-              variant="info"
-              title="Its prompt is edited in the JSON"
-              description="A part points at a file or a URL, which the form can't show. The form keeps the prompt as it is."
-            />
-          )
+                    ))}
+                    {parts.length === 0 ? <p className="text-foreground/60 text-sm">No prompt yet.</p> : null}
+                    {partNameError(parts) === undefined || parts.length === 0 ? null : (
+                      <Alert variant="warning" title="Check the part names" description={partNameError(parts)} />
+                    )}
+                  </div>
+                )}
+              </form.Subscribe>
+            ) : (
+              <Alert
+                variant="info"
+                title="Its prompt is edited in the JSON"
+                description="A part has a mode or a key the form can't show. The form keeps the prompt as it is."
+              />
+            )}
+          </div>
         }
       />
       <Section
@@ -431,7 +476,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
         form={form}
         name="json"
         label="Document"
-        description="The whole cubicecho.agent/1 document. Paste one here, then fill the form from it."
+        description="The whole cubicecho.agent/2 document. Paste one here, then fill the form from it."
         rows={DOCUMENT_ROWS}
         // The field's `className` is its root's, label included, so the box alone is reached past it.
         className="[&_textarea]:font-mono [&_textarea]:text-xs"
@@ -467,7 +512,7 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
       title={isNew ? 'New agent' : `New revision of ${agent.name}`}
       description={
         isNew
-          ? 'Its first revision goes live at once. Fill in the form, or paste a cubicecho.agent/1 document as JSON.'
+          ? 'Its first revision goes live at once. Fill in the form, or paste a cubicecho.agent/2 document as JSON.'
           : 'Saving makes a new revision and puts it live at once. Every earlier revision stays in the history.'
       }
       size="xl"

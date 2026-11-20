@@ -44,8 +44,6 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
     defaultValues: {
       name: policy?.name ?? '',
       description: policy?.description ?? '',
-      hostPrompt: rules.hostPrompt,
-      taskPrompt: rules.taskPrompt,
       narrowServers: rules.narrowServers,
       responseFormat: rules.responseFormat,
       sampling: rules.sampling,
@@ -55,8 +53,6 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
         name: value.name.trim(),
         description: value.description.trim(),
         rules: {
-          hostPrompt: value.hostPrompt,
-          taskPrompt: value.taskPrompt,
           narrowServers: value.narrowServers,
           responseFormat: value.responseFormat,
           sampling: [...value.sampling],
@@ -72,7 +68,7 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
       open={open}
       onOpenChange={onOpenChange}
       title={isEdit ? `Edit ${policy.name}` : 'New override policy'}
-      description="What an app may add to or set on an agent's runs. A request that needs anything else is refused, never trimmed. No policy changes an agent's model."
+      description="What an app may set on an agent's runs. A request that needs anything else is refused, never trimmed. No policy changes an agent's model or its prompt: an app's parts and system messages always come after the agent's, as its parts allow."
       hasUnsavedChanges={() => form.state.isDefaultValue === false}
       wrapperSlot={(parts, { className }) => (
         <form.AppForm>
@@ -97,18 +93,6 @@ export function PolicyDialog({ open, onOpenChange, policy, knownFields }: Policy
             label="Description"
             description="What it is for, for the people choosing it for an agent."
             rows={2}
-          />
-          <SwitchField
-            form={form}
-            name="hostPrompt"
-            label="System messages"
-            description="The app's leading system or developer messages join the agent's prompt."
-          />
-          <SwitchField
-            form={form}
-            name="taskPrompt"
-            label="Task"
-            description="ai_router.task joins the agent's prompt as its task."
           />
           <SwitchField
             form={form}

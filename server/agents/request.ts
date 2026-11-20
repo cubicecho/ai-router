@@ -1,4 +1,12 @@
-import { type AgentLoopOptions, CALL_TOOL, LOAD_TOOLS, RECORD_ARTIFACT } from '@cubicecho/agent-core';
+import {
+  type AgentLoopOptions,
+  type AppPart,
+  CALL_TOOL,
+  LOAD_TOOLS,
+  PROGRESS_FIELD,
+  parseAppParts,
+  RECORD_ARTIFACT,
+} from '@cubicecho/agent-core';
 import { z } from 'zod';
 import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -18,16 +26,25 @@ const FUNCTION_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 /** The one `tool_choice` the router takes: the agent decides when it calls a tool. */
 const TOOL_CHOICE_AUTO = 'auto';
 
-/** What joins the texts of the leading system messages into the host part. */
-const HOST_JOIN = '\n\n';
+/** What joins the texts of the leading system messages into the `app_system` part. */
+const SYSTEM_JOIN = '\n\n';
 
 /** The header an answer names the request fields it dropped in, when the router's settings ignore unlisted ones. */
 export const IGNORED_HEADER = 'X-AI-Router-Ignored';
 /** What joins the dropped fields' names in that header. */
 const IGNORED_JOIN = ', ';
 
-/** The roles whose leading messages become the host part. */
-const HOST_ROLES: ReadonlySet<string> = new Set(['system', 'developer']);
+/** The roles whose leading messages become the `app_system` part. */
+const SYSTEM_ROLES: ReadonlySet<string> = new Set(['system', 'developer']);
+
+/**
+ * The request field an app's agent-core options travel under, `agent_core`: agent-core's own name for it, which the
+ * answer's progress and warnings use too.
+ */
+export const AGENT_CORE_FIELD = PROGRESS_FIELD;
+
+/** The field `agent_core` had before agent-core 7, which the router refuses rather than read. */
+const OLD_FIELD = 'ai_router';
 
 /** The request field that says how a stream is sent. */
 const STREAM_OPTIONS = 'stream_options';
@@ -50,7 +67,8 @@ export const READ_FIELDS: ReadonlySet<string> = new Set([
   STREAM_OPTIONS,
   'n',
   'user',
-  'ai_router',
+  AGENT_CORE_FIELD,
+  OLD_FIELD,
   'response_format',
   'parallel_tool_calls',
   'tools',
@@ -124,10 +142,10 @@ const appToolSchema = z.object({
 /** A message as the schema read it. */
 type ParsedMessage = z.infer<typeof messageSchema>;
 
-/** `ai_router`: what an app that knows the router may add. */
-const routerOptionsSchema = z.strictObject({
-  /** A task layer's text. */
-  task: z.string().optional(),
+/** `agent_core`: what an app that knows agent-core may add. */
+const agentCoreSchema = z.strictObject({
+  /** The app's prompt parts, read by agent-core's `parseAppParts`. */
+  prompt: z.unknown().optional(),
   /** Whether the answer carries the run's events. */
   progress: z.boolean().optional(),
   /** Narrows the agent's servers to these. Never widens them. */
@@ -161,11 +179,11 @@ export interface RunRequest {
   input: InputMessage[];
   /** The app's own tools, from `tools`. */
   appTools: AppTool[];
-  /** The leading system and developer messages' text, for the host part. Null when there were none. */
-  hostText: string | null;
-  /** `ai_router.task`, for the task part. Null when absent. */
-  taskText: string | null;
-  /** `ai_router.servers`, the servers the app narrows the agent to. Null when absent. */
+  /** The leading system and developer messages' text, for the `app_system` part. Null when there were none. */
+  systemText: string | null;
+  /** `agent_core.prompt`, the app's parts, for stacking on the agent's. Null when absent. */
+  appParts: AppPart[] | null;
+  /** `agent_core.servers`, the servers the app narrows the agent to. Null when absent. */
   servers: string[] | null;
   sampling: RequestSampling;
   stream: boolean;
@@ -173,7 +191,7 @@ export interface RunRequest {
   includeUsage: boolean;
   /** The request's `user`, recorded on the run. */
   user: string | null;
-  /** `ai_router.progress`: whether the answer carries the run's events. */
+  /** `agent_core.progress`: whether the answer carries the run's events. */
   progress: boolean;
   /** The fields the policy doesn't list that were dropped, in the body's order. Empty unless the settings ignore them. */
   ignored: string[];
@@ -335,7 +353,7 @@ function inputMessageOf(message: Exclude<ParsedMessage, { role: 'assistant' }>):
 function addedInput(messages: ParsedMessage[], answers: ToolAnswer[]): InputMessage[] {
   const isResume = answers.length > 0;
   const lastAssistant = messages.findLastIndex((message) => message.role === 'assistant');
-  const lead = messages.findIndex((message) => isHostMessage(message) === false);
+  const lead = messages.findIndex((message) => isSystemMessage(message) === false);
   const added = isResume
     ? messages.slice(messages.length - answers.length)
     : [...messages.slice(0, lead), ...messages.slice(Math.max(lead, lastAssistant + 1))];
@@ -343,30 +361,54 @@ function addedInput(messages: ParsedMessage[], answers: ToolAnswer[]): InputMess
 }
 
 /**
- * Splits off the leading system and developer messages, which become the host part.
+ * Splits off the leading system and developer messages, which become the `app_system` part.
  *
  * @param messages - The checked messages.
- * @returns The host text, null when there were none, and the conversation after them.
+ * @returns Their text, null when there were none, and the conversation after them.
  */
-function splitHost(messages: ParsedMessage[]): { hostText: string | null; rest: ChatMessage[] } {
+function splitSystem(messages: ParsedMessage[]): { systemText: string | null; rest: ChatMessage[] } {
   const lead: string[] = [];
   for (const message of messages) {
-    if (isHostMessage(message) === false) {
+    if (isSystemMessage(message) === false) {
       break;
     }
     lead.push(textOf(message.content));
   }
-  return { hostText: lead.length === 0 ? null : lead.join(HOST_JOIN), rest: messages.slice(lead.length) };
+  return { systemText: lead.length === 0 ? null : lead.join(SYSTEM_JOIN), rest: messages.slice(lead.length) };
 }
 
 /**
- * Whether a message is one of those a host part is made of.
+ * Whether a message is one of those the `app_system` part is made of.
  *
  * @param message - A checked message.
  * @returns true for a system or developer message.
  */
-function isHostMessage(message: ParsedMessage): message is Extract<ParsedMessage, { role: 'system' | 'developer' }> {
-  return HOST_ROLES.has(message.role);
+function isSystemMessage(message: ParsedMessage): message is Extract<ParsedMessage, { role: 'system' | 'developer' }> {
+  return SYSTEM_ROLES.has(message.role);
+}
+
+/**
+ * Reads the app's prompt parts with agent-core's `parseAppParts`, refusing what it would drop.
+ *
+ * @param value - `agent_core.prompt`, as sent.
+ * @returns The parts, or null when none were sent.
+ * @throws {@link RequestRefusal} For a part agent-core can't use: not a list, a part with no name or content, an
+ * unknown role or mode, or `allowedModes`, which is the agent's to set.
+ *
+ * @remarks
+ * A part that breaks the agent's rules (a mode its part doesn't allow, the name `system`) is not refused here:
+ * `stackAppParts` drops it, and the answer carries a warning.
+ */
+function readAppParts(value: unknown): AppPart[] | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const { parts, warnings } = parseAppParts(value);
+  const [first] = warnings;
+  if (first !== undefined) {
+    throw new RequestRefusal(`${AGENT_CORE_FIELD}.prompt`, `${AGENT_CORE_FIELD}.${first}`);
+  }
+  return parts;
 }
 
 /**
@@ -381,7 +423,7 @@ function isHostMessage(message: ParsedMessage): message is Extract<ParsedMessage
  *
  * @remarks
  * Only the fields reach here that the router doesn't read itself, so ignoring never drops a message, a tool,
- * `response_format` or `ai_router`.
+ * `response_format` or `agent_core`.
  */
 function readSampling(
   body: Record<string, unknown>,
@@ -456,10 +498,12 @@ function readStreamOptions(value: unknown, unlisted: UnlistedFields): string[] {
  * @remarks
  * Nothing is trimmed quietly. A field the router doesn't read and the policy doesn't list refuses the whole request,
  * or, when the router's `unlistedFields` setting is `ignore`, is dropped and named in `ignored`, for the answer's
- * `X-AI-Router-Ignored` header, as is any key of `stream_options` but `include_usage`. Everything else still refuses: the messages, the tools, `n` above 1 (a run gives
- * one answer), system messages or `response_format` the policy refuses, which would change what the answer is, a
- * bad value of a listed field, and `ai_router`. `parallel_tool_calls` passes through, `user` is recorded, and a
- * field sent as null is read as not sent.
+ * `X-AI-Router-Ignored` header, as is any key of `stream_options` but `include_usage`. Everything else still
+ * refuses: the messages, the tools, `n` above 1 (a run gives one answer), `response_format` the policy refuses, which
+ * would change what the answer is, a bad value of a listed field, a part in `agent_core.prompt` agent-core can't read,
+ * and `ai_router`, the field's old name. System messages and app parts are always taken: the agent's parts are kept
+ * by how they are stacked, not by a switch. `parallel_tool_calls` passes through, `user` is recorded, and a field
+ * sent as null is read as not sent.
  */
 export function readRunRequest(
   body: unknown,
@@ -478,21 +522,23 @@ export function readRunRequest(
     throw new RequestRefusal('messages', 'messages: send the conversation, ending in the question.');
   }
   const messages = parseField(z.array(messageSchema), body.messages, 'messages');
-  const { hostText, rest } = splitHost(messages);
+  const { systemText, rest } = splitSystem(messages);
   if (rest.length === 0) {
     throw new RequestRefusal('messages', 'messages: send at least one message after the system messages.');
   }
-  if (hostText !== null && policy.hostPrompt === false) {
-    throw new RequestRefusal('messages', "messages: this agent's override policy doesn't take system messages.");
+  const isOldField = body[OLD_FIELD] !== undefined && body[OLD_FIELD] !== null;
+  if (isOldField) {
+    throw new RequestRefusal(
+      OLD_FIELD,
+      `${OLD_FIELD}: this field is now ${AGENT_CORE_FIELD}. Send it under that name.`,
+    );
   }
-  const options = parseField(routerOptionsSchema.nullish(), body.ai_router, 'ai_router') ?? {};
-  if (options.task !== undefined && policy.taskPrompt === false) {
-    throw new RequestRefusal('ai_router.task', "ai_router.task: this agent's override policy doesn't take a task.");
-  }
+  const options = parseField(agentCoreSchema.nullish(), body[AGENT_CORE_FIELD], AGENT_CORE_FIELD) ?? {};
+  const appParts = readAppParts(options.prompt);
   if (options.servers !== undefined && policy.narrowServers === false) {
     throw new RequestRefusal(
-      'ai_router.servers',
-      "ai_router.servers: this agent's override policy doesn't let a request narrow its servers.",
+      `${AGENT_CORE_FIELD}.servers`,
+      `${AGENT_CORE_FIELD}.servers: this agent's override policy doesn't let a request narrow its servers.`,
     );
   }
   const { sampling, ignored } = readSampling(body, policy, settings.unlistedFields);
@@ -523,8 +569,8 @@ export function readRunRequest(
     answers,
     input: addedInput(messages, answers),
     appTools,
-    hostText,
-    taskText: options.task ?? null,
+    systemText,
+    appParts,
     servers: options.servers ?? null,
     sampling,
     ...requestedStream(body),

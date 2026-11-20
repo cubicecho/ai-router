@@ -3,7 +3,7 @@
 ai-router gives every app on a network **agents**, through one address and one key per app.
 
 - **`/v1` is the agents endpoint.** It looks like any OpenAI-compatible server, but every model
-  it lists is an agent: a `cubicecho.agent/1` document naming a model, a prompt and tools.
+  it lists is an agent: a `cubicecho.agent/2` document naming a model, a prompt and tools.
 - **Models and MCP servers are internal.** The router keeps the providers, pools and servers its
   agents use, and serves no raw model or tool endpoint. Apps that run their own loop keep using
   llm-router and mcp-router.
@@ -21,7 +21,9 @@ What comes next is in the GitHub issues and `PLAN.md`'s later list.
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
 - **Decisions and the order of work:** [`PLAN.md`](PLAN.md).
-- **The agent format:** `../agent-core/docs/agent-spec.md`, implemented in
+- **The agent format:** `../agent-core/docs/agent-spec-v2.md`, and how its prompt is stacked
+  with an app's, `../agent-core/docs/agent-prompt-spec-v2.md` (ai-router's part is in
+  `prompt-implementations.md` there), implemented in
   `@cubicecho/agent-core` (`src/spec/`).
 - **How a cubicecho backend is built:** the `cubicecho_backend` skill (single-operator
   archetype), `cubicecho_typescript` and `coding-standards`. Load all three from the skills server
@@ -163,15 +165,16 @@ non-negotiables apply on top of these.
   the workspace's. The calling workspace's server entry decides how each of those servers is
   configured, so its workspace instance is used. Without an entry, the base instance is used.
   An entry never adds a server. The admin server is never part of "every server".
-- **A layer adds and never widens.** The order is agent, host, task, request. Everything above
-  the agent passes the override policy before `resolveAgentSpec`. `endpoint` and the model never
-  change for a request, and a caller's `servers` is intersected with the agent's. Sampling
-  settings pass only if the policy allows them, and never reach side tasks.
+- **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
+  Everything above the agent passes the override policy before `resolveAgentSpec`. `endpoint`
+  and the model never change for a request, and a caller's `servers` is intersected with the
+  agent's. Sampling settings pass only if the policy allows them, and never reach side tasks.
 - **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
   refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
   named in `X-AI-Router-Ignored`, set before the first byte, as is any `stream_options` key but
-  `include_usage` (named `stream_options.<key>`). Only those are ever ignored: messages, tools, `n`, `response_format`, `ai_router`, system messages the policy refuses, and a
-  bad value of a listed field still refuse.
+  `include_usage` (named `stream_options.<key>`). Only those are ever ignored: messages, tools,
+  `n`, `response_format`, `agent_core` (a part `parseAppParts` would drop included), `ai_router`
+  (its old name) and a bad value of a listed field still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
   model address, which the run's `fetch` hands to the models area in process, so an agent
   without an endpoint, and its side tasks, can run, and usage counts under the run.
@@ -179,13 +182,18 @@ non-negotiables apply on top of these.
   `max_completion_tokens` to `model.maxTokens`. Only fields the format can't spell go into
   `extraBody`. Never copy a request's fields into `extraBody` wholesale
   ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)).
-- **The router builds the host and task parts, never the app.** The host part is the request's
-  leading `system`/`developer` messages, and the task part is `ai_router.task`. They use the
-  reserved ids `host` and `task`, which no agent may use, so an app can't replace or delete an
-  agent's part. A resume that sends different host or task text is refused.
+- **The app's parts are stacked by agent-core's `stackAppParts`, never by rules of our own.**
+  They are `agent_core.prompt`, then the request's leading `system`/`developer` messages as
+  `app_system`. Every app name gets `app_`, and agent-core refuses an agent's part whose first
+  word is `app`, so an app never overwrites or deletes an agent's part; it extends or replaces
+  one only where the part's `allowedModes` lets it. A part that breaks that is dropped, never
+  refused: a notice, and `agent_core.warnings` on the answer (beside `choices`, or on the
+  stream's finish chunk). There is no switch for system messages or app parts, and no task
+  field. A resume that sends different system messages or parts is refused.
 - **The override policy is a row, not part of the document.** Every agent points at one through
   `agents.override_policy_id`: the seeded default until a user chooses another. Read it from the
-  snapshot, and never hard-code its rules. Policies widen what apps may do, so only an admin
+  snapshot, and never hard-code its rules. It says nothing about the prompt: that is the agent's
+  parts' `allowedModes`. Policies widen what apps may do, so only an admin
   writes one, as with settings; any user chooses among them. The default and any policy in use
   are never deleted.
 - **`tools.servers` has three meanings.** Absent means every server, `[]` means none, and a list
@@ -210,10 +218,19 @@ non-negotiables apply on top of these.
   `done`. An ended run is answered unchanged, never rewritten. No admin-server role reaches
   `cancelRun`.
 - **Slim apps keep `runAgentLoop`.** The `/v1/models` entry marks each agent with
-  `ai_router: { kind: "agent" }`, and an app copies that into its config as the agent flag
+  `agent_core: { kind: "agent", prompt }`, its parts' names and `allowedModes` as the document
+  states them (no text), and an app copies the kind into its config as the agent flag
   ([agent-core#223](https://github.com/cubicecho/agent-core/issues/223)). Don't add an
   ai-router-specific client. The entry also carries `context_length` when it is known (the
   document's `model.contextLength`, else the provider's listing), and never `0`.
+- **A client that asks for no progress sees the work as reasoning.** A stream without
+  `agent_core.progress` carries the run's thinking, and a line per tool call and result, as
+  `delta.reasoning_content`, which chat clients fold away. One that asks gets the events instead,
+  never both.
+- **Stored documents and runs were upgraded once, at boot** (`agents/upgrade.ts`, after the
+  migrations): version 1 revisions through `upgradeSpec`, the policies' old prompt switches
+  taken out (naming each agent whose policy refused system messages), and waiting runs' layers
+  renamed. Each step finds only what is still old.
 - **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
   second run.
 - **Run events are `agent-core`'s `RunEvent`, unchanged,** as JSON: agent-core has no encoder for them. The router
