@@ -1,3 +1,9 @@
+# [0.12.0](https://github.com/cubicecho/ai-router/compare/v0.11.0...v0.12.0) (2026-11-20)
+
+### Features
+
+* **web:** one look for every list, tab and title ([3c8409d](https://github.com/cubicecho/ai-router/commit/3c8409dbad729eea8a682de7ff04d16c55312a02)), closes [#41](https://github.com/cubicecho/ai-router/issues/41)
+
 # [0.11.0](https://github.com/cubicecho/ai-router/compare/v0.10.0...v0.11.0) (2026-11-20)
 
 * feat(agents)!: run agents on agent-core 7's prompt spec ([913a814](https://github.com/cubicecho/ai-router/commit/913a814aff62f492abd496e42985959ec8f8bae3))
