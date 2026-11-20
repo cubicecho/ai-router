@@ -1,3 +1,18 @@
+# [0.11.0](https://github.com/cubicecho/ai-router/compare/v0.10.0...v0.11.0) (2026-11-20)
+
+* feat(agents)!: run agents on agent-core 7's prompt spec ([913a814](https://github.com/cubicecho/ai-router/commit/913a814aff62f492abd496e42985959ec8f8bae3))
+
+### Features
+
+* **web:** edit prompt parts by name, with the modes apps may use and the layout ([4056cc5](https://github.com/cubicecho/ai-router/commit/4056cc59b48c01a842d3dfced2f67f50eb27f645))
+
+### BREAKING CHANGES
+
+* apps send ai_router's fields as agent_core, and read
+  progress and the model list's agent marker under agent_core too. The
+  task field is removed: send the job as the user message, or as an app
+  part. System messages are always taken, after the agent's parts.
+
 # [0.10.0](https://github.com/cubicecho/ai-router/compare/v0.9.0...v0.10.0) (2026-11-19)
 
 ### Features
