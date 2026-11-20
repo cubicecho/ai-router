@@ -67,7 +67,7 @@ const SETTINGS_SDL = parse(`
     dropped. Off by default, since it is a guess; every drop is logged.
     """
     pruneAppToolsAcrossServers: BooleanSetting!
-    "What a request on /v1 gets for a field, such as reasoning_effort or metadata, that the agent's override policy doesn't list. Messages, tools, response_format, system messages and ai_router are never ignored."
+    "What a request on /v1 gets for a field, such as reasoning_effort or metadata, that the agent's override policy doesn't list. Messages, tools, response_format, agent_core and ai_router are never ignored."
     unlistedFields: UnlistedFieldsSetting!
   }
 

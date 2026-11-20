@@ -37,9 +37,9 @@ const HINTS: Readonly<Record<string, string>> = {
   agents:
     "Every agent on the router: its name, and the id of its live revision. A revision's document is read with `agent_revision`.",
   agent_revisions:
-    'Saved versions of agents, each a cubicecho.agent/1 document, with what the saver said changed and any warnings.',
+    'Saved versions of agents, each a cubicecho.agent/2 document, with what the saver said changed and any warnings.',
   check_agent: 'Checks an agent document without saving it, and lists its warnings. Call it before `save_agent`.',
-  create_agent: 'Adds an agent from a cubicecho.agent/1 document.',
+  create_agent: 'Adds an agent from a cubicecho.agent/2 document.',
   save_agent:
     "Saves a new revision of an agent. A run's save is a draft until a person promotes it, unless the agent has auto-promote.",
   runs: 'The runs your own workspace started: status, error, timings and token counts. Filter by status: `where: { status: { eq: "failed" } }`.',

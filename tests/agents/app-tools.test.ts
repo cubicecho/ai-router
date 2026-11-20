@@ -252,11 +252,11 @@ describe('app tools', () => {
     expect((await whole.json()).choices[0].message.content).toBe('Thanks.');
   });
 
-  it("refuses a resume whose host or task text differs from the run's, and keeps the run's own", async () => {
+  it("refuses a resume whose system messages or app parts differ from the run's, and keeps the run's own", async () => {
     h.script = ASK_SCRIPT;
     const { base } = await h.startRouter();
     const host = { role: 'system', content: 'You are in min-agent.' };
-    const extra = { ai_router: { task: 'Ask about colours.' } };
+    const extra = { agent_core: { prompt: [{ role: 'system', name: 'topic', content: 'Ask about colours.' }] } };
     const response = await h.complete(base, {
       model: 'helper',
       messages: [host, QUESTION],
@@ -273,13 +273,17 @@ describe('app tools', () => {
     const otherHost = await resumeWith([{ role: 'system', content: 'You are somewhere else.' }], extra);
     expect(otherHost.status).toBe(HttpStatus.BadRequest);
     expect((await otherHost.json()).error.param).toBe('messages');
-    const otherTask = await resumeWith([host], { ai_router: { task: 'Something else.' } });
-    expect(otherTask.status).toBe(HttpStatus.BadRequest);
-    expect((await otherTask.json()).error.param).toBe('ai_router.task');
-    // Leaving both out keeps the run's own.
+    const otherParts = await resumeWith([host], {
+      agent_core: { prompt: [{ role: 'system', name: 'topic', content: 'Something else.' }] },
+    });
+    expect(otherParts.status).toBe(HttpStatus.BadRequest);
+    expect((await otherParts.json()).error.param).toBe('agent_core.prompt');
+    // Leaving both out keeps the run's own: its parts after the agent's, its system messages last.
     const kept = await resumeWith([], {});
     expect(kept.status).toBe(HttpStatus.Ok);
-    expect(sentMessages(h.received[1])[0]?.content).toContain('You are in min-agent.\n\nAsk about colours.');
+    const system = String(sentMessages(h.received[1])[0]?.content);
+    expect(system).toContain('Ask about colours.');
+    expect(system.endsWith('You are in min-agent.')).toBe(true);
   });
 
   it('refuses tool messages that answer no waiting run, and an answer that comes after the run expired', async () => {

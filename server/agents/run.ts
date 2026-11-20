@@ -10,6 +10,8 @@ import {
   type RunEventInput,
   RunEventKind,
   type Runtime,
+  type StackedPrompt,
+  type StackWarning,
   ToolDiscovery,
   type ToolDispatch,
 } from '@cubicecho/agent-core';
@@ -91,6 +93,8 @@ export interface RunInput {
   agent: SnapshotAgent;
   request: RunRequest;
   config: RunConfig;
+  /** The system prompt's parts, the agent's with the app's stacked on, and the app's parts that were dropped. */
+  prompt: StackedPrompt;
   idempotency: Idempotency | null;
   /** The conversation the request names, whose history is already in `request`. Null for a stateless request. */
   conversation: Conversation | null;
@@ -164,6 +168,8 @@ export interface StartedRun {
   startedAt: Date;
   /** The app tools left out because one of the agent's own tools answers them, by name, in the order sent. */
   prunedTools: string[];
+  /** The app's prompt parts left out, because the agent's parts don't allow them: the answer's `agent_core.warnings`. */
+  warnings: StackWarning[];
   /**
    * Runs it until it answers or hands calls back.
    *
@@ -327,7 +333,7 @@ interface Segment {
   /** Tokens the run spent before this stretch. */
   spent: { input: number; output: number };
   /** The layers the run started with, kept for its next wait. */
-  layers: Pick<RunResume, 'hostText' | 'taskText' | 'servers' | 'sampling'>;
+  layers: Pick<RunResume, 'systemText' | 'appParts' | 'servers' | 'sampling'>;
 }
 
 /**
@@ -562,11 +568,11 @@ export function createRunService({
    * Keeps a run's transcript in its conversation, or only moves the conversation's expiry on.
    *
    * @param conversationId - The conversation, or null for a stateless run.
-   * @param kept - The transcript and host text of a run that answered, or null for one that didn't.
+   * @param kept - The transcript and system messages of a run that answered, or null for one that didn't.
    */
   const keepConversation = async (
     conversationId: string | null,
-    kept: { messages: ChatMessage[]; hostText: string | null } | null,
+    kept: { messages: ChatMessage[]; systemText: string | null } | null,
   ): Promise<void> => {
     if (conversationId === null) {
       return;
@@ -575,7 +581,7 @@ export function createRunService({
       if (kept === null) {
         await touchConversation(db, conversationId, now());
       } else {
-        await saveConversation(db, conversationId, kept.messages, kept.hostText, now());
+        await saveConversation(db, conversationId, kept.messages, kept.systemText, now());
       }
     } catch (error) {
       console.error(`[runs] could not keep conversation ${conversationId}: ${errorMessage(error)}`);
@@ -605,7 +611,7 @@ export function createRunService({
     const say = (event: RunEventInput): void => {
       listener.onEvent(bus.publish(runId, event));
     };
-    for (const text of segment.tools.notices) {
+    for (const text of [...segment.tools.notices, ...input.prompt.warnings.map((warning) => warning.message)]) {
       say({ kind: RunEventKind.Notice, text });
     }
     for (const { call, content } of segment.answered) {
@@ -713,7 +719,7 @@ export function createRunService({
       const isEager = config.toolDiscovery === ToolDiscovery.Eager;
       const result = await runtime.runAgentLoop({
         config,
-        system: config.systemPrompt,
+        systemPrompt: input.prompt.parts,
         messages: segment.messages,
         tools: reached.definitions,
         hostTools: appTools,
@@ -759,7 +765,7 @@ export function createRunService({
         answer: { content: answer, finishReason },
         error: null,
       };
-      await keepConversation(segment.conversationId, { messages: transcript, hostText: segment.layers.hostText });
+      await keepConversation(segment.conversationId, { messages: transcript, systemText: segment.layers.systemText });
     } catch (error) {
       const usage = failedRun(error)?.usage;
       if (cancelled.aborted) {
@@ -805,6 +811,7 @@ export function createRunService({
       runId: segment.runId,
       startedAt: segment.startedAt,
       prunedTools: segment.tools.pruned.map((tool) => tool.name),
+      warnings: segment.input.prompt.warnings,
       execute: async (listener, signal) => {
         const finished = await run(segment, listener, signal, cancel.signal);
         settle(finished);
@@ -873,7 +880,7 @@ export function createRunService({
       }
       return repeat;
     }
-    const { hostText, taskText, servers, sampling } = request;
+    const { systemText, appParts, servers, sampling } = request;
     // Live before anything else is awaited, so a cancel from now on finds it.
     const handle = started({
       input,
@@ -886,7 +893,7 @@ export function createRunService({
       loaded: [],
       answered: [],
       spent: { input: 0, output: 0 },
-      layers: { hostText, taskText, servers, sampling },
+      layers: { systemText, appParts, servers, sampling },
     });
     await bus.open(row.id);
     return handle;
@@ -1025,7 +1032,12 @@ export function createRunService({
       loaded: state.loaded,
       answered: state.handedBack.map((call) => ({ call, content: answers.get(call.id) ?? '' })),
       spent: { input: row.inputTokens, output: row.outputTokens },
-      layers: { hostText: state.hostText, taskText: state.taskText, servers: state.servers, sampling: state.sampling },
+      layers: {
+        systemText: state.systemText,
+        appParts: state.appParts,
+        servers: state.servers,
+        sampling: state.sampling,
+      },
     });
     await bus.open(row.id);
     return handle;

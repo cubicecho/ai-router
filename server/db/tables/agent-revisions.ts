@@ -27,8 +27,9 @@ export const agentRevisions = pgTable(
     /** 1 for the agent's first save, and one more for each after. */
     number: integer('number').notNull(),
     /**
-     * The `cubicecho.agent/1` document, stored as received, unknown keys included, so a later 1.x
-     * survives. A bundled server's env and headers are the one thing taken out.
+     * The `cubicecho.agent/2` document, stored as received, unknown keys included, so a later 2.x
+     * survives. A bundled server's env and headers are the one thing taken out, and a version 1
+     * document is kept as `upgradeSpec` turns it into version 2.
      */
     document: jsonb('document').$type<Record<string, unknown>>().notNull(),
     /** What `parseSpec` and the router said about it when it was saved. Never a reason it was refused. */

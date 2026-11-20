@@ -1,12 +1,9 @@
-import { AGENT_SPEC, type AgentSpec, exportSpec, parseSpec } from '@cubicecho/agent-core/spec';
+import { AGENT_SPEC, type AgentSpec, exportSpec, parseSpec, upgradeSpec } from '@cubicecho/agent-core/spec';
 import { AGENT_CONFIG_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
 import { nameSchema } from '../core/names.ts';
 import type { Snapshot } from '../db/snapshot.ts';
 import { splitModelId } from '../models/naming.ts';
-
-/** The prompt part ids the router writes itself: the app's instructions and a scheduled job's. */
-export const RESERVED_PART_IDS: readonly string[] = Object.freeze(['host', 'task']);
 
 /** What a document check found. */
 export interface DocumentCheck {
@@ -24,7 +21,7 @@ export interface DocumentCheck {
  * Whether a value is an agent document, as far as its declaration goes.
  *
  * @param value - Anything.
- * @returns true for an object that declares `cubicecho.agent/1`.
+ * @returns true for an object that declares the version agent-core reads, `AGENT_SPEC`.
  */
 function isAgentDocument(value: unknown): value is AgentSpec {
   return isRecord(value) && value.spec === AGENT_SPEC;
@@ -103,25 +100,31 @@ function routerWarnings(spec: AgentSpec, snapshot: Snapshot): string[] {
  * @returns The errors, the warnings, and what to store.
  *
  * @remarks
- * Hard errors are agent-core's four, plus the router's: a document too large, an `id` that breaks the name rule
- * or doesn't match the agent, and a prompt part using a reserved id. A bundled server's env and headers are where
- * its credentials live, and every user can read a document, so they are taken out with a warning.
+ * Hard errors are agent-core's (a part name starting with the word `app` among them), plus the router's: a document
+ * too large, and an `id` that breaks the name rule or doesn't match the agent. A version 1 document is upgraded with
+ * agent-core's `upgradeSpec` first, and the version 2 one is what is kept. A bundled server's env and headers are
+ * where its credentials live, and every user can read a document, so they are taken out with a warning.
  */
-export function checkDocument(document: unknown, snapshot: Snapshot, expectedName?: string): DocumentCheck {
+export function checkDocument(received: unknown, snapshot: Snapshot, expectedName?: string): DocumentCheck {
   const refused = (errors: string[], warnings: string[] = []): DocumentCheck => ({
     errors,
     warnings,
     stored: null,
     name: null,
   });
-  const size = Buffer.byteLength(JSON.stringify(document) ?? '', 'utf8');
+  const size = Buffer.byteLength(JSON.stringify(received) ?? '', 'utf8');
   if (size > AGENT_CONFIG_DEFAULTS.maxDocumentBytes) {
     return refused([`The document is ${size} bytes; at most ${AGENT_CONFIG_DEFAULTS.maxDocumentBytes} are kept.`]);
   }
+  const upgrade = upgradeSpec(received);
+  const { document } = upgrade;
+  const upgradeWarnings = upgrade.upgraded
+    ? [`spec: the document was version 1, and is kept as ${AGENT_SPEC}.`, ...upgrade.warnings]
+    : [];
   // Nothing an agent requires is understood here yet, so a `requires` entry refuses it.
   const parsed = parseSpec(document, { understands: [] });
   if (parsed.spec === null || isAgentDocument(document) === false) {
-    return refused(parsed.errors, parsed.warnings);
+    return refused(parsed.errors, [...upgradeWarnings, ...parsed.warnings]);
   }
   const errors: string[] = [];
   const name = typeof document.id === 'string' ? document.id : null;
@@ -135,18 +138,13 @@ export function checkDocument(document: unknown, snapshot: Snapshot, expectedNam
       errors.push(`id: this is agent "${expectedName}"; a document for "${name}" can't be saved to it.`);
     }
   }
-  for (const part of parsed.spec.prompt ?? []) {
-    if (RESERVED_PART_IDS.includes(part.id)) {
-      errors.push(`prompt: the part id "${part.id}" is kept for the router's own ${part.id} part.`);
-    }
-  }
   if (errors.length > 0) {
-    return refused(errors, parsed.warnings);
+    return refused(errors, [...upgradeWarnings, ...parsed.warnings]);
   }
   const hadBundleSecrets = (document.bundle?.mcpServers ?? []).some(
     (server) => isRecord(server) && (server.env !== undefined || server.headers !== undefined),
   );
-  const warnings = [...parsed.warnings, ...routerWarnings(parsed.spec, snapshot)];
+  const warnings = [...upgradeWarnings, ...parsed.warnings, ...routerWarnings(parsed.spec, snapshot)];
   if (hadBundleSecrets) {
     warnings.push(
       "bundle.mcpServers: their env and headers aren't kept. Add the server to the router and set its secrets there.",

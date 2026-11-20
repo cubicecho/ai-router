@@ -31,10 +31,10 @@ const AGENTS_TOOL = 'ai-router__agents';
 async function addAgent(id: string, servers: string[] | undefined): Promise<void> {
   const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
     document: {
-      spec: 'cubicecho.agent/1',
+      spec: 'cubicecho.agent/2',
       id,
       model: { model: 'fake/m1' },
-      prompt: [{ id: 'role', text: 'You look after the router.' }],
+      prompt: [{ role: 'system', name: 'role', content: 'You look after the router.' }],
       tools: { ...(servers === undefined ? {} : { servers }), maxIterations: 4 },
     },
   });

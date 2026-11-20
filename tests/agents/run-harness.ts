@@ -372,12 +372,12 @@ export function useRunHarness(): RunHarness {
     await h.asUser.expectOk(CREATE_PROVIDER, { values: { name: 'fake', baseUrl: PROVIDER_URL } });
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
       document: {
-        spec: 'cubicecho.agent/1',
+        spec: 'cubicecho.agent/2',
         id: 'helper',
         name: 'Helper',
         description: 'Answers with what its tool said.',
         model: { model: 'fake/m1', temperature: 0.2 },
-        prompt: [{ id: 'role', text: AGENT_PROMPT }],
+        prompt: [{ role: 'system', name: 'role', content: AGENT_PROMPT }],
         tools: { servers: [SERVER], maxIterations: 4 },
       },
     });

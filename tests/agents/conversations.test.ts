@@ -26,7 +26,7 @@ function say(base: string, key: string, messages: unknown[], extra: Record<strin
 }
 
 describe('conversations', () => {
-  it('keeps the history, so the app sends only new messages, and the host text it started with', async () => {
+  it('keeps the history, so the app sends only new messages, and the system messages it started with', async () => {
     h.script = ANSWER_SCRIPT;
     const { base } = await h.startRouter();
     const host = { role: 'system', content: 'You are in min-agent.' };
@@ -43,7 +43,7 @@ describe('conversations', () => {
       { role: 'user', content: 'two' },
     ]);
     const [row] = await h.db.select().from(conversations);
-    expect(row).toMatchObject({ key: 'chat-1', agentName: 'helper', hostText: 'You are in min-agent.' });
+    expect(row).toMatchObject({ key: 'chat-1', agentName: 'helper', systemText: 'You are in min-agent.' });
     expect(row?.messages).toHaveLength(4);
     expect(row?.expiresAt.getTime()).toBeGreaterThan(Date.now());
     // A run names its conversation, and a conversation its runs.
@@ -114,7 +114,7 @@ describe('conversations', () => {
     expect(error.message).toContain('send only what is new');
 
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'other', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'other', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
     await h.snapshot.rebuild();

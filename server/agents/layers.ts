@@ -2,19 +2,17 @@ import {
   AGENT_SPEC,
   type AgentSpec,
   type ModelSpec,
+  type PromptMode,
   parseSpec,
   type ResolvedAgent,
   resolveAgentSpec,
+  type StackedPrompt,
+  stackAppParts,
 } from '@cubicecho/agent-core/spec';
 import type { Snapshot } from '../db/snapshot.ts';
 import { MODELS_BASE_URL } from '../models/forward.ts';
 import { narrowedServers } from './reach.ts';
 import type { RunRequest } from './request.ts';
-
-/** The prompt part an app's leading system messages become. A reserved id: no agent may use it. */
-export const HOST_PART_ID = 'host';
-/** The prompt part `ai_router.task` becomes. A reserved id: no agent may use it. */
-export const TASK_PART_ID = 'task';
 
 /**
  * The router layer, underneath every agent: the router's own models, which the run's `fetch` answers in process.
@@ -27,6 +25,13 @@ export const ROUTER_LAYER: AgentSpec = Object.freeze({
 
 /** A resolved agent whose router-bound endpoints, its own and its side tasks', carry the run's `fetch`. */
 export type RunConfig = ResolvedAgent;
+
+/** A run's layers resolved: the agent as the request may change it, and its prompt with the app's parts. */
+export interface ResolvedRun {
+  agent: ResolvedAgent;
+  /** The agent's parts, then the app's and `app_system`, and the app's parts `stackAppParts` dropped. */
+  prompt: StackedPrompt;
+}
 
 /** An agent's live document could not be read. The router's fault, not the app's. */
 export class UnreadableAgentError extends Error {
@@ -56,6 +61,26 @@ export function agentLayer(agentName: string, document: Readonly<Record<string, 
     throw new UnreadableAgentError(agentName, parsed.errors);
   }
   return parsed.spec;
+}
+
+/** One of an agent's prompt parts as its model-list entry shows it: its name, and what an app may do to it. */
+export interface PartRules {
+  name: string;
+  /** As the agent's document states it. Absent lets an app extend the part, and `[]` locks it. */
+  allowedModes?: readonly PromptMode[];
+}
+
+/**
+ * Reads what an app may do to each of an agent's prompt parts, without their text.
+ *
+ * @param agentName - The agent, for the error.
+ * @param document - Its live revision's document, as stored.
+ * @returns Its parts, in order, as resolved over the router layer.
+ * @throws {@link UnreadableAgentError} When the document no longer parses.
+ */
+export function agentPartRules(agentName: string, document: Readonly<Record<string, unknown>>): PartRules[] {
+  const { prompt } = resolveAgentSpec([ROUTER_LAYER, agentLayer(agentName, document)]);
+  return prompt.map(({ name, allowedModes }) => (allowedModes === undefined ? { name } : { name, allowedModes }));
 }
 
 /**
@@ -95,25 +120,24 @@ function requestLayer(
 }
 
 /**
- * Stacks a run's layers and resolves them: the router, the agent, the host, the task, then the request.
+ * Resolves a run's layers, the router's, the agent's and the request's, and stacks the app's parts on the agent's.
  *
  * @param agent - The agent's own layer.
  * @param request - The checked request. The policy has already passed it.
  * @param snapshot - The router's servers.
- * @returns The resolved agent.
+ * @returns The resolved agent, and its prompt with the app's parts.
  *
  * @remarks
- * The host and task parts come after the agent's own, under ids no agent may use, so an app can never replace or
- * delete one of the agent's parts. Nothing above the agent names an endpoint or a model.
+ * The request layer holds no prompt: the app's parts and system messages are stacked by agent-core's
+ * `stackAppParts`, which prefixes every name with `app_`, so an app never overwrites or deletes an agent's part, and
+ * extends or replaces one only where the part allows it. Nothing above the agent names an endpoint or a model.
  */
-export function resolveRun(agent: AgentSpec, request: RunRequest, snapshot: Snapshot): ResolvedAgent {
+export function resolveRun(agent: AgentSpec, request: RunRequest, snapshot: Snapshot): ResolvedRun {
   const agentServers = resolveAgentSpec([ROUTER_LAYER, agent]).servers;
-  const host: AgentSpec[] =
-    request.hostText === null ? [] : [{ spec: AGENT_SPEC, prompt: [{ id: HOST_PART_ID, text: request.hostText }] }];
-  const task: AgentSpec[] =
-    request.taskText === null ? [] : [{ spec: AGENT_SPEC, prompt: [{ id: TASK_PART_ID, text: request.taskText }] }];
   const fromRequest = requestLayer(request, agentServers, snapshot);
-  return resolveAgentSpec([ROUTER_LAYER, agent, ...host, ...task, ...(fromRequest === null ? [] : [fromRequest])]);
+  const resolved = resolveAgentSpec([ROUTER_LAYER, agent, ...(fromRequest === null ? [] : [fromRequest])]);
+  const prompt = stackAppParts(resolved.prompt, request.appParts ?? [], request.systemText ?? '');
+  return { agent: resolved, prompt };
 }
 
 /**

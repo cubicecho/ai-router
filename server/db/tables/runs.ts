@@ -1,4 +1,4 @@
-import type { AgentLoopOptions } from '@cubicecho/agent-core';
+import type { AgentLoopOptions, AppPart } from '@cubicecho/agent-core';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -77,9 +77,9 @@ export interface RunResume {
   appTools: Extract<NonNullable<AgentLoopOptions['hostTools']>[number], { type: 'function' }>[];
   /** What on-demand discovery had loaded. */
   loaded: string[];
-  /** The layers the run started with, which a resume keeps. */
-  hostText: string | null;
-  taskText: string | null;
+  /** The layers the run started with, which a resume keeps: the app's system messages and parts, as sent. */
+  systemText: string | null;
+  appParts: AppPart[] | null;
   servers: string[] | null;
   sampling: { temperature?: number; maxTokens?: number; extraBody: Record<string, unknown> };
 }

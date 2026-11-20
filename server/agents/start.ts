@@ -73,7 +73,7 @@ export function beginRun(
   { workspace, agent, request, conversation, sessionKey, idempotency }: NewRun,
 ): Promise<StartedRun | RepeatedRun> {
   const withConversation = conversation === null ? request : withHistory(request, conversation);
-  const resolved = resolveRun(agentLayer(agent.name, agent.document), withConversation, snapshot);
+  const { agent: resolved, prompt } = resolveRun(agentLayer(agent.name, agent.document), withConversation, snapshot);
   const fetch = forwarder.fetchFor({
     workspaceId: workspace.id,
     workspaceName: workspace.slug,
@@ -81,5 +81,6 @@ export function beginRun(
     agentName: agent.name,
   });
   const config = withRouterFetch(resolved, fetch);
-  return runs.begin({ workspace, agent, request: withConversation, config, idempotency, conversation, sessionKey });
+  const input = { workspace, agent, request: withConversation, config, prompt, idempotency, conversation, sessionKey };
+  return runs.begin(input);
 }

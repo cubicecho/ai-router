@@ -27,7 +27,7 @@ const POLICIES =
 const STRICT = {
   name: 'instructions-only',
   description: 'Instructions, and no sampling settings.',
-  rules: { hostPrompt: true, taskPrompt: true, narrowServers: false, sampling: [], responseFormat: false },
+  rules: { narrowServers: false, sampling: [], responseFormat: false },
 };
 
 /**

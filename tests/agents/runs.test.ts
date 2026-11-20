@@ -35,18 +35,18 @@ describe('the agents endpoint', () => {
   it('lists the agents this key may run, marked as agents, with what their model reads', async () => {
     const { base } = await h.startRouter();
     await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'not-granted', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'not-granted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     const { createAgent: stated } = await h.asUser.expectOk(CREATE_AGENT, {
       document: {
-        spec: 'cubicecho.agent/1',
+        spec: 'cubicecho.agent/2',
         id: 'small',
         model: { model: 'fake/m1', contextLength: 8_192 },
         tools: { servers: [] },
       },
     });
     const { createAgent: unknown } = await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'elsewhere', model: { model: 'gone/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'elsewhere', model: { model: 'gone/m1' }, tools: { servers: [] } },
     });
     for (const agent of [stated, unknown]) {
       await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: agent.id } });
@@ -64,7 +64,7 @@ describe('the agents endpoint', () => {
           name: 'Helper',
           description: 'Answers with what its tool said.',
           context_length: PROVIDER_CONTEXT_LENGTH,
-          ai_router: { kind: 'agent' },
+          agent_core: { kind: 'agent', prompt: [{ name: 'role' }] },
         },
         expect.objectContaining({ id: 'small', context_length: 8_192 }),
         expect.not.objectContaining({ context_length: expect.anything() }),
@@ -85,10 +85,10 @@ describe('the agents endpoint', () => {
     expect(await one.json()).toEqual(list.data[0]);
 
     await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'ungranted', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'ungranted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'unpromoted', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'unpromoted', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
     await h.db.update(agents).set({ liveRevisionId: null }).where(eq(agents.id, createAgent.id));
@@ -136,7 +136,7 @@ describe('the agents endpoint', () => {
     expect(other.status).toBe(HttpStatus.NotFound);
     expect(await other.json()).toMatchObject({ error: { code: 'not_found' } });
     await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'private', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'private', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     const unknown = await h.complete(base, { model: 'nobody', messages: [QUESTION] });
     const ungranted = await h.complete(base, { model: 'private', messages: [QUESTION] });
@@ -154,7 +154,7 @@ describe('the agents endpoint', () => {
     const response = await h.complete(base, {
       model: 'helper',
       messages: [{ role: 'system', content: 'You are in task_server.' }, QUESTION],
-      ai_router: { task: 'Say what the tool says.' },
+      agent_core: { prompt: [{ role: 'system', name: 'task', content: 'Say what the tool says.' }] },
       temperature: 0.9,
       top_k: 40,
       user: 'household-a',
@@ -172,7 +172,8 @@ describe('the agents endpoint', () => {
       ],
       usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
     });
-    // What the model was sent: the layers in order, the request's sampling by name, the tool under a valid name.
+    // What the model was sent: the agent's parts, the app's, then its system messages last; the request's sampling by
+    // name; the tool under a valid name.
     const [first] = h.received;
     expect(first?.model).toBe('m1');
     expect(first?.temperature).toBe(0.9);
@@ -180,7 +181,7 @@ describe('the agents endpoint', () => {
     const messages = Array.isArray(first?.messages) ? first.messages : [];
     expect(messages[0]).toEqual({
       role: 'system',
-      content: `${AGENT_PROMPT}\n\nYou are in task_server.\n\nSay what the tool says.`,
+      content: `${AGENT_PROMPT}\n\nSay what the tool says.\n\nYou are in task_server.`,
     });
     expect(messages.slice(1)).toEqual([QUESTION]);
     const names = (Array.isArray(first?.tools) ? first.tools : []).map((tool) => tool.function.name);
@@ -351,7 +352,7 @@ describe('the agents endpoint', () => {
       },
     });
     const { createAgent } = await h.asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'everything', model: { model: 'fake/m1' } },
+      document: { spec: 'cubicecho.agent/2', id: 'everything', model: { model: 'fake/m1' } },
     });
     await h.asUser.expectOk(GRANT, { v: { workspaceId: h.workspaceId, agentId: createAgent.id } });
     const { base, runs: runService } = await h.startRouter();

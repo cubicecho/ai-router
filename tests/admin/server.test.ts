@@ -179,7 +179,7 @@ function snapshotServer() {
 describe('a call to the admin server', () => {
   it('runs as the run that made it, and answers what its roles may read', async () => {
     await asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'helper', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'helper', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     await grant([AdminRole.AgentsRead]);
     const result = await tools.callTool(adminServerId, workspaceId, 'agents', {}, RUN);
@@ -208,7 +208,7 @@ describe('a call to the admin server', () => {
   it('records a try_server_tool call under the run that made it, its agent and its workspace', async () => {
     await grant([AdminRole.ServersOperate]);
     const { createAgent } = await asUser.expectOk(CREATE_AGENT, {
-      document: { spec: 'cubicecho.agent/1', id: 'helper', model: { model: 'fake/m1' }, tools: { servers: [] } },
+      document: { spec: 'cubicecho.agent/2', id: 'helper', model: { model: 'fake/m1' }, tools: { servers: [] } },
     });
     const [run] = await db
       .insert(runs)
@@ -336,7 +336,7 @@ describe('a call to the admin server', () => {
     const result = await graphql({
       schema: createSchema(db),
       source:
-        'mutation { createAgent(document: { spec: "cubicecho.agent/1", id: "x", model: { model: "fake/m1" } }) { id } }',
+        'mutation { createAgent(document: { spec: "cubicecho.agent/2", id: "x", model: { model: "fake/m1" } }) { id } }',
       contextValue,
     });
     expect(result.errors?.[0]?.extensions.code).toBe(ErrorCode.Forbidden);

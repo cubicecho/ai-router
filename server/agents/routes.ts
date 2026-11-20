@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { RunEvent } from '@cubicecho/agent-core';
+import type { RunEvent, StackWarning } from '@cubicecho/agent-core';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { ConflictingKeysError } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
@@ -14,11 +14,26 @@ import type { ModelCatalog } from '../models/catalog.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { ModelFailure, openAiErrorBody } from '../models/openai-error.ts';
 import { appCaller } from './app-caller.ts';
-import { completionBody, HEADER_LIST_JOIN, openChunkStream, PRUNED_TOOLS_HEADER, RUN_ID_HEADER } from './completion.ts';
+import {
+  completionBody,
+  HEADER_LIST_JOIN,
+  openChunkStream,
+  PRUNED_TOOLS_HEADER,
+  RUN_ID_HEADER,
+  reasoningText,
+} from './completion.ts';
 import { agentContextLength } from './context-length.ts';
 import { CONVERSATION_HEADER, readConversationKey } from './conversation.ts';
-import { agentLayer, resolveRun, UnreadableAgentError, withRouterFetch } from './layers.ts';
 import {
+  agentLayer,
+  agentPartRules,
+  type PartRules,
+  resolveRun,
+  UnreadableAgentError,
+  withRouterFetch,
+} from './layers.ts';
+import {
+  AGENT_CORE_FIELD,
   IGNORED_HEADER,
   ignoredHeaderValue,
   RequestRefusal,
@@ -66,8 +81,10 @@ const UNANSWERED: Partial<Record<RunStatus, { failure: ModelFailure; said: strin
 interface Delivery {
   stream: boolean;
   includeUsage: boolean;
-  /** The events a non-streamed answer carries as `ai_router.events`, when the app asked for progress. */
+  /** The events a non-streamed answer carries as `agent_core.events`, when the app asked for progress. */
   events?: RunEvent[] | null;
+  /** The app's parts the run dropped, which the answer carries as `agent_core.warnings`. */
+  warnings?: readonly StackWarning[];
 }
 
 /** A request that got past the key check: who it is from. */
@@ -118,11 +135,30 @@ function requestHash(body: unknown): string {
 }
 
 /**
+ * Reads an agent's parts for its model-list entry.
+ *
+ * @param agent - The agent.
+ * @returns Its parts' names and what an app may do to each. Empty when its document no longer reads, which a run
+ * of it reports.
+ */
+function listedParts(agent: RunnableAgent): PartRules[] {
+  try {
+    return agentPartRules(agent.name, agent.document);
+  } catch (error) {
+    if (error instanceof UnreadableAgentError) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
  * Writes an agent's entry on the model list.
  *
  * @param agent - The agent.
  * @param contextLength - How many tokens its model reads, or null when that isn't known.
- * @returns The entry, marked as an agent so an app's loop runs as a thin client, with `context_length` when known.
+ * @returns The entry, marked as an agent so an app's loop runs as a thin client, with its parts' names and what an
+ * app may do to each, and `context_length` when known.
  */
 function modelEntry(agent: RunnableAgent, contextLength: number | null) {
   const { name, description } = agent.document;
@@ -134,7 +170,7 @@ function modelEntry(agent: RunnableAgent, contextLength: number | null) {
     name: typeof name === 'string' ? name : agent.name,
     description: typeof description === 'string' ? description : '',
     ...(contextLength === null ? {} : { context_length: contextLength }),
-    ai_router: { kind: 'agent' },
+    [AGENT_CORE_FIELD]: { kind: 'agent', prompt: listedParts(agent) },
   };
 }
 
@@ -143,26 +179,28 @@ function modelEntry(agent: RunnableAgent, contextLength: number | null) {
  *
  * @param request - The request that answers the run.
  * @param resume - What the run kept.
- * @returns The request, with the run's own host, task, servers and sampling.
- * @throws {@link RequestRefusal} When the request sends host or task text other than the run's.
+ * @returns The request, with the run's own system messages, app parts, servers and sampling.
+ * @throws {@link RequestRefusal} When the request sends system messages or app parts other than the run's.
  */
 function resumedLayers(request: RunRequest, resume: RunResume): RunRequest {
-  const isOtherHost = request.hostText !== null && request.hostText !== resume.hostText;
-  if (isOtherHost) {
+  const isOtherSystem = request.systemText !== null && request.systemText !== resume.systemText;
+  if (isOtherSystem) {
     throw new RequestRefusal(
       'messages',
       'messages: the run being answered keeps the system messages it started with, and these differ. Send the same ones, or none.',
     );
   }
-  const isOtherTask = request.taskText !== null && request.taskText !== resume.taskText;
-  if (isOtherTask) {
+  const isOtherParts =
+    request.appParts !== null && canonicalJson(request.appParts) !== canonicalJson(resume.appParts ?? []);
+  if (isOtherParts) {
+    const param = `${AGENT_CORE_FIELD}.prompt`;
     throw new RequestRefusal(
-      'ai_router.task',
-      'ai_router.task: the run being answered keeps the task it started with, and this differs. Send the same one, or none.',
+      param,
+      `${param}: the run being answered keeps the parts it started with, and these differ. Send the same ones, or none.`,
     );
   }
-  const { hostText, taskText, servers, sampling } = resume;
-  return { ...request, hostText, taskText, servers, sampling };
+  const { systemText, appParts, servers, sampling } = resume;
+  return { ...request, systemText, appParts, servers, sampling };
 }
 
 /**
@@ -180,7 +218,7 @@ function answerFinished(response: Response, finished: FinishedRun, delivery: Del
     return;
   }
   if (delivery.stream === false) {
-    response.json(completionBody(finished, delivery.events ?? null));
+    response.json(completionBody(finished, delivery.events ?? null, delivery.warnings));
     return;
   }
   const meta = { runId: finished.runId, model: finished.agentName, startedAt: finished.startedAt };
@@ -189,7 +227,7 @@ function answerFinished(response: Response, finished: FinishedRun, delivery: Del
   if (content !== '') {
     stream.text(content);
   }
-  stream.end(finished);
+  stream.end(finished, delivery.warnings);
 }
 
 /**
@@ -333,7 +371,7 @@ export function createAgentRoutes({
           );
         }
         const layers = resumedLayers(runRequest, waiting.resume);
-        const resolved = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
+        const { agent: resolved, prompt } = resolveRun(agentLayer(agent.name, waiting.document), layers, current);
         const fetch = forwarder.fetchFor({
           workspaceId,
           workspaceName: workspace.slug,
@@ -341,7 +379,7 @@ export function createAgentRoutes({
           agentName: agent.name,
         });
         const config = withRouterFetch(resolved, fetch);
-        const input = { workspace, agent, request: runRequest, config, idempotency, conversation, sessionKey };
+        const input = { workspace, agent, request: runRequest, config, prompt, idempotency, conversation, sessionKey };
         started = await runs.resume(input, waiting);
       } else {
         started = await beginRun(runs, forwarder, current, {
@@ -389,23 +427,35 @@ export function createAgentRoutes({
       const events: RunEvent[] = [];
       const listener = { onText: () => {}, onEvent: (event: RunEvent) => events.push(event) };
       const finished = await started.execute(listener, disconnected.signal);
-      answerFinished(response, finished, { ...delivery, events: delivery.progress ? events : null }, heartbeatSeconds);
+      const { warnings } = started;
+      answerFinished(
+        response,
+        finished,
+        { ...delivery, events: delivery.progress ? events : null, warnings },
+        heartbeatSeconds,
+      );
       return;
     }
     const meta = { runId: started.runId, model: agent.name, startedAt: started.startedAt };
     const stream = openChunkStream(response, meta, delivery.includeUsage, heartbeatSeconds);
+    // An app that asked for progress gets the events themselves; any other client gets the work as reasoning.
     const listener = {
       onText: (text: string) => stream.text(text),
       onEvent: (event: RunEvent) => {
         if (delivery.progress) {
           stream.event(event);
+          return;
+        }
+        const reasoning = reasoningText(event);
+        if (reasoning !== null && reasoning !== '') {
+          stream.reasoning(reasoning);
         }
       },
     };
     const finished = await started.execute(listener, disconnected.signal);
     const refusal = UNANSWERED[finished.status];
     if (refusal === undefined) {
-      stream.end(finished);
+      stream.end(finished, started.warnings);
     } else {
       stream.fail(openAiErrorBody(refusal.failure, `${refusal.said}: ${finished.error ?? ''}`));
     }

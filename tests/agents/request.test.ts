@@ -18,7 +18,10 @@ const AGENT: AgentSpec = {
   spec: AGENT_SPEC,
   id: 'personal-finance',
   model: { model: 'ollama/qwen3:32b', temperature: 0.3, extraBody: { top_k: 20 } },
-  prompt: [{ id: 'role', text: 'You help me run my household money.' }],
+  prompt: [
+    { role: 'system', name: 'role', content: 'You help me run my household money.' },
+    { role: 'system', name: 'format', content: 'Answer in a short table.', allowedModes: ['replace'] },
+  ],
   tools: { servers: ['actual', 'finance-docs'] },
   tasks: { title: { model: 'ollama/qwen3:0.6b' } },
 };
@@ -148,7 +151,7 @@ describe('reading a request against the override policy', () => {
   });
 
   it('still refuses structural problems and bad values of listed fields when the settings ignore unlisted ones', () => {
-    const closed = { ...DEFAULT_POLICY_RULES, hostPrompt: false, taskPrompt: false, responseFormat: false };
+    const closed = { ...DEFAULT_POLICY_RULES, responseFormat: false };
     const ask = (extra: Record<string, unknown>, policy: OverridePolicyRules = DEFAULT_POLICY_RULES) =>
       refusalOf({ model: 'x', messages: [QUESTION], ...extra }, policy, IGNORING).param;
     expect(ask({ n: 2 })).toBe('n');
@@ -156,10 +159,10 @@ describe('reading a request against the override policy', () => {
     expect(ask({ max_tokens: 0 })).toBe('max_tokens');
     expect(ask({ tool_choice: 'required' })).toBe('tool_choice');
     expect(ask({ functions: [{ name: 'f' }] })).toBe('functions');
-    expect(ask({ ai_router: { tools: true } })).toBe('ai_router');
-    expect(ask({ ai_router: { task: 'T' } }, closed)).toBe('ai_router.task');
+    expect(ask({ agent_core: { tools: true } })).toBe('agent_core');
+    expect(ask({ agent_core: { prompt: [{ name: 'lane' }] } })).toBe('agent_core.prompt');
+    expect(ask({ ai_router: { progress: true } })).toBe('ai_router');
     expect(ask({ response_format: { type: 'json_object' } }, closed)).toBe('response_format');
-    expect(ask({ messages: [{ role: 'system', content: 'Hi.' }, QUESTION] }, closed)).toBe('messages');
     expect(ask({ messages: [{ role: 'robot', content: 'Hi.' }] })).toBe('messages');
     const tools = ['a', 'b'].map((name) => ({ type: 'function', function: { name } }));
     expect(
@@ -268,7 +271,7 @@ describe('reading a request against the override policy', () => {
     expect(refusalOf(body, { ...DEFAULT_POLICY_RULES, responseFormat: false }).param).toBe('response_format');
   });
 
-  it('turns the leading system and developer messages into host text, and keeps later ones in the conversation', () => {
+  it('turns the leading system and developer messages into one text, and keeps later ones in the conversation', () => {
     const request = readRunRequest(
       {
         model: 'x',
@@ -278,27 +281,41 @@ describe('reading a request against the override policy', () => {
           QUESTION,
           { role: 'system', content: 'A later note.' },
         ],
-        ai_router: { task: 'The Friday summary.', progress: true },
+        agent_core: { prompt: [{ role: 'system', name: 'lane', content: 'The Review lane.' }], progress: true },
       },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    expect(request.hostText).toBe('You are in task_server.\n\nBe brief.');
-    expect(request.taskText).toBe('The Friday summary.');
+    expect(request.systemText).toBe('You are in task_server.\n\nBe brief.');
+    expect(request.appParts).toEqual([{ role: 'system', name: 'lane', content: 'The Review lane.' }]);
+    expect(request.progress).toBe(true);
     expect(request.messages).toEqual([QUESTION, { role: 'system', content: 'A later note.' }]);
   });
 
-  it('refuses host, task and narrowing when the policy says no, and an unknown ai_router option', () => {
-    const closed = { ...DEFAULT_POLICY_RULES, hostPrompt: false, taskPrompt: false, narrowServers: false };
-    const withSystem = { model: 'x', messages: [{ role: 'system', content: 'Hi.' }, QUESTION] };
-    expect(refusalOf(withSystem, closed).param).toBe('messages');
-    expect(refusalOf({ model: 'x', messages: [QUESTION], ai_router: { task: 'T' } }, closed).param).toBe(
-      'ai_router.task',
+  it('takes system messages and app parts under any policy, and refuses narrowing when the policy says no', () => {
+    const closed = { ...DEFAULT_POLICY_RULES, narrowServers: false, sampling: [], responseFormat: false };
+    const lane = { role: 'system', name: 'lane', content: 'The Review lane.' };
+    const withBoth = {
+      model: 'x',
+      messages: [{ role: 'system', content: 'Hi.' }, QUESTION],
+      agent_core: { prompt: [lane] },
+    };
+    expect(readRunRequest(withBoth, closed, ROUTER_DEFAULTS)).toMatchObject({ systemText: 'Hi.', appParts: [lane] });
+    expect(refusalOf({ model: 'x', messages: [QUESTION], agent_core: { servers: [] } }, closed).param).toBe(
+      'agent_core.servers',
     );
-    expect(refusalOf({ model: 'x', messages: [QUESTION], ai_router: { servers: [] } }, closed).param).toBe(
-      'ai_router.servers',
-    );
-    expect(refusalOf({ model: 'x', messages: [QUESTION], ai_router: { tools: true } }).param).toBe('ai_router');
+    expect(refusalOf({ model: 'x', messages: [QUESTION], agent_core: { tools: true } }).param).toBe('agent_core');
+  });
+
+  it('refuses ai_router, the old name of agent_core, and app parts agent-core cannot read', () => {
+    const old = refusalOf({ model: 'x', messages: [QUESTION], ai_router: { servers: [] } });
+    expect(old.param).toBe('ai_router');
+    expect(old.message).toContain('agent_core');
+    const ask = (prompt: unknown) => refusalOf({ model: 'x', messages: [QUESTION], agent_core: { prompt } });
+    expect(ask('be brief').message).toContain('agent_core.prompt');
+    expect(ask([{ role: 'system', name: 'lane', content: 'x', allowedModes: [] }]).message).toContain('allowedModes');
+    expect(ask([{ role: 'system', content: 'no name' }]).param).toBe('agent_core.prompt');
+    expect(ask([{ role: 'system', name: 'lane', content: 'x', mode: 'overwrite' }]).param).toBe('agent_core.prompt');
   });
 
   it('refuses a conversation that is only system messages, and a temperature out of range', () => {
@@ -311,25 +328,36 @@ describe('reading a request against the override policy', () => {
 });
 
 describe('stacking the layers', () => {
-  it('puts the router underneath, the host and task parts after the agent, and the request on the main model only', () => {
+  it('puts the router underneath, the app parts and system messages after the agent, and the request on the main model only', () => {
     const request = readRunRequest(
       {
         model: 'personal-finance',
         messages: [{ role: 'system', content: 'You are in task_server.' }, QUESTION],
-        ai_router: { task: 'The Friday summary.' },
+        agent_core: {
+          prompt: [
+            { role: 'system', name: 'role', mode: 'extend', content: 'Only the shared account.' },
+            { role: 'system', name: 'format', mode: 'replace', content: 'Answer as JSON.' },
+            { role: 'system', name: 'week', content: 'This is the Friday summary.' },
+          ],
+        },
         temperature: 0.9,
         min_p: 0.05,
       },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    const resolved = resolveRun(AGENT, request, SNAPSHOT);
+    const { agent: resolved, prompt } = resolveRun(AGENT, request, SNAPSHOT);
     expect(resolved.baseUrl).toBe(MODELS_BASE_URL);
     expect(resolved.model).toBe('ollama/qwen3:32b');
-    expect(resolved.prompt.map((part) => part.id)).toEqual(['role', 'host', 'task']);
-    expect(resolved.systemPrompt).toBe(
-      'You help me run my household money.\n\nYou are in task_server.\n\nThe Friday summary.',
-    );
+    expect(prompt.parts.map(({ name, owner, mark }) => ({ name, owner, mark }))).toEqual([
+      { name: 'role', owner: 'agent', mark: undefined },
+      { name: 'format', owner: 'agent', mark: undefined },
+      { name: 'app_role', owner: 'app', mark: { mode: 'extend', target: 'role' } },
+      { name: 'app_format', owner: 'app', mark: { mode: 'replace', target: 'format' } },
+      { name: 'app_week', owner: 'app', mark: undefined },
+      { name: 'app_system', owner: 'app', mark: undefined },
+    ]);
+    expect(prompt.warnings).toEqual([]);
     expect(resolved.temperature).toBe(0.9);
     expect(resolved.extraBody).toEqual({ top_k: 20, min_p: 0.05 });
     expect(resolved.tasks.title).toMatchObject({ model: 'ollama/qwen3:0.6b', endpoint: { baseUrl: MODELS_BASE_URL } });
@@ -338,29 +366,54 @@ describe('stacking the layers', () => {
     expect(resolved.servers).toEqual(['actual', 'finance-docs']);
   });
 
+  it("drops an app part that uses a mode the agent's part doesn't allow, and the name system, with a warning each", () => {
+    const request = readRunRequest(
+      {
+        model: 'personal-finance',
+        messages: [QUESTION],
+        agent_core: {
+          prompt: [
+            { role: 'system', name: 'role', mode: 'replace', content: 'You help anyone.' },
+            { role: 'system', name: 'format', mode: 'extend', content: 'And a chart.' },
+            { role: 'system', name: 'system', content: 'Mine.' },
+          ],
+        },
+      },
+      DEFAULT_POLICY_RULES,
+      ROUTER_DEFAULTS,
+    );
+    const { prompt } = resolveRun(AGENT, request, SNAPSHOT);
+    expect(prompt.parts.map((part) => part.name)).toEqual(['role', 'format']);
+    expect(prompt.warnings.map(({ part, rule }) => ({ part, rule }))).toEqual([
+      { part: 'role', rule: 'replace-not-allowed' },
+      { part: 'format', rule: 'extend-not-allowed' },
+      { part: 'system', rule: 'reserved-name' },
+    ]);
+  });
+
   it('narrows the servers to those the agent has, and never widens them', () => {
     const narrowed = readRunRequest(
-      { model: 'x', messages: [QUESTION], ai_router: { servers: ['finance-docs', 'github'] } },
+      { model: 'x', messages: [QUESTION], agent_core: { servers: ['finance-docs', 'github'] } },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    expect(resolveRun(AGENT, narrowed, SNAPSHOT).servers).toEqual(['finance-docs']);
+    expect(resolveRun(AGENT, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs']);
     const none = readRunRequest(
-      { model: 'x', messages: [QUESTION], ai_router: { servers: ['github'] } },
+      { model: 'x', messages: [QUESTION], agent_core: { servers: ['github'] } },
       DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
-    expect(resolveRun(AGENT, none, SNAPSHOT).servers).toEqual([]);
+    expect(resolveRun(AGENT, none, SNAPSHOT).agent.servers).toEqual([]);
     const everyServer = { ...AGENT, tools: {} };
-    expect(resolveRun(everyServer, narrowed, SNAPSHOT).servers).toEqual(['finance-docs', 'github']);
+    expect(resolveRun(everyServer, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs', 'github']);
     const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
-    expect(resolveRun(everyServer, plain, SNAPSHOT).servers).toBeUndefined();
+    expect(resolveRun(everyServer, plain, SNAPSHOT).agent.servers).toBeUndefined();
   });
 
   it("gives the run's fetch to the router's endpoints only, and leaves an agent's own endpoint alone", () => {
     const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
     const fetch: typeof globalThis.fetch = async () => new Response(null);
-    const config = withRouterFetch(resolveRun(AGENT, plain, SNAPSHOT), fetch);
+    const config = withRouterFetch(resolveRun(AGENT, plain, SNAPSHOT).agent, fetch);
     expect(config.fetch).toBe(fetch);
     expect(config.tasks.title?.endpoint.fetch).toBe(fetch);
     const ownEndpoint: AgentSpec = {
@@ -368,7 +421,7 @@ describe('stacking the layers', () => {
       endpoint: { baseUrl: 'http://gpu:8080/v1' },
       tasks: { title: { model: 'small', endpoint: { baseUrl: MODELS_BASE_URL } } },
     };
-    const own = withRouterFetch(resolveRun(ownEndpoint, plain, SNAPSHOT), fetch);
+    const own = withRouterFetch(resolveRun(ownEndpoint, plain, SNAPSHOT).agent, fetch);
     expect(own.baseUrl).toBe('http://gpu:8080/v1');
     expect(own.fetch).toBeUndefined();
     expect(own.apiKey).toBe('');

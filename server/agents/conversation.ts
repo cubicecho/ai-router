@@ -21,8 +21,8 @@ export interface Conversation {
   key: string;
   /** The transcript so far, without the system prompt. */
   messages: ChatMessage[];
-  /** The host text of its latest run. */
-  hostText: string | null;
+  /** The app's system messages of its latest run, as one text. */
+  systemText: string | null;
 }
 
 /**
@@ -105,9 +105,9 @@ export async function openConversation(
   if (hasExpired) {
     await db
       .update(conversations)
-      .set({ agentId: agent.id, agentName: agent.name, messages: [], hostText: null, updatedAt: now, expiresAt })
+      .set({ agentId: agent.id, agentName: agent.name, messages: [], systemText: null, updatedAt: now, expiresAt })
       .where(eq(conversations.id, row.id));
-    return { id: row.id, key, messages: [], hostText: null };
+    return { id: row.id, key, messages: [], systemText: null };
   }
   if (row.agentId !== agent.id) {
     throw new RequestRefusal(
@@ -116,7 +116,7 @@ export async function openConversation(
     );
   }
   await db.update(conversations).set({ updatedAt: now, expiresAt }).where(eq(conversations.id, row.id));
-  return { id: row.id, key, messages: row.messages, hostText: row.hostText };
+  return { id: row.id, key, messages: row.messages, systemText: row.systemText };
 }
 
 /**
@@ -139,7 +139,7 @@ export async function busyRun(db: DB, conversationId: string): Promise<{ id: str
  *
  * @param request - The request, which may send only new messages once the conversation has history.
  * @param conversation - The conversation.
- * @returns The request with the whole transcript, and the conversation's host text when it sends none.
+ * @returns The request with the whole transcript, and the conversation's system messages when it sends none.
  * @throws {@link RequestRefusal} When the request sends assistant or tool messages to a conversation that has
  * history: the router can't tell history sent again from new turns, so it refuses rather than guess.
  */
@@ -157,7 +157,7 @@ export function withHistory(request: RunRequest, conversation: Conversation): Ru
   return {
     ...request,
     messages: [...conversation.messages, ...request.messages],
-    hostText: request.hostText ?? conversation.hostText,
+    systemText: request.systemText ?? conversation.systemText,
   };
 }
 
@@ -167,19 +167,19 @@ export function withHistory(request: RunRequest, conversation: Conversation): Ru
  * @param db - The database.
  * @param conversationId - The conversation.
  * @param messages - The run's whole transcript.
- * @param hostText - The run's host text.
+ * @param systemText - The app's system messages the run ran with.
  * @param now - Now.
  */
 export async function saveConversation(
   db: DB,
   conversationId: string,
   messages: ChatMessage[],
-  hostText: string | null,
+  systemText: string | null,
   now: Date,
 ): Promise<void> {
   await db
     .update(conversations)
-    .set({ messages, hostText, updatedAt: now, expiresAt: nextExpiry(now) })
+    .set({ messages, systemText, updatedAt: now, expiresAt: nextExpiry(now) })
     .where(eq(conversations.id, conversationId));
 }
 

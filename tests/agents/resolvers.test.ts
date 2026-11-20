@@ -37,11 +37,11 @@ const HISTORY = `query ($id: UUID!) {
 
 /** A document that names only what the router has. */
 const FINANCE = {
-  spec: 'cubicecho.agent/1',
+  spec: 'cubicecho.agent/2',
   id: 'personal-finance',
   name: 'Personal Finance',
   model: { model: 'ollama/qwen3:32b', temperature: 0.3 },
-  prompt: [{ id: 'identity', text: 'You help me run my household money.' }],
+  prompt: [{ role: 'system', name: 'identity', content: 'You help me run my household money.' }],
   tools: { servers: ['actual'], maxIterations: 20 },
   tasks: { title: { model: 'small' } },
 };
@@ -111,16 +111,38 @@ describe('creating an agent', () => {
 
   it.each([
     ['no spec token', { id: 'a' }, 'spec'],
-    ['another major', { spec: 'cubicecho.agent/2', id: 'a' }, 'spec'],
-    ['no id', { spec: 'cubicecho.agent/1' }, 'needs an id'],
-    ['an id breaking the name rule', { spec: 'cubicecho.agent/1', id: 'Personal Finance' }, 'id:'],
-    ['a reserved host part', { ...FINANCE, prompt: [{ id: 'host', text: 'x' }] }, '"host" is kept'],
-    ['a reserved task part', { ...FINANCE, prompt: [{ id: 'task', text: 'x' }] }, '"task" is kept'],
+    ['another major', { spec: 'cubicecho.agent/3', id: 'a' }, 'spec'],
+    ['no id', { spec: 'cubicecho.agent/2' }, 'needs an id'],
+    ['an id breaking the name rule', { spec: 'cubicecho.agent/2', id: 'Personal Finance' }, 'id:'],
+    [
+      'a part named as an app part',
+      { ...FINANCE, prompt: [{ role: 'system', name: 'app_lane', content: 'x' }] },
+      'app',
+    ],
     ['an extension this router does not understand', { ...FINANCE, requires: ['com.example.x'] }, 'requires'],
   ])('refuses a document with %s, saying why', async (_label, document, why) => {
     const refused = await asUser.expectError(CREATE, { document });
     expect(refused.code).toBe(ErrorCode.BadUserInput);
     expect(refused.message).toContain(why);
+  });
+
+  it('upgrades a version 1 document and keeps it as version 2, saying so', async () => {
+    const old = {
+      ...FINANCE,
+      spec: 'cubicecho.agent/1',
+      prompt: [
+        { id: 'identity', text: 'You help me run my household money.' },
+        { id: 'rules', ref: { type: 'file', value: './rules.md' } },
+      ],
+    };
+    const { id } = await makeAgent(old);
+    const { agent } = await asUser.expectOk(
+      'query ($id: UUID!) { agent(where: { id: { eq: $id } }) { liveRevision { document warnings } } }',
+      { id },
+    );
+    expect(agent.liveRevision.document).toEqual(FINANCE);
+    expect(agent.liveRevision.warnings.join(' ')).toContain('version 1');
+    expect(agent.liveRevision.warnings.join(' ')).toContain('prompt[1]');
   });
 
   it('refuses a name already taken', async () => {
@@ -151,7 +173,7 @@ describe('warnings', () => {
   it('name what the router lacks, and every-server reach, without refusing', async () => {
     const { checkAgent } = await asUser.expectOk(CHECK, {
       document: {
-        spec: 'cubicecho.agent/1',
+        spec: 'cubicecho.agent/2',
         id: 'x',
         model: { model: 'nowhere/m' },
         tasks: { title: { model: 'no-such-pool' } },
