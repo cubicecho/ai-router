@@ -1,3 +1,9 @@
+# [0.15.0](https://github.com/cubicecho/ai-router/compare/v0.14.0...v0.15.0) (2026-11-21)
+
+### Features
+
+* **agents:** an agent locks request fields with lockedFields ([8083368](https://github.com/cubicecho/ai-router/commit/8083368561f616b45826fa84c7c0fc5ae443a204))
+
 # [0.14.0](https://github.com/cubicecho/ai-router/compare/v0.13.0...v0.14.0) (2026-11-21)
 
 * feat(agents)!: drop override policies ([906bcfe](https://github.com/cubicecho/ai-router/commit/906bcfe84bd7120523ecc044569797051f8bebec)), closes [agent-core#245](https://github.com/agent-core/issues/245)
