@@ -100,10 +100,12 @@ OpenAI client or SDK) connects like this:
    default).
 5. **Fields.** Every field the router doesn't read (`reasoning_effort`, `chat_template_kwargs`,
    `metadata`, `store`, `logprobs` and the like) goes to the agent's model, as it would to any
-   OpenAI-compatible server. A newer SDK's `stream_options` key such as `include_obfuscation`
-   answers 400, naming it, until an admin sets **Settings → Unread stream options** to **Ignore
-   the field**: it is then dropped, and the answer names it in `X-AI-Router-Ignored` (as
-   `stream_options.include_obfuscation`), streamed or not; `include_usage` still works. Messages,
+   OpenAI-compatible server, unless the agent locks it (its page's **Request fields**). A locked
+   field, and a newer SDK's `stream_options` key such as `include_obfuscation`, answer 400,
+   naming it, until an admin sets **Settings → Locked fields and unread stream options** to
+   **Ignore the field**: it is then dropped, and the answer names it in `X-AI-Router-Ignored`
+   (a stream option as `stream_options.include_obfuscation`), streamed or not; `include_usage`
+   still works. Messages,
    tools, `n` above 1, a `tool_choice` other than `auto`, the older `functions`, and a bad value
    of a field the router reads are refused either way.
 6. **Timeouts.** A run without `stream` sends nothing until it ends, which can be long: see

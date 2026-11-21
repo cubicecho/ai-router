@@ -39,7 +39,7 @@ const SETTINGS_SDL = parse(`
     default: Boolean!
   }
 
-  "What a request on /v1 gets for a stream_options key the router doesn't read."
+  "What a request on /v1 gets for a field its agent locks, or a stream_options key the router doesn't read."
   enum UnlistedFields {
     "Answer 400, naming the field."
     refuse

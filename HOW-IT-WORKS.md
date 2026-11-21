@@ -145,7 +145,8 @@ flowchart TB
 ```
 
 What passes into those layers is read first, by `agents/request` `readRunRequest`. Every field the router
-doesn't read itself goes to the model, so an OpenAI client's request goes through as it would to OpenAI:
+doesn't read itself goes to the model, so an OpenAI client's request goes through as it would to OpenAI,
+unless the agent locks it (agent-core's `checkLockedFields`, against the agent resolved alone):
 
 | A request field | Goes to | Refused when |
 | --- | --- | --- |
@@ -162,6 +163,7 @@ doesn't read itself goes to the model, so an OpenAI client's request goes throug
 | `user` | Recorded on the run | |
 | `n` | | Above 1 |
 | `stream_options` keys but `include_usage` | | Refused, naming the key; under `unlistedFields: ignore`, dropped and named in `X-AI-Router-Ignored` |
+| A field the agent locks (`model.lockedFields`) | | Refused, naming it; under `unlistedFields: ignore`, dropped and named in `X-AI-Router-Ignored` |
 | Any other field (`top_p`, `seed`, `stop`, a provider's own) | `model.extraBody` | |
 
 Nothing above the agent names an endpoint or a model, and a sampling setting never reaches a side task. An

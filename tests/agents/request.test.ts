@@ -1,6 +1,6 @@
 import { AGENT_SPEC, type AgentSpec } from '@cubicecho/agent-core/spec';
 import { describe, expect, it } from 'vitest';
-import { resolveRun, withRouterFetch } from '../../server/agents/layers.ts';
+import { resolveAgent, resolveRun, withRouterFetch } from '../../server/agents/layers.ts';
 import { RequestRefusal, readRunRequest } from '../../server/agents/request.ts';
 import { ROUTER_DEFAULTS, type RouterSettings } from '../../server/core/defaults.ts';
 import { UnlistedFields } from '../../server/core/settings.ts';
@@ -24,6 +24,9 @@ const AGENT: AgentSpec = {
   tools: { servers: ['actual', 'finance-docs'] },
   tasks: { title: { model: 'ollama/qwen3:0.6b' } },
 };
+
+/** The agent as a request finds it: it locks no field. */
+const OPEN_AGENT = resolveAgent('personal-finance', AGENT);
 
 /** The servers the run's workspace granted the agent. */
 const GRANTED = ['actual', 'finance-docs'];
@@ -72,7 +75,7 @@ const SNAPSHOT: Snapshot = {
  */
 function refusalOf(body: unknown, settings: RouterSettings = ROUTER_DEFAULTS): RequestRefusal {
   try {
-    readRunRequest(body, settings);
+    readRunRequest(body, OPEN_AGENT, settings);
   } catch (error) {
     if (error instanceof RequestRefusal) {
       return error;
@@ -95,6 +98,7 @@ describe('reading a request', () => {
         seed: 7,
         stop: ['END'],
       },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     expect(request.sampling).toEqual({
@@ -118,10 +122,68 @@ describe('reading a request', () => {
     };
     const extraBody = { metadata: { app: 'task_server' }, store: false, logit_bias: { 1: 2 }, top_p: 0.9 };
     for (const settings of [ROUTER_DEFAULTS, IGNORING]) {
-      const request = readRunRequest(body, settings);
+      const request = readRunRequest(body, OPEN_AGENT, settings);
       expect(request.ignored).toEqual([]);
       expect(request.sampling).toEqual({ temperature: 0.4, extraBody });
     }
+  });
+
+  describe("an agent's locked fields", () => {
+    /** The agent with temperature, the ceiling and seed locked. */
+    const LOCKED_AGENT = resolveAgent('personal-finance', {
+      ...AGENT,
+      model: { ...AGENT.model, lockedFields: ['temperature', 'max_tokens', 'seed'] },
+    });
+
+    /**
+     * Reads a request to the locked agent and expects it refused.
+     *
+     * @param extra - The fields beside the question.
+     * @returns The refusal.
+     */
+    const lockedRefusal = (extra: Record<string, unknown>): RequestRefusal => {
+      try {
+        readRunRequest({ model: 'x', messages: [QUESTION], ...extra }, LOCKED_AGENT, ROUTER_DEFAULTS);
+      } catch (error) {
+        if (error instanceof RequestRefusal) {
+          return error;
+        }
+        throw error;
+      }
+      throw new Error('Expected a refusal.');
+    };
+
+    it('refuses a request that sets a locked field, naming each one', () => {
+      const one = lockedRefusal({ temperature: 0.9 });
+      expect(one.param).toBe('temperature');
+      expect(one.message).toContain('temperature');
+      const two = lockedRefusal({ temperature: 0.3, seed: 1 });
+      expect(two.message).toContain('temperature, seed');
+    });
+
+    it('counts max_completion_tokens as max_tokens', () => {
+      expect(lockedRefusal({ max_completion_tokens: 100 }).param).toBe('max_completion_tokens');
+    });
+
+    it('passes the fields the agent leaves open, and one sent as null', () => {
+      const request = readRunRequest(
+        { model: 'x', messages: [QUESTION], top_p: 0.5, temperature: null },
+        LOCKED_AGENT,
+        ROUTER_DEFAULTS,
+      );
+      expect(request.sampling).toEqual({ extraBody: { top_p: 0.5 } });
+      expect(request.ignored).toEqual([]);
+    });
+
+    it('drops a locked field and names it when the settings ignore such fields', () => {
+      const request = readRunRequest(
+        { model: 'x', messages: [QUESTION], temperature: 0.9, top_p: 0.5, stream_options: { chunk: 1 } },
+        LOCKED_AGENT,
+        IGNORING,
+      );
+      expect(request.sampling).toEqual({ extraBody: { top_p: 0.5 } });
+      expect(request.ignored).toEqual(['temperature', 'stream_options.chunk']);
+    });
   });
 
   it('drops unknown stream_options keys when the settings ignore them, keeping include_usage', () => {
@@ -134,11 +196,11 @@ describe('reading a request', () => {
     const refusal = refusalOf(body);
     expect(refusal.param).toBe('stream_options');
     expect(refusal.message).toContain('include_obfuscation');
-    const request = readRunRequest(body, IGNORING);
+    const request = readRunRequest(body, OPEN_AGENT, IGNORING);
     expect(request.ignored).toEqual(['stream_options.include_obfuscation']);
     expect(request.includeUsage).toBe(true);
     const withField = { ...body, metadata: { app: 'a' } };
-    expect(readRunRequest(withField, IGNORING).ignored).toEqual(['stream_options.include_obfuscation']);
+    expect(readRunRequest(withField, OPEN_AGENT, IGNORING).ignored).toEqual(['stream_options.include_obfuscation']);
     // A bad include_usage, or stream_options that aren't an object, are refused either way.
     const ask = (streamOptions: unknown) => refusalOf({ ...body, stream_options: streamOptions }, IGNORING).param;
     expect(ask({ include_usage: 'yes' })).toBe('stream_options');
@@ -165,12 +227,16 @@ describe('reading a request', () => {
 
   it('refuses n above 1', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], n: 2 }).param).toBe('n');
-    expect(readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, ROUTER_DEFAULTS).stream).toBe(false);
+    expect(readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, OPEN_AGENT, ROUTER_DEFAULTS).stream).toBe(false);
   });
 
   it("reads the app's tools, and refuses legacy functions, a forced tool_choice, a bad or repeated name", () => {
     const tools = [{ type: 'function', function: { name: 'ask_user', parameters: { type: 'object' }, strict: null } }];
-    const request = readRunRequest({ model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' }, ROUTER_DEFAULTS);
+    const request = readRunRequest(
+      { model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' },
+      OPEN_AGENT,
+      ROUTER_DEFAULTS,
+    );
     expect(request.appTools).toEqual([
       { type: 'function', function: { name: 'ask_user', parameters: { type: 'object' } } },
     ]);
@@ -186,8 +252,8 @@ describe('reading a request', () => {
   it("refuses more app tools than the router's settings allow", () => {
     const tools = ['a', 'b', 'c'].map((name) => ({ type: 'function', function: { name } }));
     const body = { model: 'x', messages: [QUESTION], tools };
-    expect(readRunRequest(body, { ...ROUTER_DEFAULTS, maxAppTools: 3 }).appTools).toHaveLength(3);
-    expect(() => readRunRequest(body, { ...ROUTER_DEFAULTS, maxAppTools: 2 })).toThrow(
+    expect(readRunRequest(body, OPEN_AGENT, { ...ROUTER_DEFAULTS, maxAppTools: 3 }).appTools).toHaveLength(3);
+    expect(() => readRunRequest(body, OPEN_AGENT, { ...ROUTER_DEFAULTS, maxAppTools: 2 })).toThrow(
       'tools: send at most 2 with one request.',
     );
   });
@@ -202,10 +268,10 @@ describe('reading a request', () => {
       },
       { role: 'tool', tool_call_id: 'c1', content: 'done' },
     ];
-    const answered = readRunRequest({ model: 'x', messages: history }, ROUTER_DEFAULTS);
+    const answered = readRunRequest({ model: 'x', messages: history }, OPEN_AGENT, ROUTER_DEFAULTS);
     expect(answered.messages).toHaveLength(3);
     expect(answered.answers).toEqual([{ callId: 'c1', content: 'done' }]);
-    const goneOn = readRunRequest({ model: 'x', messages: [...history, QUESTION] }, ROUTER_DEFAULTS);
+    const goneOn = readRunRequest({ model: 'x', messages: [...history, QUESTION] }, OPEN_AGENT, ROUTER_DEFAULTS);
     expect(goneOn.answers).toEqual([]);
   });
 
@@ -214,17 +280,21 @@ describe('reading a request', () => {
     const said = { role: 'assistant', content: 'About 40.' };
     const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } };
     const next = { role: 'user', content: [{ type: 'text', text: 'And this receipt?' }, image] };
-    const request = readRunRequest({ model: 'x', messages: [host, QUESTION, said, next] }, ROUTER_DEFAULTS);
+    const request = readRunRequest({ model: 'x', messages: [host, QUESTION, said, next] }, OPEN_AGENT, ROUTER_DEFAULTS);
     expect(request.input).toEqual([
       { role: 'system', content: 'You are in task_server.' },
       { role: 'user', content: 'And this receipt?', images: 1 },
     ]);
-    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, ROUTER_DEFAULTS);
+    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, OPEN_AGENT, ROUTER_DEFAULTS);
     expect(first.input).toEqual([host, QUESTION]);
     const call = { id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } };
     const handedBack = { role: 'assistant', content: null, tool_calls: [call] };
     const answer = { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: 'done' }] };
-    const resume = readRunRequest({ model: 'x', messages: [host, QUESTION, handedBack, answer] }, ROUTER_DEFAULTS);
+    const resume = readRunRequest(
+      { model: 'x', messages: [host, QUESTION, handedBack, answer] },
+      OPEN_AGENT,
+      ROUTER_DEFAULTS,
+    );
     expect(resume.input).toEqual([{ role: 'tool', content: 'done', toolCallId: 'c1' }]);
   });
 
@@ -236,7 +306,7 @@ describe('reading a request', () => {
       parallel_tool_calls: false,
       user: 'household-a',
     };
-    const request = readRunRequest(body, ROUTER_DEFAULTS);
+    const request = readRunRequest(body, OPEN_AGENT, ROUTER_DEFAULTS);
     expect(request.sampling.extraBody).toEqual({
       response_format: { type: 'json_object' },
       parallel_tool_calls: false,
@@ -256,6 +326,7 @@ describe('reading a request', () => {
         ],
         agent_core: { prompt: [{ role: 'system', name: 'lane', content: 'The Review lane.' }], progress: true },
       },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     expect(request.systemText).toBe('You are in task_server.\n\nBe brief.');
@@ -271,8 +342,15 @@ describe('reading a request', () => {
       messages: [{ role: 'system', content: 'Hi.' }, QUESTION],
       agent_core: { prompt: [lane] },
     };
-    expect(readRunRequest(withBoth, ROUTER_DEFAULTS)).toMatchObject({ systemText: 'Hi.', appParts: [lane] });
-    const narrowed = readRunRequest({ model: 'x', messages: [QUESTION], agent_core: { servers: [] } }, ROUTER_DEFAULTS);
+    expect(readRunRequest(withBoth, OPEN_AGENT, ROUTER_DEFAULTS)).toMatchObject({
+      systemText: 'Hi.',
+      appParts: [lane],
+    });
+    const narrowed = readRunRequest(
+      { model: 'x', messages: [QUESTION], agent_core: { servers: [] } },
+      OPEN_AGENT,
+      ROUTER_DEFAULTS,
+    );
     expect(narrowed.servers).toEqual([]);
     expect(refusalOf({ model: 'x', messages: [QUESTION], agent_core: { tools: true } }).param).toBe('agent_core');
   });
@@ -313,6 +391,7 @@ describe('stacking the layers', () => {
         temperature: 0.9,
         min_p: 0.05,
       },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     const { agent: resolved, prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
@@ -348,6 +427,7 @@ describe('stacking the layers', () => {
           ],
         },
       },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     const { prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
@@ -360,7 +440,7 @@ describe('stacking the layers', () => {
   });
 
   it('reaches the servers its workspace granted, never the ones its document names', () => {
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, ROUTER_DEFAULTS);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, OPEN_AGENT, ROUTER_DEFAULTS);
     const namesGithub: AgentSpec = { ...AGENT, tools: { servers: ['github'] } };
     expect(resolveRun(namesGithub, ['actual'], plain, SNAPSHOT).agent.servers).toEqual(['actual']);
     const namesNone: AgentSpec = { ...AGENT, tools: {} };
@@ -371,11 +451,13 @@ describe('stacking the layers', () => {
   it('narrows the granted servers to those the request names, and never widens them', () => {
     const narrowed = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['finance-docs', 'github'] } },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, GRANTED, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs']);
     const none = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['github'] } },
+      OPEN_AGENT,
       ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, GRANTED, none, SNAPSHOT).agent.servers).toEqual([]);
@@ -383,7 +465,7 @@ describe('stacking the layers', () => {
   });
 
   it("gives the run's fetch to the router's endpoints only, and leaves an agent's own endpoint alone", () => {
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, ROUTER_DEFAULTS);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, OPEN_AGENT, ROUTER_DEFAULTS);
     const fetch: typeof globalThis.fetch = async () => new Response(null);
     const config = withRouterFetch(resolveRun(AGENT, GRANTED, plain, SNAPSHOT).agent, fetch);
     expect(config.fetch).toBe(fetch);

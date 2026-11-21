@@ -23,7 +23,7 @@ import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { appCaller } from './app-caller.ts';
 import { readConversationKey } from './conversation.ts';
-import { UnreadableAgentError } from './layers.ts';
+import { resolveAgent, UnreadableAgentError } from './layers.ts';
 import { RequestRefusal, readRunRequest } from './request.ts';
 import { RunConflict, type RunListener, type RunService } from './run.ts';
 import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
@@ -185,7 +185,7 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
     const body = { model: agent.name, messages: [{ role: 'user', content: message }] };
     let started: Awaited<ReturnType<typeof beginRun>>;
     try {
-      const request = readRunRequest(body, current.settings);
+      const request = readRunRequest(body, resolveAgent(agent.name, agent.document), current.settings);
       const key = readConversationKey(typeof conversationName === 'string' ? conversationName : undefined);
       const conversation = key === null ? null : await runs.openConversation(workspace.id, agent, key);
       started = await beginRun(runs, forwarder, current, {
