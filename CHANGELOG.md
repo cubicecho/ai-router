@@ -1,3 +1,9 @@
+# [0.16.0](https://github.com/cubicecho/ai-router/compare/v0.15.0...v0.16.0) (2026-11-21)
+
+### Features
+
+* **agents:** /mcp answers an agent call as an MCP task ([37aa32d](https://github.com/cubicecho/ai-router/commit/37aa32d7351f64e3c1069fcde40f85e7cc0ee764)), closes [#50](https://github.com/cubicecho/ai-router/issues/50)
+
 # [0.15.0](https://github.com/cubicecho/ai-router/compare/v0.14.0...v0.15.0) (2026-11-21)
 
 ### Features
