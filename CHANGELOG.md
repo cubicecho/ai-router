@@ -1,3 +1,19 @@
+# [0.14.0](https://github.com/cubicecho/ai-router/compare/v0.13.0...v0.14.0) (2026-11-21)
+
+* feat(agents)!: drop override policies ([906bcfe](https://github.com/cubicecho/ai-router/commit/906bcfe84bd7120523ecc044569797051f8bebec)), closes [agent-core#245](https://github.com/agent-core/issues/245)
+
+### Features
+
+* **web:** group the sidebar, with Users and Settings at its foot ([9aa5432](https://github.com/cubicecho/ai-router/commit/9aa543294fe46d4138da2a30d16b02b8e0821a11))
+
+### BREAKING CHANGES
+
+* the GraphQL OverridePolicy type, the overridePolicies and
+  overridePolicy queries, the createOverridePolicy, updateOverridePolicy,
+  deleteOverridePolicy and setAgentOverridePolicy mutations, and
+  Agent.overridePolicy are removed. Every request field the router doesn't
+  read now passes to the agent's model instead of being refused.
+
 # [0.13.0](https://github.com/cubicecho/ai-router/compare/v0.12.0...v0.13.0) (2026-11-20)
 
 * feat(agents)!: a workspace decides which MCP servers each agent uses ([50c3de5](https://github.com/cubicecho/ai-router/commit/50c3de59148ae3c09d7df67eea31904ff9e2d5bb))
