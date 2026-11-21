@@ -117,7 +117,10 @@ non-negotiables apply on top of these.
   the same agents as MCP tools, one per agent the key's workspace may run: a `message` in, the
   answer out, progress as MCP progress notifications. Each call is an ordinary run (stateless,
   no app tools, so it never waits); a `conversation` argument works as `X-Conversation-Id`. It is
-  stateless, so a client's cancel is matched to its call by key and JSON-RPC id.
+  stateless, so a client's cancel is matched to its call by key and JSON-RPC id. A call may ask to
+  run as an MCP task (2025-11-25): it is answered at once, the task is the run (same id, read from
+  the runs table, never a second store), its run outlives the connection, and `tasks/result`
+  streams the run's `RunEvent`s as progress notifications linked to the task (`agents/mcp-tasks`).
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
 - **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the

@@ -5,9 +5,11 @@ import {
   CallToolRequestSchema,
   type CallToolResult,
   CancelledNotificationSchema,
+  type CreateTaskResult,
   ListToolsRequestSchema,
   McpError,
   ErrorCode as McpErrorCode,
+  type ProgressToken,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import express, { type Request, type Response, type Router } from 'express';
@@ -18,14 +20,16 @@ import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { HttpStatus } from '../core/wire.ts';
+import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import { RunStatus } from '../db/tables/runs.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { appCaller } from './app-caller.ts';
 import { readConversationKey } from './conversation.ts';
 import { resolveAgent, UnreadableAgentError } from './layers.ts';
+import { callResultOf, serveTasks, TASKS_CAPABILITY, taskOf } from './mcp-tasks.ts';
 import { RequestRefusal, readRunRequest } from './request.ts';
-import { RunConflict, type RunListener, type RunService } from './run.ts';
+import { RunConflict, type RunListener, type RunService, type StartedRun } from './run.ts';
 import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** What the door calls itself to an MCP client. */
@@ -57,6 +61,8 @@ const INPUT_SCHEMA: Tool['inputSchema'] = {
 
 /** What the agents door talks to. */
 export interface AgentMcpDeps {
+  /** Where a task's run is read from. */
+  db: DB;
   snapshot: SnapshotHost;
   runs: RunService;
   forwarder: Forwarder;
@@ -95,6 +101,8 @@ function toolOf(agent: RunnableAgent): Tool {
     title,
     description: `${said}Runs the ${title} agent on the message and answers with what it says. Each call is a run of its own, recorded on the router.`,
     inputSchema: INPUT_SCHEMA,
+    // A call may ask to run as a task: it is answered at once, and the run goes on without the connection.
+    execution: { taskSupport: 'optional' },
   };
 }
 
@@ -148,29 +156,28 @@ function failed(text: string): CallToolResult {
  * @param deps - The snapshot, the run service and the forwarder.
  * @returns The router, to mount at `/mcp`.
  */
-export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => new Date() }: AgentMcpDeps): Router {
+export function createAgentMcpRoutes({ db, snapshot, runs, forwarder, now = () => new Date() }: AgentMcpDeps): Router {
   const router = express.Router();
   /** The tool calls going, by key and JSON-RPC id: what a client's cancel aborts. */
   const calls = new Map<string, AbortController>();
 
+  /** The progress token each task's own call asked for, by run, while the run goes: where `tasks/result` reports. */
+  const tokens = new Map<string, ProgressToken>();
+
   /**
-   * Runs an agent for one tool call.
+   * Starts an agent's run for one tool call.
    *
    * @param caller - The key's workspace.
    * @param name - The tool, which is the agent's name.
    * @param args - What the call sent.
-   * @param signal - Aborted when the client cancels the call or leaves: the run is cancelled.
-   * @param progress - Tells the client of a step, when it asked for progress.
-   * @returns The agent's answer, or why there is none.
+   * @returns The run, to execute, or why the call is refused, as a failed result.
    * @throws {@link McpError} For an agent the key may not run, or a call without a message.
    */
-  const callAgent = async (
+  const startCall = async (
     caller: WorkspaceCaller,
     name: string,
     args: unknown,
-    signal: AbortSignal,
-    progress: (message: string, at: number) => void,
-  ): Promise<CallToolResult> => {
+  ): Promise<StartedRun | CallToolResult> => {
     const current = snapshot.current();
     const workspace = current.workspaces.get(caller.workspaceId);
     const agent = runnableAgent(current.agents, caller.workspaceId, name);
@@ -208,6 +215,25 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
       // Only an Idempotency-Key repeats a run, and this door sends none.
       throw new Error('A tool call found a run it did not start.');
     }
+    return started;
+  };
+
+  /**
+   * Runs an agent for one tool call, answering when the run ends.
+   *
+   * @param started - The run, or why the call is refused.
+   * @param signal - Aborted when the client cancels the call or leaves: the run is cancelled.
+   * @param progress - Tells the client of a step, when it asked for progress.
+   * @returns The agent's answer, or why there is none.
+   */
+  const callAgent = async (
+    started: StartedRun | CallToolResult,
+    signal: AbortSignal,
+    progress: (message: string, at: number) => void,
+  ): Promise<CallToolResult> => {
+    if ('content' in started) {
+      return started;
+    }
     const listener: RunListener = {
       onText: () => {},
       onEvent: (event) => {
@@ -217,18 +243,38 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
         }
       },
     };
-    const finished = await started.execute(listener, signal);
-    const runNote = `Run ${finished.runId}.`;
-    if (finished.status !== RunStatus.Completed) {
-      return failed(
-        `The run ${finished.status === RunStatus.Cancelled ? 'was cancelled' : 'failed'}: ${finished.error ?? ''} ${runNote}`,
-      );
+    return callResultOf(await started.execute(listener, signal));
+  };
+
+  /**
+   * Runs an agent for one tool call as a task: answered at once, while the run goes on without the connection, to
+   * its own end, timeout or cancel.
+   *
+   * @param started - The run, or why the call is refused.
+   * @param progressToken - The token the call asked for progress under, which `tasks/result` reports to.
+   * @returns The task, which is the run.
+   * @throws {@link McpError} When the call is refused: there is no run to make a task of.
+   */
+  const callAgentAsTask = (
+    started: StartedRun | CallToolResult,
+    progressToken: ProgressToken | undefined,
+  ): CreateTaskResult => {
+    if ('content' in started) {
+      const [first] = started.content;
+      throw new McpError(McpErrorCode.InvalidParams, first?.type === 'text' ? first.text : 'The call was refused.');
     }
-    const answer = finished.answer?.content ?? '';
-    return {
-      content: [{ type: 'text', text: answer === '' ? '(The agent wrote nothing.)' : answer }],
-      _meta: { runId: finished.runId },
-    };
+    const { runId, startedAt } = started;
+    if (progressToken !== undefined) {
+      tokens.set(runId, progressToken);
+    }
+    // No connection to lose: the run's own timeout, a cancel, and the router stopping end it.
+    const kept = new AbortController();
+    started
+      .execute({ onText: () => {}, onEvent: () => {} }, kept.signal)
+      .catch((error: unknown) => console.error(`[mcp] task ${runId} failed to run: ${errorMessage(error)}`))
+      .finally(() => tokens.delete(runId));
+    const run = { id: runId, status: RunStatus.Running, startedAt, finishedAt: null, waitingSince: null, error: null };
+    return { task: taskOf(run) };
   };
 
   /**
@@ -241,13 +287,17 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
   const serverFor = (caller: WorkspaceCaller, left: AbortSignal): Server => {
     const server = new Server(
       { name: SERVER_NAME, version: version() },
-      { capabilities: { tools: { listChanged: false } } },
+      { capabilities: { tools: { listChanged: false }, tasks: TASKS_CAPABILITY } },
     );
     server.setRequestHandler(ListToolsRequestSchema, () => ({
       tools: runnableAgents(snapshot.current(), caller.workspaceId).map(toolOf),
     }));
-    server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const progressToken = request.params._meta?.progressToken;
+      const started = await startCall(caller, request.params.name, request.params.arguments);
+      if (request.params.task !== undefined) {
+        return callAgentAsTask(started, progressToken);
+      }
       const progress = (message: string, at: number) => {
         if (progressToken === undefined) {
           return;
@@ -261,10 +311,11 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
       const cancelled = new AbortController();
       calls.set(call, cancelled);
       const signal = AbortSignal.any([extra.signal, left, cancelled.signal]);
-      return callAgent(caller, request.params.name, request.params.arguments, signal, progress).finally(() => {
+      return callAgent(started, signal, progress).finally(() => {
         calls.delete(call);
       });
     });
+    serveTasks(server, { db, runs, caller, left, tokens, describe: progressMessage });
     server.setNotificationHandler(CancelledNotificationSchema, (notification) => {
       const { requestId } = notification.params;
       if (requestId !== undefined) {
@@ -299,7 +350,8 @@ export function createAgentMcpRoutes({ snapshot, runs, forwarder, now = () => ne
     const server = serverFor(response.locals.caller, left.signal);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on('close', () => {
-      // A client that leaves mid-call cancels its run, as one without an Idempotency-Key does on /v1.
+      // A client that leaves mid-call cancels its run, as one without an Idempotency-Key does on /v1. A task's run
+      // outlives its connection.
       left.abort();
       void transport.close();
       void server.close();

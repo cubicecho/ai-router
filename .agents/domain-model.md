@@ -114,7 +114,7 @@ received --resolve--> refused (4xx, not recorded)
 received --resolve--> running --model answers--> completed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
-                      running --app without a key disconnects--> cancelled
+                      running --app without a key disconnects--> cancelled  (not a run started as an MCP task)
                       running --cancel (the app's key, or a user)--> cancelled
                       running --model calls an app tool--> waiting (finish_reason: tool_calls)
                       waiting --app answers every handed-back call--> running
@@ -270,9 +270,10 @@ created (shown once) --> in use --revoke--> deleted
 | A request repeating an `Idempotency-Key` answers with the run that key already started, never a second run. Keys are per workspace. A different body under the same key is refused with 422 | `agents/run`, `uq_runs_workspace_id_idempotency_key`, `agents/routes` |
 | Every agent answer names its run in `X-Run-Id` once the run exists. A refusal before it does carries none | `agents/routes` |
 | `GET /v1/models/<id>` answers with the same entry `GET /v1/models` lists for an agent the key's workspace may run, and with `model_not_found` otherwise: the same 404 for an agent that doesn't exist, has no live revision, or isn't the workspace's to run | `agents/routes` `modelEntry`, `runnableAgent` |
-| An app disconnecting cancels its run, unless it sent an `Idempotency-Key`: that run goes on, so the retry gets its answer. A run past the run timeout fails | `agents/run`; `RUN_DEFAULTS.timeoutMinutes` |
+| An app disconnecting cancels its run, unless it sent an `Idempotency-Key` or started the run as an MCP task: that run goes on, so the retry or the task's caller gets its answer. A run past the run timeout fails | `agents/run`, `agents/mcp`; `RUN_DEFAULTS.timeoutMinutes` |
 | A cancel ends only a run that is running or waiting, as `cancelled` with one last `done`; an ended run is answered unchanged. A key cancels only its own workspace's runs, and another workspace's run answers the same 404 as one that doesn't exist. `cancelRun` is for people: no admin-server role reaches it | `agents/run` `cancel`, `agents/run-records`; `graphql/permissions` |
 | `/mcp` lists exactly the agents `/v1/models` does for the same key, and a tool call is a run of the key's workspace, read like any request. It never hands calls back, so its runs never wait | `agents/mcp`, `agents/start` |
+| An MCP task is a run: its id is the run's, its status is read from the run's, and a key reaches only its own workspace's tasks, another workspace's answering as missing. Cancelling a task cancels the run, and an ended task can't be cancelled. A waiter on `tasks/result` gets each of the run's events, agent-core's `RunEvent` unchanged, as it happens | `agents/mcp-tasks` `serveTasks`, over the runs table and `agents/run-bus` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
@@ -342,8 +343,17 @@ Everything about the code comes after `Owner:`.
   answers with the agent's text, the run's id in `_meta.runId`; its steps come as progress
   notifications when the client asks. Each call is a run like any other, recorded under the
   workspace. It sends no app tools, so its runs never wait. A cancelled call or a dropped
-  connection cancels the run. Stateless. Owner: `agents/mcp`; `/mcp`, with `agents/start` shared
-  with `/v1` for starting a run.
+  connection cancels the run, unless the call asked to run as a task. Stateless. Owner:
+  `agents/mcp`; `/mcp`, with `agents/start` shared with `/v1` for starting a run.
+- **Task (MCP):** a call to the agents MCP door that asks to run as a task is answered at once
+  with the task, and the run goes on without the connection, to its end, its timeout or a cancel.
+  The task is the run: the same id, the same status (running is working, waiting is input
+  required, expired is failed), kept as long as the run's record. The caller checks it, waits for
+  its result (getting each of the run's events on the way), lists its workspace's tasks or cancels
+  one. Owner: `agents/mcp-tasks`; MCP's 2025-11-25 tasks, through the SDK's request schemas and
+  handlers of the router's own over the runs table and the run bus. Each event is a progress
+  notification linked to the task, with the `RunEvent` in `_meta["cubicecho.com/run-event"]`;
+  `RUN_DEFAULTS.taskPollIntervalMs` is the poll interval a task names.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `GET /runs` (its workspace's runs, newest first, `?session=` for one
