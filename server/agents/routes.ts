@@ -28,6 +28,7 @@ import {
   agentLayer,
   agentPartRules,
   type PartRules,
+  resolveAgent,
   resolveRun,
   UnreadableAgentError,
   withRouterFetch,
@@ -349,7 +350,7 @@ export function createAgentRoutes({
     let started: Awaited<ReturnType<RunService['begin']>>;
     let delivery: RunRequest;
     try {
-      const runRequest = readRunRequest(body, current.settings);
+      const runRequest = readRunRequest(body, resolveAgent(agent.name, agent.document), current.settings);
       delivery = runRequest;
       // Before the first byte, so a streamed answer carries it too.
       const ignored = ignoredHeaderValue(runRequest.ignored);

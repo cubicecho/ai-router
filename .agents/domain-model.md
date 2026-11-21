@@ -127,9 +127,10 @@ received --resolve--> running --model answers--> completed
   on the agent's, then calls `resolveAgentSpec`.
 - **Refusing:** a request the router can't read refuses the whole run, and nothing is trimmed
   quietly. `servers` is narrowed by definition. Every request field the router doesn't read goes
-  to the agent's model. A key of `stream_options` but `include_usage` refuses, unless the
-  router's **unlisted fields** setting is `ignore`: then it is dropped and the answer names it in
-  `X-AI-Router-Ignored` as `stream_options.<key>`.
+  to the agent's model, unless the agent locks it. A **locked field**, and a key of
+  `stream_options` but `include_usage`, refuse, unless the router's **unlisted fields** setting is
+  `ignore`: then they are dropped and the answer names them in `X-AI-Router-Ignored` (a stream
+  option as `stream_options.<key>`).
 - **Revision:** a run keeps the revision it started with. A revision promoted mid-run applies
   to the next run.
 - **Waiting:** handing calls back to the app pauses the run. It does not end it.
@@ -254,7 +255,7 @@ created (shown once) --> in use --revoke--> deleted
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
 | A workspace decides which agents an app may run and, per agent, which servers its runs there reach: exactly those granted, and none without a grant. The agent decides its models; its document's `tools.servers` is ignored. Only a person grants a server: no admin-server role reaches `setWorkspaceAgentServers`, so a run never widens its own reach. A server entry configures a server for the workspace's runs and never grants one; without an entry, a run uses the base instance | `workspaces/resolvers` `setWorkspaceAgentServers`, `graphql/permissions`, `agents/layers` `resolveRun`, `agents/reach` |
-| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`agent_core.servers`) is intersected with the agent's list. Every request field the router doesn't read goes to the agent's model, and never reaches its side tasks. A `stream_options` key other than `include_usage` refuses the request, naming it; with the unlisted-fields setting at `ignore` it is dropped instead and named `stream_options.<key>` in the answer's `X-AI-Router-Ignored` header, streamed or not. Ignoring never reaches the messages, the tools, `tool_choice`, `functions`, `n`, `include_usage`, `agent_core` (an app part agent-core's `parseAppParts` can't read included), `ai_router` (its old name, refused with a pointer to the new one), or a bad value of a field the router reads: those refuse whatever the setting | `agents/request`, `agents/layers` |
+| An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`agent_core.servers`) is intersected with the agent's list. Every request field the router doesn't read goes to the agent's model, and never reaches its side tasks, unless the agent locks it (`model.lockedFields`, held by agent-core's `checkLockedFields`; `max_completion_tokens` counts as `max_tokens`). A locked field, and a `stream_options` key other than `include_usage`, refuse the request, naming each; with the unlisted-fields setting at `ignore` they are dropped instead and named in the answer's `X-AI-Router-Ignored` header (a stream option as `stream_options.<key>`), streamed or not. Ignoring never reaches the messages, the tools, `tool_choice`, `functions`, `n`, `include_usage`, `agent_core` (an app part agent-core's `parseAppParts` can't read included), `ai_router` (its old name, refused with a pointer to the new one), or a bad value of a field the router reads: those refuse whatever the setting | `agents/request` (`holdLockedFields`), `agents/layers` (`resolveAgent`) |
 | An app's parts and its system messages are stacked on the agent's by agent-core's `stackAppParts`, never by rules of the router's own. Every app name gets `app_`, and no agent's part name has `app` as its first word (agent-core refuses such a document), so an app never overwrites or deletes an agent's part. It extends or replaces one only where the part's `allowedModes` lets it. A part that breaks that, or is named `system`, is dropped, never refused: a notice event and the answer's `agent_core.warnings` say so. Nothing switches app parts or system messages off | `agents/layers` `resolveRun`, agent-core `stackAppParts` |
 | `app_system` comes only from a request's leading `system` or `developer` messages, and is written last in the system prompt, after the loop's server instructions and catalogue. Later system messages stay in the transcript where they are | `agents/request`, agent-core `writeSystemPrompt` |
 | A resumed run keeps the revision and layers it started with. A resume request that sends different system messages or app parts is refused | `agents/routes` `resumedLayers`, `runs.resume` |
@@ -318,8 +319,9 @@ Everything about the code comes after `Owner:`.
 - **Settings:** the router's own options, which an admin changes on the Settings page while it
   runs, for every app at once. Each has a default and a range; one nobody has set follows its
   default. Today there are three: the most tools an app may send with one request (128 by default,
-  OpenAI's own limit); **unlisted fields**, whether a `stream_options` key the router doesn't
-  read is refused (the default) or ignored and named in `X-AI-Router-Ignored`;
+  OpenAI's own limit); **unlisted fields**, whether a field the agent locks, or a
+  `stream_options` key the router doesn't read, is refused (the default) or ignored and named in
+  `X-AI-Router-Ignored`;
   and whether an app tool that is one of the agent's under another server's name is left out
   (off by default). Every user may read them. Owner: `db/schema` `settings`, one row or none,
   whose `values` holds only what was set; `core/settings` parses it and spreads it over
@@ -472,6 +474,13 @@ Everything about the code comes after `Owner:`.
 - **Agent:** a model, a prompt and tools defined once, for any app to use. Its name in the router
   is its document's `id`, and can't change. Owner: `agents/`; the `agents` table; its content is
   a `cubicecho.agent/2` document, `@cubicecho/agent-core` `AgentSpec`, kept as JSON.
+- **Locked field:** a request field an agent doesn't let an app change, such as `temperature` or
+  `seed`. Every field is open unless the agent locks it, and a person locks one on the agent's
+  page, which saves a new revision. A request that sets one is refused, naming it, or it is
+  dropped and named when the router's unlisted-fields setting says to ignore. Owner: the
+  document's `model.lockedFields` (agent-core 7.2); `agents/request` `holdLockedFields` calls
+  agent-core's `checkLockedFields` against the agent resolved alone (`agents/layers`
+  `resolveAgent`); the agent page's `web/agents/locked-fields-section.tsx`.
 - **Revision:** one saved version of an agent, numbered from 1, with what the saver said changed,
   who saved it and the revision it started from. Each is a draft, live or retired. Every revision
   that has been live is kept; a draft can be discarded. Owner: `agents/resolvers` (`createAgent`,

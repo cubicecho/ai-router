@@ -63,6 +63,18 @@ export function agentLayer(agentName: string, document: Readonly<Record<string, 
   return parsed.spec;
 }
 
+/**
+ * Resolves an agent on its own, over the router layer: what it is before any request changes it.
+ *
+ * @param agentName - The agent, for the error.
+ * @param document - Its live revision's document, as stored.
+ * @returns The resolved agent, whose `lockedFields` a request is held to.
+ * @throws {@link UnreadableAgentError} When the document no longer parses.
+ */
+export function resolveAgent(agentName: string, document: Readonly<Record<string, unknown>>): ResolvedAgent {
+  return resolveAgentSpec([ROUTER_LAYER, agentLayer(agentName, document)]);
+}
+
 /** One of an agent's prompt parts as its model-list entry shows it: its name, and what an app may do to it. */
 export interface PartRules {
   name: string;
@@ -79,7 +91,7 @@ export interface PartRules {
  * @throws {@link UnreadableAgentError} When the document no longer parses.
  */
 export function agentPartRules(agentName: string, document: Readonly<Record<string, unknown>>): PartRules[] {
-  const { prompt } = resolveAgentSpec([ROUTER_LAYER, agentLayer(agentName, document)]);
+  const { prompt } = resolveAgent(agentName, document);
   return prompt.map(({ name, allowedModes }) => (allowedModes === undefined ? { name } : { name, allowedModes }));
 }
 

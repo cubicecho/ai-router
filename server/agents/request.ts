@@ -7,6 +7,12 @@ import {
   parseAppParts,
   RECORD_ARTIFACT,
 } from '@cubicecho/agent-core';
+import {
+  checkLockedFields,
+  LOCKED_FIELD_ACTIONS,
+  LockedFieldsError,
+  type ResolvedAgent,
+} from '@cubicecho/agent-core/spec';
 import { z } from 'zod';
 import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -450,6 +456,38 @@ function readSampling(body: Record<string, unknown>): RequestSampling {
 }
 
 /**
+ * Holds a request to the fields its agent locks, with agent-core's `checkLockedFields`.
+ *
+ * @param body - The parsed body.
+ * @param agent - The agent, resolved over the router layer, whose `lockedFields` apply.
+ * @param unlisted - The router's `unlistedFields` setting: `ignore` drops a locked field, `refuse` refuses it.
+ * @returns The body less any locked field dropped, and the fields dropped, as the request spelled them.
+ * @throws {@link RequestRefusal} Under `refuse`, when the request sets a locked field, naming each.
+ */
+function holdLockedFields(
+  body: Record<string, unknown>,
+  agent: ResolvedAgent,
+  unlisted: UnlistedFields,
+): { body: Record<string, unknown>; dropped: readonly string[] } {
+  const isIgnoring = unlisted === UnlistedFields.Ignore;
+  const onLocked = isIgnoring ? LOCKED_FIELD_ACTIONS.drop : LOCKED_FIELD_ACTIONS.refuse;
+  try {
+    const { fields, dropped } = checkLockedFields(agent, body, { onLocked });
+    return { body: { ...fields }, dropped };
+  } catch (error) {
+    if (error instanceof LockedFieldsError) {
+      const { fields } = error;
+      const isOne = fields.length === 1;
+      throw new RequestRefusal(
+        fields[0] ?? 'body',
+        `${fields.join(', ')}: this agent locks ${isOne ? 'this field' : 'these fields'}, so a request may not set ${isOne ? 'it' : 'them'}.`,
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Checks `stream_options`, of which the router reads only `include_usage`.
  *
  * @param value - The request's `stream_options`.
@@ -475,7 +513,8 @@ function readStreamOptions(value: unknown, unlisted: UnlistedFields): string[] {
 /**
  * Reads a chat completion request and checks it.
  *
- * @param body - The parsed body. Its `model` is the agent, already found.
+ * @param sent - The parsed body. Its `model` is the agent, already found.
+ * @param agent - The agent, resolved over the router layer, for the fields it locks.
  * @param settings - The router's settings, from the snapshot.
  * @returns What the run is built from.
  * @throws {@link RequestRefusal} For anything the router refuses, naming the field.
@@ -483,18 +522,20 @@ function readStreamOptions(value: unknown, unlisted: UnlistedFields): string[] {
  * @remarks
  * Every field the router doesn't read itself goes to the agent's model: `temperature`, the ceiling and
  * `reasoning_effort` as the agent format names them, the rest in `extraBody`. `response_format` and `parallel_tool_calls` go there too, and
- * `agent_core.servers` narrows the agent's servers. Nothing is trimmed quietly: a key of `stream_options` but
- * `include_usage` refuses the request, or, when the router's `unlistedFields` setting is `ignore`, is dropped and
+ * `agent_core.servers` narrows the agent's servers. Nothing is trimmed quietly: a field the agent locks
+ * (`model.lockedFields`, checked by agent-core's `checkLockedFields`) and a key of `stream_options` but
+ * `include_usage` refuse the request, or, when the router's `unlistedFields` setting is `ignore`, are dropped and
  * named in `ignored`, for the answer's `X-AI-Router-Ignored` header. Everything else refuses: bad messages or tools,
  * `n` above 1 (a run gives one answer), a bad value of a field the router reads, a part in `agent_core.prompt`
  * agent-core can't read, and `ai_router`, the field's old name. System messages and app parts are always taken: the
  * agent's parts are kept by how they are stacked, not by a switch. `user` is recorded, and a field sent as null is
  * read as not sent.
  */
-export function readRunRequest(body: unknown, settings: Readonly<RouterSettings>): RunRequest {
-  if (isRecord(body) === false) {
+export function readRunRequest(sent: unknown, agent: ResolvedAgent, settings: Readonly<RouterSettings>): RunRequest {
+  if (isRecord(sent) === false) {
     throw new RequestRefusal('body', 'The body must be a JSON object.');
   }
+  const { body, dropped } = holdLockedFields(sent, agent, settings.unlistedFields);
   const appTools = readAppTools(body, settings.maxAppTools);
   const n = parseField(z.int().min(1).nullish(), body.n, 'n');
   if (n !== null && n !== undefined && n > 1) {
@@ -531,7 +572,7 @@ export function readRunRequest(body: unknown, settings: Readonly<RouterSettings>
     sampling.extraBody.parallel_tool_calls = parseField(z.boolean(), body.parallel_tool_calls, 'parallel_tool_calls');
   }
   parseField(z.boolean().nullish(), body.stream, 'stream');
-  const ignored = readStreamOptions(body.stream_options, settings.unlistedFields);
+  const ignored = [...dropped, ...readStreamOptions(body.stream_options, settings.unlistedFields)];
   const user = parseField(z.string().max(RUN_DEFAULTS.maxUserLength).nullish(), body.user, 'user') ?? null;
   const answers = trailingAnswers(messages);
   return {

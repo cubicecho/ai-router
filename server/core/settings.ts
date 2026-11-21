@@ -27,7 +27,7 @@ export type UnlistedFields = (typeof UnlistedFields)[keyof typeof UnlistedFields
 
 /** The choice for unlisted fields, as an admin may set it. */
 const unlistedFieldsSchema = z.enum(UnlistedFields, {
-  error: `Choose ${Object.values(UnlistedFields).join(' or ')} for unlisted request fields.`,
+  error: `Choose ${Object.values(UnlistedFields).join(' or ')} for locked fields and unread stream options.`,
 });
 
 /** What the `settings` row holds: the members an admin set. One left out follows its default. */

@@ -32,7 +32,7 @@ const DEFAULTS_INPUT: SettingsInput = { maxAppTools: null, unlistedFields: null,
 /** What the app-tool cap is called on the page. */
 const MAX_APP_TOOLS_LABEL = 'Most tools per request';
 /** What the unlisted-fields choice is called on the page. */
-const UNLISTED_FIELDS_LABEL = 'Unread stream options';
+const UNLISTED_FIELDS_LABEL = 'Locked fields and unread stream options';
 
 /** Each choice for unlisted fields, as the page names it. */
 const UNLISTED_FIELDS_LABELS: Record<UnlistedFields, string> = {
@@ -66,7 +66,7 @@ function maxAppToolsDescription(setting: RouterSettings['maxAppTools']): string 
 function unlistedFieldsDescription(setting: RouterSettings['unlistedFields']): string {
   const fallback = UNLISTED_FIELDS_LABELS[setting.default].toLowerCase();
   const source = setting.saved === null ? 'the default' : `set by an admin; the default is to ${fallback}`;
-  return `What happens when an app sends a stream_options key other than include_usage, which the router doesn't read. Refusing answers with an error naming it. Ignoring drops it, runs the agent, and names it in the X-AI-Router-Ignored header. Every other field the router doesn't read goes to the agent's model. Now ${source}.`;
+  return `What happens when an app sends a field its agent locks, or a stream_options key other than include_usage, which the router doesn't read. Refusing answers with an error naming it. Ignoring drops it, runs the agent, and names it in the X-AI-Router-Ignored header. Every other field goes to the agent's model. Now ${source}.`;
 }
 
 /**

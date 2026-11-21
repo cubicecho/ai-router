@@ -173,11 +173,13 @@ non-negotiables apply on top of these.
 - **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
   `endpoint` and the model never change for a request, and a caller's `servers` is intersected
   with the workspace's grant. Every request field the router doesn't read goes to the agent's
-  model, and never reaches side tasks. There are no override policies; an agent locking fields
-  (`lockedFields`) waits on [agent-core#245](https://github.com/cubicecho/agent-core/issues/245).
-- **Nothing is trimmed quietly.** A `stream_options` key but `include_usage` refuses the request,
-  unless the `unlistedFields` setting is `ignore`: then it is dropped and named
-  `stream_options.<key>` in `X-AI-Router-Ignored`, set before the first byte. Only those are ever
+  model, and never reaches side tasks, unless the agent locks it: `model.lockedFields` in its
+  document, checked with agent-core's `checkLockedFields` (never rules of our own). There are no
+  override policies.
+- **Nothing is trimmed quietly.** A field the agent locks, and a `stream_options` key but
+  `include_usage`, refuse the request, unless the `unlistedFields` setting is `ignore`: then they
+  are dropped and named in `X-AI-Router-Ignored` (a stream option as `stream_options.<key>`), set
+  before the first byte. Only those are ever
   ignored: messages, tools, `n`, `agent_core` (a part `parseAppParts` would drop included),
   `ai_router` (its old name) and a bad value of a field the router reads still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
