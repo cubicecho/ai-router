@@ -170,11 +170,6 @@ export const permissions: PermissionsMap = {
     deleteWorkspaceServer: isUser,
     // People only, never a run on the admin server: no role grants stopping another run.
     cancelRun: isUser,
-    // A policy widens what apps may do to an agent, as settings do: admins write them, and any user chooses one.
-    createOverridePolicy: isAdmin,
-    updateOverridePolicy: isAdmin,
-    deleteOverridePolicy: isAdmin,
-    setAgentOverridePolicy: isUser,
   },
   // A rule on a type guards it wherever it is reached, a relation included, so a run's read of an agent can't walk
   // into the workspaces that run it.

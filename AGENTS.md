@@ -60,7 +60,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
-| `agents/` | revisions, layers, override policies, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
+| `agents/` | revisions, layers, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
@@ -98,7 +98,7 @@ non-negotiables apply on top of these.
   any user.
 - **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
   decide.
-- **Admin-only:** secrets, settings, roles and override policies. The first user to sign in becomes admin, and the
+- **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
   last admin can be neither demoted nor deleted. Everything else is open to every user.
 - **Settings are one router-wide row.** `settings.values` holds only what an admin set, parsed by
   `savedSettingsSchema` and spread over `ROUTER_DEFAULTS` (`core/settings.ts`), so an unset one
@@ -171,20 +171,21 @@ non-negotiables apply on top of these.
   how each server is configured, so its workspace instance is used; without an entry, the base
   instance. An entry configures a server and never grants one.
 - **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
-  Everything above the agent passes the override policy before `resolveAgentSpec`. `endpoint`
-  and the model never change for a request, and a caller's `servers` is intersected with the
-  workspace's grant. Sampling settings pass only if the policy allows them, and never reach side tasks.
-- **Nothing is trimmed quietly.** A field the router doesn't read and the policy doesn't list
-  refuses the request, unless the `unlistedFields` setting is `ignore`: then it is dropped and
-  named in `X-AI-Router-Ignored`, set before the first byte, as is any `stream_options` key but
-  `include_usage` (named `stream_options.<key>`). Only those are ever ignored: messages, tools,
-  `n`, `response_format`, `agent_core` (a part `parseAppParts` would drop included), `ai_router`
-  (its old name) and a bad value of a listed field still refuse.
+  `endpoint` and the model never change for a request, and a caller's `servers` is intersected
+  with the workspace's grant. Every request field the router doesn't read goes to the agent's
+  model, and never reaches side tasks. There are no override policies; an agent locking fields
+  (`lockedFields`) waits on [agent-core#245](https://github.com/cubicecho/agent-core/issues/245).
+- **Nothing is trimmed quietly.** A `stream_options` key but `include_usage` refuses the request,
+  unless the `unlistedFields` setting is `ignore`: then it is dropped and named
+  `stream_options.<key>` in `X-AI-Router-Ignored`, set before the first byte. Only those are ever
+  ignored: messages, tools, `n`, `agent_core` (a part `parseAppParts` would drop included),
+  `ai_router` (its old name) and a bad value of a field the router reads still refuse.
 - **The router layer goes underneath every run.** It sets the endpoint to the router's internal
   model address, which the run's `fetch` hands to the models area in process, so an agent
   without an endpoint, and its side tasks, can run, and usage counts under the run.
-- **Map sampling fields by name.** `temperature` goes to `model.temperature`, and `max_tokens` or
-  `max_completion_tokens` to `model.maxTokens`. Only fields the format can't spell go into
+- **Map sampling fields by name.** `temperature` goes to `model.temperature`, `max_tokens` or
+  `max_completion_tokens` to `model.maxTokens`, and `reasoning_effort` to `model.reasoningEffort`
+  (agent-core drops it from `extraBody`). Only fields the format can't spell go into
   `extraBody`. Never copy a request's fields into `extraBody` wholesale
   ([agent-core#222](https://github.com/cubicecho/agent-core/issues/222)).
 - **The app's parts are stacked by agent-core's `stackAppParts`, never by rules of our own.**
@@ -195,12 +196,6 @@ non-negotiables apply on top of these.
   refused: a notice, and `agent_core.warnings` on the answer (beside `choices`, or on the
   stream's finish chunk). There is no switch for system messages or app parts, and no task
   field. A resume that sends different system messages or parts is refused.
-- **The override policy is a row, not part of the document.** Every agent points at one through
-  `agents.override_policy_id`: the seeded default until a user chooses another. Read it from the
-  snapshot, and never hard-code its rules. It says nothing about the prompt: that is the agent's
-  parts' `allowedModes`. Policies widen what apps may do, so only an admin
-  writes one, as with settings; any user chooses among them. The default and any policy in use
-  are never deleted.
 - **A run's servers are an exact list.** `resolveRun` puts the workspace's grant in place of the
   document's `tools.servers`, so there is no "every server": no grant means none, and an emptied
   list means none, never all.
@@ -234,9 +229,7 @@ non-negotiables apply on top of these.
   `delta.reasoning_content`, which chat clients fold away. One that asks gets the events instead,
   never both.
 - **Stored documents and runs were upgraded once, at boot** (`agents/upgrade.ts`, after the
-  migrations): version 1 revisions through `upgradeSpec`, the policies' old prompt switches
-  taken out (naming each agent whose policy refused system messages), and waiting runs' layers
-  renamed. Each step finds only what is still old.
+  migrations): version 1 revisions through `upgradeSpec`, and waiting runs' layers renamed. Each step finds only what is still old.
 - **A repeated `Idempotency-Key` returns the run it already started.** A retry must never start a
   second run.
 - **Run events are `agent-core`'s `RunEvent`, unchanged,** as JSON: agent-core has no encoder for them. The router

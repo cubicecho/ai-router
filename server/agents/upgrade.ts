@@ -5,18 +5,13 @@ import { isRecord } from '../core/is-record.ts';
 import type { DB } from '../db/client.ts';
 import { agentRevisions } from '../db/tables/agent-revisions.ts';
 import { agents } from '../db/tables/agents.ts';
-import { overridePolicies } from '../db/tables/override-policies.ts';
 import { type RunResume, RunStatus, runs } from '../db/tables/runs.ts';
-import { overridePolicyRulesSchema } from './policy.ts';
 
 /**
- * The one-time upgrade of what the router keeps to agent-core 7: version 2 documents, policies without prompt
- * switches, and waiting runs that keep the app's system messages and parts. Each step finds only what is still old,
+ * The one-time upgrade of what the router keeps to agent-core 7: version 2 documents, and waiting runs that keep the
+ * app's system messages and parts. Each step finds only what is still old,
  * so running it again does nothing.
  */
-
-/** The policy switches agent-core 7 removed: system messages and app parts are always taken now. */
-const PROMPT_SWITCHES: readonly string[] = Object.freeze(['hostPrompt', 'taskPrompt']);
 
 /** The name a waiting run's old task text is kept under, as one of the app's parts: written as `app_task`. */
 const TASK_PART_NAME = 'task';
@@ -59,43 +54,6 @@ async function upgradeRevisions(db: DB, log: UpgradeLog): Promise<number> {
       .update(agentRevisions)
       .set({ document, warnings: [...revision.warnings, ...warnings] })
       .where(eq(agentRevisions.id, revision.id));
-    count += 1;
-  }
-  return count;
-}
-
-/**
- * Takes the prompt switches out of every policy, and lists the agents whose policy refused system messages: they
- * take them now.
- *
- * @param db - The database.
- * @param log - Where each such agent is named, for someone to check.
- * @returns How many policies were changed.
- */
-async function upgradePolicies(db: DB, log: UpgradeLog): Promise<number> {
-  const policies = await db.select().from(overridePolicies);
-  let count = 0;
-  for (const policy of policies) {
-    const rules: Record<string, unknown> = { ...policy.rules };
-    const hasSwitches = PROMPT_SWITCHES.some((name) => name in rules);
-    if (hasSwitches === false) {
-      continue;
-    }
-    if (rules.hostPrompt === false) {
-      const using = await db.select({ name: agents.name }).from(agents).where(eq(agents.overridePolicyId, policy.id));
-      for (const agent of using) {
-        log.warn(
-          `[upgrade] agent "${agent.name}" uses override policy "${policy.name}", which refused system messages. Every agent takes them now, after its own parts: check that it should.`,
-        );
-      }
-    }
-    // The schema keeps only the rules it names, so the switches are left behind.
-    const parsed = overridePolicyRulesSchema.safeParse(rules);
-    if (parsed.success === false) {
-      log.warn(`[upgrade] override policy "${policy.name}" has rules that don't read, so it is left as it is.`);
-      continue;
-    }
-    await db.update(overridePolicies).set({ rules: parsed.data }).where(eq(overridePolicies.id, policy.id));
     count += 1;
   }
   return count;
@@ -147,12 +105,9 @@ async function upgradeWaitingRuns(db: DB): Promise<number> {
  */
 export async function upgradeStored(db: DB, log: UpgradeLog = console): Promise<void> {
   const revisions = await upgradeRevisions(db, log);
-  const policies = await upgradePolicies(db, log);
   const waiting = await upgradeWaitingRuns(db);
-  const changed = revisions + policies + waiting;
+  const changed = revisions + waiting;
   if (changed > 0) {
-    log.log(
-      `[upgrade] to ${AGENT_SPEC}: ${revisions} revisions, ${policies} override policies and ${waiting} waiting runs`,
-    );
+    log.log(`[upgrade] to ${AGENT_SPEC}: ${revisions} revisions and ${waiting} waiting runs`);
   }
 }

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_POLICY_RULES } from '../../server/agents/policy.ts';
 import type { UserCaller } from '../../server/core/context.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
 import { createSnapshotHost } from '../../server/db/snapshot.ts';
@@ -20,7 +19,7 @@ import {
 } from '../helpers.ts';
 
 const CREATE = `mutation ($document: JSON!, $message: String) {
-  createAgent(document: $document, message: $message) { id name liveRevisionId overridePolicyId }
+  createAgent(document: $document, message: $message) { id name liveRevisionId }
 }`;
 const SAVE = `mutation ($id: UUID!, $document: JSON!, $message: String) {
   saveAgent(id: $id, document: $document, message: $message) { id number document warnings message createdBy promotedAt }
@@ -31,7 +30,6 @@ const HISTORY = `query ($id: UUID!) {
   agent(where: { id: { eq: $id } }) {
     name liveRevisionId
     revisions(orderBy: { number: { direction: asc, priority: 1 } }) { id number message promotedAt creator { email } }
-    overridePolicy { name rules }
   }
 }`;
 
@@ -81,13 +79,12 @@ beforeEach(async () => {
 });
 
 describe('creating an agent', () => {
-  it('names it by the document id, makes the first revision live, and gives it the default policy', async () => {
+  it('names it by the document id and makes the first revision live', async () => {
     const { id, first } = await makeAgent();
     const { agent } = await asUser.expectOk(HISTORY, { id });
     expect(agent).toMatchObject({
       name: 'personal-finance',
       liveRevisionId: first,
-      overridePolicy: { name: 'default', rules: DEFAULT_POLICY_RULES },
     });
     expect(agent.revisions).toEqual([
       {
@@ -246,7 +243,7 @@ describe('revisions', () => {
 });
 
 describe('the snapshot', () => {
-  it('holds each agent’s live document, its policy and the workspaces that may run it', async () => {
+  it('holds each agent’s live document and the workspaces that may run it', async () => {
     const snapshot = await createSnapshotHost(db);
     const client = createClient(db, user, { snapshot });
     const { createAgent } = await client.expectOk(CREATE, { document: FINANCE });
@@ -258,7 +255,6 @@ describe('the snapshot', () => {
     expect(agent).toMatchObject({
       liveRevisionId: createAgent.liveRevisionId,
       document: FINANCE,
-      policy: DEFAULT_POLICY_RULES,
     });
     // Offered with no servers granted yet, so its runs there reach none.
     expect([...(agent?.workspaces ?? [])]).toEqual([[workspaceId, []]]);

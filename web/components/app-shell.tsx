@@ -9,7 +9,6 @@ import {
   Bot,
   KeyRound,
   Layers,
-  ListChecks,
   LogOut,
   Plug,
   Route,
@@ -40,7 +39,6 @@ const PLACE_GROUPS: readonly { label: string; places: readonly Place[] }[] = [
     places: [
       { to: '/agents', label: 'Agents', icon: Bot },
       { to: '/workspaces', label: 'Workspaces', icon: KeyRound },
-      { to: '/policies', label: 'Policies', icon: ListChecks },
     ],
   },
   {

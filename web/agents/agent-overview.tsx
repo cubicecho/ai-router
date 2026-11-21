@@ -8,7 +8,6 @@ import { CodeBlock } from '@/components/ui/code';
 import { CopyButton } from '@/components/ui/copy-button';
 import { RotateCcwClock } from '@/components/ui/icons';
 import { formatDateTime } from '@/lib/format';
-import { AgentPolicySection } from './agent-policy-section';
 import { Findings } from './findings';
 import { whoOf } from './revisions';
 import { describeTaskModel, documentText, factsOf, stringsOf } from './shapes';
@@ -91,7 +90,6 @@ export function AgentOverview({ agent }: AgentOverviewProps) {
           />
         }
       />
-      <AgentPolicySection agentId={agent.id} policy={agent.overridePolicy ?? null} />
       {live === null || text === null ? null : (
         <Section
           title="Live document"

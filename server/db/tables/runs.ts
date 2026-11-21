@@ -81,7 +81,7 @@ export interface RunResume {
   systemText: string | null;
   appParts: AppPart[] | null;
   servers: string[] | null;
-  sampling: { temperature?: number; maxTokens?: number; extraBody: Record<string, unknown> };
+  sampling: { temperature?: number; maxTokens?: number; reasoningEffort?: string; extraBody: Record<string, unknown> };
 }
 
 /**

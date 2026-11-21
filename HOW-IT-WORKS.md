@@ -144,25 +144,25 @@ flowchart TB
   R --> F --> loop(["the run's config"])
 ```
 
-What passes into those layers is checked first, against the agent's **override policy**, by
-`agents/request` `readRunRequest`:
+What passes into those layers is read first, by `agents/request` `readRunRequest`. Every field the router
+doesn't read itself goes to the model, so an OpenAI client's request goes through as it would to OpenAI:
 
-| A request field | Goes to | Unless |
+| A request field | Goes to | Refused when |
 | --- | --- | --- |
 | `model` | Picks the agent. Never changes its model | The workspace may not run it: 404 `model_not_found` |
 | `messages` | Leading `system`/`developer` → `app_system`; the rest → the conversation; trailing `tool` messages → answers to a waiting run | Empty, or nothing after the system messages |
-| `temperature` | `model.temperature` | The policy doesn't list it |
-| `max_tokens`, `max_completion_tokens` | `model.maxTokens` | The policy doesn't list it |
-| `top_p`, `top_k`, `min_p`, penalties, `seed`, `stop` | `model.extraBody` | The policy doesn't list it |
-| `response_format` | `model.extraBody` | The policy refuses it |
-| `parallel_tool_calls` | `model.extraBody` | Not a boolean |
+| `temperature` | `model.temperature` | Out of range |
+| `max_tokens`, `max_completion_tokens` | `model.maxTokens` | Not a whole number, or the two disagree |
+| `reasoning_effort` | `model.reasoningEffort` | |
+| `response_format`, `parallel_tool_calls` | `model.extraBody` | Not the right shape |
 | `tools` | App tools, handed back when called | More than the settings allow, a name of the loop's own, or not function tools |
 | `agent_core.prompt` | App parts | agent-core's `parseAppParts` can't read one |
-| `agent_core.servers` | Narrows the grant | The policy doesn't let a request narrow |
+| `agent_core.servers` | Narrows the workspace's servers | |
 | `agent_core.progress` | Progress events in the answer | |
 | `user` | Recorded on the run | |
 | `n` | | Above 1 |
-| Anything else | | Refused, naming it; under `unlistedFields: ignore`, dropped and named in `X-AI-Router-Ignored` |
+| `stream_options` keys but `include_usage` | | Refused, naming the key; under `unlistedFields: ignore`, dropped and named in `X-AI-Router-Ignored` |
+| Any other field (`top_p`, `seed`, `stop`, a provider's own) | `model.extraBody` | |
 
 Nothing above the agent names an endpoint or a model, and a sampling setting never reaches a side task. An
 app part that breaks its agent part's `allowedModes` is dropped, not refused: a notice event, and
@@ -181,7 +181,7 @@ flowchart TB
   idem -- "other body" --> r422["422"]
   idem -- "no" --> agent{"runnableAgent:<br/>granted, with a live revision?"}
   agent -- "no" --> r404["404 model_not_found"]
-  agent -- "yes" --> read["readRunRequest<br/>against the agent's policy"]
+  agent -- "yes" --> read["readRunRequest"]
   read -- "refused" --> r400["400, naming the field"]
   read --> hdr1["X-AI-Router-Ignored"]
   hdr1 --> conv["X-Conversation-Id → openConversation<br/>X-Session-Id → session key"]
@@ -491,7 +491,7 @@ flowchart TB
 ## The snapshot
 
 Requests never read routing from the database. `db/snapshot` holds keys, workspaces and their grants and
-entries, agents and their live documents and policies, providers, pools, servers and settings in memory.
+entries, agents and their live documents, providers, pools, servers and settings in memory.
 
 ```mermaid
 flowchart LR

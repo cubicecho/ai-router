@@ -12,7 +12,6 @@ import { type RouterSettings, RUN_DEFAULTS } from '../core/defaults.ts';
 import { isRecord } from '../core/is-record.ts';
 import { UnlistedFields } from '../core/settings.ts';
 import type { InputMessage } from '../db/tables/runs.ts';
-import type { OverridePolicyRules } from './policy.ts';
 
 /** One message of a conversation, as the loop takes it. */
 export type ChatMessage = AgentLoopOptions['messages'][number];
@@ -29,7 +28,7 @@ const TOOL_CHOICE_AUTO = 'auto';
 /** What joins the texts of the leading system messages into the `app_system` part. */
 const SYSTEM_JOIN = '\n\n';
 
-/** The header an answer names the request fields it dropped in, when the router's settings ignore unlisted ones. */
+/** The header an answer names the `stream_options` keys it dropped in, when the router's settings ignore them. */
 export const IGNORED_HEADER = 'X-AI-Router-Ignored';
 /** What joins the dropped fields' names in that header. */
 const IGNORED_JOIN = ', ';
@@ -53,12 +52,14 @@ const INCLUDE_USAGE = 'include_usage';
 
 /** The sampling field the agent format spells as `model.temperature`. */
 const TEMPERATURE = 'temperature';
-/** The two spellings of the reply's ceiling, `model.maxTokens`. Every other allowed field goes into `extraBody`. */
+/** The field the agent format spells as `model.reasoningEffort`, which agent-core drops from `extraBody`. */
+const REASONING_EFFORT = 'reasoning_effort';
+/** The two spellings of the reply's ceiling, `model.maxTokens`. */
 const CEILING_FIELDS: readonly string[] = Object.freeze(['max_tokens', 'max_completion_tokens']);
 
 /**
- * The request fields the router reads itself. Anything else an app sends is an override, which only the agent's
- * policy can allow.
+ * The request fields the router reads itself. Anything else an app sends is a setting for the agent's model, and goes
+ * to it.
  */
 export const READ_FIELDS: ReadonlySet<string> = new Set([
   'model',
@@ -156,6 +157,7 @@ const agentCoreSchema = z.strictObject({
 export interface RequestSampling {
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: string;
   /** Only fields the agent format has no name for. */
   extraBody: Record<string, unknown>;
 }
@@ -166,7 +168,7 @@ export interface ToolAnswer {
   content: string;
 }
 
-/** A chat completion request, read and checked against the agent's override policy. */
+/** A chat completion request, read and checked. */
 export interface RunRequest {
   /** The conversation, without the leading system messages. */
   messages: ChatMessage[];
@@ -193,7 +195,7 @@ export interface RunRequest {
   user: string | null;
   /** `agent_core.progress`: whether the answer carries the run's events. */
   progress: boolean;
-  /** The fields the policy doesn't list that were dropped, in the body's order. Empty unless the settings ignore them. */
+  /** The `stream_options` keys dropped, as `stream_options.<key>`. Empty unless the settings ignore them. */
   ignored: string[];
 }
 
@@ -412,41 +414,23 @@ function readAppParts(value: unknown): AppPart[] | null {
 }
 
 /**
- * Reads the sampling fields of a request, as the policy allows them.
+ * Reads the fields of a request the router doesn't read itself: settings for the agent's model.
  *
  * @param body - The parsed body.
- * @param policy - The agent's override policy.
- * @param unlisted - What the router's settings do with a field the policy doesn't list.
- * @returns The request's sampling settings, and the unlisted fields dropped, in the body's order.
- * @throws {@link RequestRefusal} For a field the policy doesn't allow while the settings refuse those, or a value
- * out of range.
+ * @returns The request's sampling settings.
+ * @throws {@link RequestRefusal} For a temperature or a ceiling out of range, or two ceilings that disagree.
  *
  * @remarks
- * Only the fields reach here that the router doesn't read itself, so ignoring never drops a message, a tool,
- * `response_format` or `agent_core`.
+ * `temperature`, the ceiling and `reasoning_effort` go to the fields the agent format names for them, and every other
+ * field to `extraBody`, so an app's request reaches the model as it would reach any OpenAI-compatible server.
  */
-function readSampling(
-  body: Record<string, unknown>,
-  policy: OverridePolicyRules,
-  unlisted: UnlistedFields,
-): { sampling: RequestSampling; ignored: string[] } {
+function readSampling(body: Record<string, unknown>): RequestSampling {
   const sampling: RequestSampling = { extraBody: {} };
-  const ignored: string[] = [];
   for (const [field, value] of Object.entries(body)) {
     // An unset field, as some clients send it, says nothing.
     const isUnset = value === null || value === undefined;
     if (READ_FIELDS.has(field) || isUnset) {
       continue;
-    }
-    if (policy.sampling.includes(field) === false) {
-      if (unlisted === UnlistedFields.Ignore) {
-        ignored.push(field);
-        continue;
-      }
-      throw new RequestRefusal(
-        field,
-        `${field}: this agent's override policy doesn't let a request set it. An admin can set the router to ignore such fields instead.`,
-      );
     }
     if (field === TEMPERATURE) {
       sampling.temperature = parseField(z.number().min(0).max(2), value, field);
@@ -456,11 +440,13 @@ function readSampling(
         throw new RequestRefusal(field, `${field}: max_tokens and max_completion_tokens disagree. Send one.`);
       }
       sampling.maxTokens = ceiling;
+    } else if (field === REASONING_EFFORT) {
+      sampling.reasoningEffort = parseField(z.string(), value, field);
     } else {
       sampling.extraBody[field] = value;
     }
   }
-  return { sampling, ignored };
+  return sampling;
 }
 
 /**
@@ -487,29 +473,25 @@ function readStreamOptions(value: unknown, unlisted: UnlistedFields): string[] {
 }
 
 /**
- * Reads a chat completion request and checks it against the agent's override policy.
+ * Reads a chat completion request and checks it.
  *
  * @param body - The parsed body. Its `model` is the agent, already found.
- * @param policy - The agent's override policy.
  * @param settings - The router's settings, from the snapshot.
  * @returns What the run is built from.
- * @throws {@link RequestRefusal} For anything the router or the policy refuses, naming the field.
+ * @throws {@link RequestRefusal} For anything the router refuses, naming the field.
  *
  * @remarks
- * Nothing is trimmed quietly. A field the router doesn't read and the policy doesn't list refuses the whole request,
- * or, when the router's `unlistedFields` setting is `ignore`, is dropped and named in `ignored`, for the answer's
- * `X-AI-Router-Ignored` header, as is any key of `stream_options` but `include_usage`. Everything else still
- * refuses: the messages, the tools, `n` above 1 (a run gives one answer), `response_format` the policy refuses, which
- * would change what the answer is, a bad value of a listed field, a part in `agent_core.prompt` agent-core can't read,
- * and `ai_router`, the field's old name. System messages and app parts are always taken: the agent's parts are kept
- * by how they are stacked, not by a switch. `parallel_tool_calls` passes through, `user` is recorded, and a field
- * sent as null is read as not sent.
+ * Every field the router doesn't read itself goes to the agent's model: `temperature`, the ceiling and
+ * `reasoning_effort` as the agent format names them, the rest in `extraBody`. `response_format` and `parallel_tool_calls` go there too, and
+ * `agent_core.servers` narrows the agent's servers. Nothing is trimmed quietly: a key of `stream_options` but
+ * `include_usage` refuses the request, or, when the router's `unlistedFields` setting is `ignore`, is dropped and
+ * named in `ignored`, for the answer's `X-AI-Router-Ignored` header. Everything else refuses: bad messages or tools,
+ * `n` above 1 (a run gives one answer), a bad value of a field the router reads, a part in `agent_core.prompt`
+ * agent-core can't read, and `ai_router`, the field's old name. System messages and app parts are always taken: the
+ * agent's parts are kept by how they are stacked, not by a switch. `user` is recorded, and a field sent as null is
+ * read as not sent.
  */
-export function readRunRequest(
-  body: unknown,
-  policy: OverridePolicyRules,
-  settings: Readonly<RouterSettings>,
-): RunRequest {
+export function readRunRequest(body: unknown, settings: Readonly<RouterSettings>): RunRequest {
   if (isRecord(body) === false) {
     throw new RequestRefusal('body', 'The body must be a JSON object.');
   }
@@ -535,21 +517,9 @@ export function readRunRequest(
   }
   const options = parseField(agentCoreSchema.nullish(), body[AGENT_CORE_FIELD], AGENT_CORE_FIELD) ?? {};
   const appParts = readAppParts(options.prompt);
-  if (options.servers !== undefined && policy.narrowServers === false) {
-    throw new RequestRefusal(
-      `${AGENT_CORE_FIELD}.servers`,
-      `${AGENT_CORE_FIELD}.servers: this agent's override policy doesn't let a request narrow its servers.`,
-    );
-  }
-  const { sampling, ignored } = readSampling(body, policy, settings.unlistedFields);
+  const sampling = readSampling(body);
   const hasResponseFormat = body.response_format !== undefined && body.response_format !== null;
   if (hasResponseFormat) {
-    if (policy.responseFormat === false) {
-      throw new RequestRefusal(
-        'response_format',
-        "response_format: this agent's override policy doesn't let a request set it.",
-      );
-    }
     sampling.extraBody.response_format = parseField(
       z.record(z.string(), z.unknown()),
       body.response_format,
@@ -561,7 +531,7 @@ export function readRunRequest(
     sampling.extraBody.parallel_tool_calls = parseField(z.boolean(), body.parallel_tool_calls, 'parallel_tool_calls');
   }
   parseField(z.boolean().nullish(), body.stream, 'stream');
-  ignored.push(...readStreamOptions(body.stream_options, settings.unlistedFields));
+  const ignored = readStreamOptions(body.stream_options, settings.unlistedFields);
   const user = parseField(z.string().max(RUN_DEFAULTS.maxUserLength).nullish(), body.user, 'user') ?? null;
   const answers = trailingAnswers(messages);
   return {

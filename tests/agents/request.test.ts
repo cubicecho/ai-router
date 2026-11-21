@@ -1,7 +1,6 @@
 import { AGENT_SPEC, type AgentSpec } from '@cubicecho/agent-core/spec';
 import { describe, expect, it } from 'vitest';
 import { resolveRun, withRouterFetch } from '../../server/agents/layers.ts';
-import { DEFAULT_POLICY_RULES, type OverridePolicyRules } from '../../server/agents/policy.ts';
 import { RequestRefusal, readRunRequest } from '../../server/agents/request.ts';
 import { ROUTER_DEFAULTS, type RouterSettings } from '../../server/core/defaults.ts';
 import { UnlistedFields } from '../../server/core/settings.ts';
@@ -10,7 +9,7 @@ import { MODELS_BASE_URL } from '../../server/models/forward.ts';
 import { TRANSPORT_STDIO } from '../../server/tools/shapes.ts';
 
 const QUESTION = { role: 'user', content: 'How much is left for groceries?' };
-/** The router set to drop fields the policy doesn't list. */
+/** The router set to drop the stream_options keys it doesn't read. */
 const IGNORING: RouterSettings = { ...ROUTER_DEFAULTS, unlistedFields: UnlistedFields.Ignore };
 
 /** The agent the layers are stacked on. */
@@ -68,17 +67,12 @@ const SNAPSHOT: Snapshot = {
  * Reads a request and expects it refused.
  *
  * @param body - The body.
- * @param [policy] - The policy.
  * @param [settings] - The router's settings.
  * @returns The refusal.
  */
-function refusalOf(
-  body: unknown,
-  policy: OverridePolicyRules = DEFAULT_POLICY_RULES,
-  settings: RouterSettings = ROUTER_DEFAULTS,
-): RequestRefusal {
+function refusalOf(body: unknown, settings: RouterSettings = ROUTER_DEFAULTS): RequestRefusal {
   try {
-    readRunRequest(body, policy, settings);
+    readRunRequest(body, settings);
   } catch (error) {
     if (error instanceof RequestRefusal) {
       return error;
@@ -88,47 +82,49 @@ function refusalOf(
   throw new Error('Expected a refusal.');
 }
 
-describe('reading a request against the override policy', () => {
-  it('maps temperature and the ceiling by name, and only the rest into extraBody', () => {
+describe('reading a request', () => {
+  it('maps temperature, the ceiling and reasoning_effort by name, and only the rest into extraBody', () => {
     const request = readRunRequest(
-      { model: 'x', messages: [QUESTION], temperature: 0.9, max_tokens: 400, top_p: 0.5, seed: 7, stop: ['END'] },
-      DEFAULT_POLICY_RULES,
+      {
+        model: 'x',
+        messages: [QUESTION],
+        temperature: 0.9,
+        max_tokens: 400,
+        reasoning_effort: 'low',
+        top_p: 0.5,
+        seed: 7,
+        stop: ['END'],
+      },
       ROUTER_DEFAULTS,
     );
     expect(request.sampling).toEqual({
       temperature: 0.9,
       maxTokens: 400,
+      reasoningEffort: 'low',
       extraBody: { top_p: 0.5, seed: 7, stop: ['END'] },
     });
   });
 
-  it('refuses a field the policy does not allow, naming it', () => {
-    const refusal = refusalOf({ model: 'x', messages: [QUESTION], logit_bias: { 1: 2 } });
-    expect(refusal.param).toBe('logit_bias');
-    expect(refusal.message).toContain('logit_bias');
-    const strict = { ...DEFAULT_POLICY_RULES, sampling: ['max_tokens'] };
-    expect(refusalOf({ model: 'x', messages: [QUESTION], temperature: 1 }, strict).message).toContain('temperature');
-  });
-
-  it('drops the fields the policy does not list when the settings ignore them, and names them in body order', () => {
+  it('passes every field the router does not read to the model, whatever the settings say', () => {
     const body = {
       model: 'x',
-      reasoning_effort: 'low',
       messages: [QUESTION],
       temperature: 0.4,
       metadata: { app: 'task_server' },
       store: false,
+      logit_bias: { 1: 2 },
       top_p: 0.9,
       logprobs: null,
     };
-    expect(refusalOf(body).param).toBe('reasoning_effort');
-    const request = readRunRequest(body, DEFAULT_POLICY_RULES, IGNORING);
-    expect(request.ignored).toEqual(['reasoning_effort', 'metadata', 'store']);
-    expect(request.sampling).toEqual({ temperature: 0.4, extraBody: { top_p: 0.9 } });
-    expect(readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, IGNORING).ignored).toEqual([]);
+    const extraBody = { metadata: { app: 'task_server' }, store: false, logit_bias: { 1: 2 }, top_p: 0.9 };
+    for (const settings of [ROUTER_DEFAULTS, IGNORING]) {
+      const request = readRunRequest(body, settings);
+      expect(request.ignored).toEqual([]);
+      expect(request.sampling).toEqual({ temperature: 0.4, extraBody });
+    }
   });
 
-  it('drops unknown stream_options keys when the settings ignore unlisted fields, keeping include_usage', () => {
+  it('drops unknown stream_options keys when the settings ignore them, keeping include_usage', () => {
     const body = {
       model: 'x',
       messages: [QUESTION],
@@ -138,25 +134,20 @@ describe('reading a request against the override policy', () => {
     const refusal = refusalOf(body);
     expect(refusal.param).toBe('stream_options');
     expect(refusal.message).toContain('include_obfuscation');
-    const request = readRunRequest(body, DEFAULT_POLICY_RULES, IGNORING);
+    const request = readRunRequest(body, IGNORING);
     expect(request.ignored).toEqual(['stream_options.include_obfuscation']);
     expect(request.includeUsage).toBe(true);
     const withField = { ...body, metadata: { app: 'a' } };
-    expect(readRunRequest(withField, DEFAULT_POLICY_RULES, IGNORING).ignored).toEqual([
-      'metadata',
-      'stream_options.include_obfuscation',
-    ]);
+    expect(readRunRequest(withField, IGNORING).ignored).toEqual(['stream_options.include_obfuscation']);
     // A bad include_usage, or stream_options that aren't an object, are refused either way.
-    const ask = (streamOptions: unknown) =>
-      refusalOf({ ...body, stream_options: streamOptions }, DEFAULT_POLICY_RULES, IGNORING).param;
+    const ask = (streamOptions: unknown) => refusalOf({ ...body, stream_options: streamOptions }, IGNORING).param;
     expect(ask({ include_usage: 'yes' })).toBe('stream_options');
     expect(ask('usage')).toBe('stream_options');
   });
 
-  it('still refuses structural problems and bad values of listed fields when the settings ignore unlisted ones', () => {
-    const closed = { ...DEFAULT_POLICY_RULES, responseFormat: false };
-    const ask = (extra: Record<string, unknown>, policy: OverridePolicyRules = DEFAULT_POLICY_RULES) =>
-      refusalOf({ model: 'x', messages: [QUESTION], ...extra }, policy, IGNORING).param;
+  it('still refuses structural problems and bad values of the fields it reads when the settings ignore stream options', () => {
+    const ask = (extra: Record<string, unknown>) =>
+      refusalOf({ model: 'x', messages: [QUESTION], ...extra }, IGNORING).param;
     expect(ask({ n: 2 })).toBe('n');
     expect(ask({ temperature: 3 })).toBe('temperature');
     expect(ask({ max_tokens: 0 })).toBe('max_tokens');
@@ -165,29 +156,21 @@ describe('reading a request against the override policy', () => {
     expect(ask({ agent_core: { tools: true } })).toBe('agent_core');
     expect(ask({ agent_core: { prompt: [{ name: 'lane' }] } })).toBe('agent_core.prompt');
     expect(ask({ ai_router: { progress: true } })).toBe('ai_router');
-    expect(ask({ response_format: { type: 'json_object' } }, closed)).toBe('response_format');
+    expect(ask({ response_format: 'json' })).toBe('response_format');
+    expect(ask({ reasoning_effort: 2 })).toBe('reasoning_effort');
     expect(ask({ messages: [{ role: 'robot', content: 'Hi.' }] })).toBe('messages');
     const tools = ['a', 'b'].map((name) => ({ type: 'function', function: { name } }));
-    expect(
-      refusalOf({ model: 'x', messages: [QUESTION], tools }, DEFAULT_POLICY_RULES, { ...IGNORING, maxAppTools: 1 })
-        .param,
-    ).toBe('tools');
+    expect(refusalOf({ model: 'x', messages: [QUESTION], tools }, { ...IGNORING, maxAppTools: 1 }).param).toBe('tools');
   });
 
   it('refuses n above 1', () => {
     expect(refusalOf({ model: 'x', messages: [QUESTION], n: 2 }).param).toBe('n');
-    expect(
-      readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS).stream,
-    ).toBe(false);
+    expect(readRunRequest({ model: 'x', messages: [QUESTION], n: 1 }, ROUTER_DEFAULTS).stream).toBe(false);
   });
 
   it("reads the app's tools, and refuses legacy functions, a forced tool_choice, a bad or repeated name", () => {
     const tools = [{ type: 'function', function: { name: 'ask_user', parameters: { type: 'object' }, strict: null } }];
-    const request = readRunRequest(
-      { model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' },
-      DEFAULT_POLICY_RULES,
-      ROUTER_DEFAULTS,
-    );
+    const request = readRunRequest({ model: 'x', messages: [QUESTION], tools, tool_choice: 'auto' }, ROUTER_DEFAULTS);
     expect(request.appTools).toEqual([
       { type: 'function', function: { name: 'ask_user', parameters: { type: 'object' } } },
     ]);
@@ -203,8 +186,8 @@ describe('reading a request against the override policy', () => {
   it("refuses more app tools than the router's settings allow", () => {
     const tools = ['a', 'b', 'c'].map((name) => ({ type: 'function', function: { name } }));
     const body = { model: 'x', messages: [QUESTION], tools };
-    expect(readRunRequest(body, DEFAULT_POLICY_RULES, { ...ROUTER_DEFAULTS, maxAppTools: 3 }).appTools).toHaveLength(3);
-    expect(() => readRunRequest(body, DEFAULT_POLICY_RULES, { ...ROUTER_DEFAULTS, maxAppTools: 2 })).toThrow(
+    expect(readRunRequest(body, { ...ROUTER_DEFAULTS, maxAppTools: 3 }).appTools).toHaveLength(3);
+    expect(() => readRunRequest(body, { ...ROUTER_DEFAULTS, maxAppTools: 2 })).toThrow(
       'tools: send at most 2 with one request.',
     );
   });
@@ -219,14 +202,10 @@ describe('reading a request against the override policy', () => {
       },
       { role: 'tool', tool_call_id: 'c1', content: 'done' },
     ];
-    const answered = readRunRequest({ model: 'x', messages: history }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const answered = readRunRequest({ model: 'x', messages: history }, ROUTER_DEFAULTS);
     expect(answered.messages).toHaveLength(3);
     expect(answered.answers).toEqual([{ callId: 'c1', content: 'done' }]);
-    const goneOn = readRunRequest(
-      { model: 'x', messages: [...history, QUESTION] },
-      DEFAULT_POLICY_RULES,
-      ROUTER_DEFAULTS,
-    );
+    const goneOn = readRunRequest({ model: 'x', messages: [...history, QUESTION] }, ROUTER_DEFAULTS);
     expect(goneOn.answers).toEqual([]);
   });
 
@@ -235,29 +214,21 @@ describe('reading a request against the override policy', () => {
     const said = { role: 'assistant', content: 'About 40.' };
     const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } };
     const next = { role: 'user', content: [{ type: 'text', text: 'And this receipt?' }, image] };
-    const request = readRunRequest(
-      { model: 'x', messages: [host, QUESTION, said, next] },
-      DEFAULT_POLICY_RULES,
-      ROUTER_DEFAULTS,
-    );
+    const request = readRunRequest({ model: 'x', messages: [host, QUESTION, said, next] }, ROUTER_DEFAULTS);
     expect(request.input).toEqual([
       { role: 'system', content: 'You are in task_server.' },
       { role: 'user', content: 'And this receipt?', images: 1 },
     ]);
-    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const first = readRunRequest({ model: 'x', messages: [host, QUESTION] }, ROUTER_DEFAULTS);
     expect(first.input).toEqual([host, QUESTION]);
     const call = { id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } };
     const handedBack = { role: 'assistant', content: null, tool_calls: [call] };
     const answer = { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: 'done' }] };
-    const resume = readRunRequest(
-      { model: 'x', messages: [host, QUESTION, handedBack, answer] },
-      DEFAULT_POLICY_RULES,
-      ROUTER_DEFAULTS,
-    );
+    const resume = readRunRequest({ model: 'x', messages: [host, QUESTION, handedBack, answer] }, ROUTER_DEFAULTS);
     expect(resume.input).toEqual([{ role: 'tool', content: 'done', toolCallId: 'c1' }]);
   });
 
-  it('follows the policy on response_format, and passes parallel_tool_calls and user through', () => {
+  it('passes response_format and parallel_tool_calls to the model, and records user', () => {
     const body = {
       model: 'x',
       messages: [QUESTION],
@@ -265,13 +236,12 @@ describe('reading a request against the override policy', () => {
       parallel_tool_calls: false,
       user: 'household-a',
     };
-    const request = readRunRequest(body, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const request = readRunRequest(body, ROUTER_DEFAULTS);
     expect(request.sampling.extraBody).toEqual({
       response_format: { type: 'json_object' },
       parallel_tool_calls: false,
     });
     expect(request.user).toBe('household-a');
-    expect(refusalOf(body, { ...DEFAULT_POLICY_RULES, responseFormat: false }).param).toBe('response_format');
   });
 
   it('turns the leading system and developer messages into one text, and keeps later ones in the conversation', () => {
@@ -286,7 +256,6 @@ describe('reading a request against the override policy', () => {
         ],
         agent_core: { prompt: [{ role: 'system', name: 'lane', content: 'The Review lane.' }], progress: true },
       },
-      DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
     expect(request.systemText).toBe('You are in task_server.\n\nBe brief.');
@@ -295,18 +264,16 @@ describe('reading a request against the override policy', () => {
     expect(request.messages).toEqual([QUESTION, { role: 'system', content: 'A later note.' }]);
   });
 
-  it('takes system messages and app parts under any policy, and refuses narrowing when the policy says no', () => {
-    const closed = { ...DEFAULT_POLICY_RULES, narrowServers: false, sampling: [], responseFormat: false };
+  it('takes system messages, app parts and a narrowing of the servers', () => {
     const lane = { role: 'system', name: 'lane', content: 'The Review lane.' };
     const withBoth = {
       model: 'x',
       messages: [{ role: 'system', content: 'Hi.' }, QUESTION],
       agent_core: { prompt: [lane] },
     };
-    expect(readRunRequest(withBoth, closed, ROUTER_DEFAULTS)).toMatchObject({ systemText: 'Hi.', appParts: [lane] });
-    expect(refusalOf({ model: 'x', messages: [QUESTION], agent_core: { servers: [] } }, closed).param).toBe(
-      'agent_core.servers',
-    );
+    expect(readRunRequest(withBoth, ROUTER_DEFAULTS)).toMatchObject({ systemText: 'Hi.', appParts: [lane] });
+    const narrowed = readRunRequest({ model: 'x', messages: [QUESTION], agent_core: { servers: [] } }, ROUTER_DEFAULTS);
+    expect(narrowed.servers).toEqual([]);
     expect(refusalOf({ model: 'x', messages: [QUESTION], agent_core: { tools: true } }).param).toBe('agent_core');
   });
 
@@ -346,7 +313,6 @@ describe('stacking the layers', () => {
         temperature: 0.9,
         min_p: 0.05,
       },
-      DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
     const { agent: resolved, prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
@@ -382,7 +348,6 @@ describe('stacking the layers', () => {
           ],
         },
       },
-      DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
     const { prompt } = resolveRun(AGENT, GRANTED, request, SNAPSHOT);
@@ -395,7 +360,7 @@ describe('stacking the layers', () => {
   });
 
   it('reaches the servers its workspace granted, never the ones its document names', () => {
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, ROUTER_DEFAULTS);
     const namesGithub: AgentSpec = { ...AGENT, tools: { servers: ['github'] } };
     expect(resolveRun(namesGithub, ['actual'], plain, SNAPSHOT).agent.servers).toEqual(['actual']);
     const namesNone: AgentSpec = { ...AGENT, tools: {} };
@@ -406,13 +371,11 @@ describe('stacking the layers', () => {
   it('narrows the granted servers to those the request names, and never widens them', () => {
     const narrowed = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['finance-docs', 'github'] } },
-      DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, GRANTED, narrowed, SNAPSHOT).agent.servers).toEqual(['finance-docs']);
     const none = readRunRequest(
       { model: 'x', messages: [QUESTION], agent_core: { servers: ['github'] } },
-      DEFAULT_POLICY_RULES,
       ROUTER_DEFAULTS,
     );
     expect(resolveRun(AGENT, GRANTED, none, SNAPSHOT).agent.servers).toEqual([]);
@@ -420,7 +383,7 @@ describe('stacking the layers', () => {
   });
 
   it("gives the run's fetch to the router's endpoints only, and leaves an agent's own endpoint alone", () => {
-    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, DEFAULT_POLICY_RULES, ROUTER_DEFAULTS);
+    const plain = readRunRequest({ model: 'x', messages: [QUESTION] }, ROUTER_DEFAULTS);
     const fetch: typeof globalThis.fetch = async () => new Response(null);
     const config = withRouterFetch(resolveRun(AGENT, GRANTED, plain, SNAPSHOT).agent, fetch);
     expect(config.fetch).toBe(fetch);

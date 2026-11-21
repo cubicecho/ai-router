@@ -349,7 +349,7 @@ export function createAgentRoutes({
     let started: Awaited<ReturnType<RunService['begin']>>;
     let delivery: RunRequest;
     try {
-      const runRequest = readRunRequest(body, agent.policy, current.settings);
+      const runRequest = readRunRequest(body, current.settings);
       delivery = runRequest;
       // Before the first byte, so a streamed answer carries it too.
       const ignored = ignoredHeaderValue(runRequest.ignored);

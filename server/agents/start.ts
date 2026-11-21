@@ -16,7 +16,7 @@ export type RunnableAgent = SnapshotAgent & {
 export interface NewRun {
   workspace: SnapshotWorkspace;
   agent: RunnableAgent;
-  /** The request, checked against the agent's policy, without the conversation's history. */
+  /** The checked request, without the conversation's history. */
   request: RunRequest;
   /** The conversation it carries on, or null for a stateless run. */
   conversation: Conversation | null;

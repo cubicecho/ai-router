@@ -27,7 +27,7 @@ the order of work and the reasons for it. Phases 1 to 3 and 5 to 7 are built.
 | Scope | **The key decides what an app sees.** One request carries one key, and a key belongs to one workspace. There are no `/w/<slug>` routes | The standard reads the caller from the credential, never the URL. Hermes picks profiles by URL and leaks state between them |
 | Key header | `Authorization: Bearer` or `x-api-key`. Both may be sent only if they match | OpenAI and MCP clients send Bearer, and the standard uses `x-api-key` |
 | Key storage | **The router's own `workspace_keys` table**, not better-auth's api-key plugin. A key is `air_` and 32 random bytes; the table keeps its SHA-256, its first characters, its workspace, who made it and its expiry | The plugin ties a key to a user (or to its organization plugin), so a key would die with whoever made it, and it reads and writes the database on every request. Here a key is checked against the snapshot, in memory |
-| Override policy | **Kept as a real thing in the database, with one seeded policy that every agent uses.** It lets an app add its own instructions, narrow the servers and set sampling settings (temperature, `top_p`, `top_k`, `min_p`, penalties, `max_tokens`, `seed`, `stop`). The model never changes: it's the one the agent was made with. There's no UI for policies yet | Sampling is task-specific, and the model is the agent's identity. Storing the policy as a row now means choosing per agent later needs no migration of the idea |
+| Override policy | **Dropped** (superseded 2026-11-20). Every request field the router doesn't read goes to the agent's model, and narrowing servers and `response_format` are always allowed. An agent will lock fields itself with `lockedFields` in its document, once [agent-core#245](https://github.com/cubicecho/agent-core/issues/245) ships | A per-agent table admins wrote held only three switches after agent-core 7 moved the prompt rules into `allowedModes`, and none were set up. Locking a field is a fact about the agent, so it belongs in its document |
 | Agent reach | An agent uses the models its own document names. **The workspace decides its servers** (changed 2026-11-20): which agents an app may run, and for each, which MCP servers its runs there reach, none until a person grants some. The document's `tools.servers` is ignored until the spec drops it. The workspace also **configures** each server for its own runs | Servers can't be shared in an agent document, and the same agent needs different servers for different apps. One grant per workspace and agent, made only by people, keeps one place deciding. Configuring per workspace lets one Personal Finance agent work on each person's own budget |
 | Server entries | A workspace's server entry **configures** one of the router's servers for the agent runs that workspace starts: an account's credentials, env, args, headers, URL | So one Personal Finance agent works on each household's own budget |
 | Where the loop runs | **In the router, always.** The app keeps only its UI, schedule, history and its own tools. (An earlier plan had a directory mode, where an app ran an agent's document itself; it needed raw models and tools, and went with them) | One loop for every app is what makes the same agent behave the same everywhere |
@@ -131,8 +131,8 @@ You help me run my household money. I budget monthly in Actual …
   blank lines. `host` and `task` are reserved, so an app can never replace one of the agent's
   parts, and an agent that uses either id can't be saved. A resumed run keeps its original host
   and task text.
-- **The override policy is not in the document.** It's a row in the router, so the document stays
-  portable to any host of the format.
+- **There is no override policy** (dropped 2026-11-20): a request's fields go to the model, and an
+  agent will lock fields in its own document (agent-core#245).
 
 ### What an app sends and gets back
 
@@ -510,10 +510,10 @@ The acceptance check for the first release.
       mcp-router's endpoint, sessions and elicitation forwarding.
     - **App-supplied MCP servers:** an app passes a server in the request, and the router
       connects to it for that run only, as OpenAI Responses does with `tools: [{ type: "mcp" }]`.
-      It needs to be allowed by the override policy, with a list of allowed hosts, because the
+      It needs a per-agent switch, with a list of allowed hosts, because the
       router would be calling a URL an app chose. Until then, an app gives an agent its own tools
       as app tools.
-    - **Override policies in full** (built): more than one, chosen per agent, with a UI.
+    - **Override policies** were built, then dropped (2026-11-20) for `lockedFields` in the document.
     - **Import and export** of `.agent.json` and `.agent.md` files, and an
       `ai-router agents push` / `pull` CLI that signs in through the browser. This may be dropped
       altogether.

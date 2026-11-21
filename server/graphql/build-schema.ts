@@ -3,7 +3,6 @@ import { applyPermissions } from '@vantreeseba/graphql-casl';
 import { type AnyColumn, eq } from 'drizzle-orm';
 import { GraphQLObjectType, GraphQLSchema } from 'graphql';
 import { agentWriteHooks } from '../agents/hooks.ts';
-import { applyPoliciesExtension } from '../agents/policy-resolvers.ts';
 import { applyAgentsExtension } from '../agents/resolvers.ts';
 import { applyRunsExtension } from '../agents/run-resolvers.ts';
 import { applyBetterAuthExtension } from '../auth/endpoints.ts';
@@ -45,7 +44,6 @@ const WRITES_RESERVED = new Set<string>([
   'serverSecrets',
   'activity',
   'agentRevisions',
-  'overridePolicies',
   'runs',
   'conversations',
   'workspaceAgentServers',
@@ -142,9 +140,7 @@ export function createSchema(db: DB): GraphQLSchema {
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
   const extended = applySettingsExtension(
     applyRunsExtension(
-      applyPoliciesExtension(
-        applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
-      ),
+      applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
     ),
   );
   return applyPermissions(extended, permissions, {

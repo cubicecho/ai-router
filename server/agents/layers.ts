@@ -92,15 +92,17 @@ export function agentPartRules(agentName: string, document: Readonly<Record<stri
  * @returns The layer, or null when the request sets nothing.
  *
  * @remarks
- * `temperature` and the ceiling go to the fields the format names for them, and only the rest to `extraBody`, so a
- * request's temperature can't hide in `extraBody` and beat the real one (agent-core#222). A side task never reads
+ * `temperature`, the ceiling and `reasoning_effort` go to the fields the format names for them, and only the rest to
+ * `extraBody`, so a request's temperature can't hide in `extraBody` and beat the real one (agent-core#222), and agent-core
+ * doesn't drop its `reasoning_effort` from there. A side task never reads
  * `model`, so none of this reaches one.
  */
 function requestLayer(request: RunRequest, granted: readonly string[], snapshot: Snapshot): AgentSpec | null {
-  const { temperature, maxTokens, extraBody } = request.sampling;
+  const { temperature, maxTokens, reasoningEffort, extraBody } = request.sampling;
   const model: ModelSpec = {
     ...(temperature === undefined ? {} : { temperature }),
     ...(maxTokens === undefined ? {} : { maxTokens }),
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     ...(Object.keys(extraBody).length === 0 ? {} : { extraBody }),
   };
   const setsModel = Object.keys(model).length > 0;
@@ -132,7 +134,7 @@ function withGrantedServers(agent: AgentSpec, granted: readonly string[]): Agent
  *
  * @param agent - The agent's own layer.
  * @param granted - The servers the run's workspace granted the agent, by name. They replace the document's own.
- * @param request - The checked request. The policy has already passed it.
+ * @param request - The checked request.
  * @param snapshot - The router's servers.
  * @returns The resolved agent, and its prompt with the app's parts.
  *

@@ -1,6 +1,5 @@
-import { type AnyPgColumn, boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { type AnyPgColumn, boolean, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { agentRevisions } from './agent-revisions.ts';
-import { DEFAULT_POLICY_ID, overridePolicies } from './override-policies.ts';
 
 /**
  * An agent: a model, a prompt and tools defined once, for any app to run. Its content is in its
@@ -12,11 +11,6 @@ export const agents = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     /** Its router name: the document's `id`, and the model an app picks on the agents endpoint. */
     name: text('name').notNull(),
-    /** What the layers above it may change: the seeded default until a user chooses another. */
-    overridePolicyId: uuid('override_policy_id')
-      .notNull()
-      .default(DEFAULT_POLICY_ID)
-      .references(() => overridePolicies.id, { onDelete: 'restrict' }),
     /** The revision it runs and serves. Null for an agent that cannot run. Typed by hand: the two tables name each other. */
     liveRevisionId: uuid('live_revision_id').references((): AnyPgColumn => agentRevisions.id, {
       onDelete: 'set null',
@@ -29,10 +23,7 @@ export const agents = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [
-    uniqueIndex('uq_agents_name').on(table.name),
-    index('idx_agents_override_policy_id').on(table.overridePolicyId),
-  ],
+  (table) => [uniqueIndex('uq_agents_name').on(table.name)],
 );
 
 /** An agent row as read. */

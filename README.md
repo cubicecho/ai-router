@@ -11,7 +11,7 @@ How a request becomes a run, and where its model and tool calls go, is drawn in
 
 It is the agents counterpart of [llm-router](https://github.com/cubicecho/llm-router) and
 [mcp-router](https://github.com/cubicecho/mcp-router), which stay for raw models and tools.
-Agents are [`cubicecho.agent/1`](https://github.com/cubicecho/agent-core) documents, run with
+Agents are [`cubicecho.agent/2`](https://github.com/cubicecho/agent-core) documents, run with
 `@cubicecho/agent-core`.
 
 **Status: early, 0.x.** Models, tools, agents, runs, app tools, progress events and
@@ -32,7 +32,7 @@ Then, in the UI:
 
 1. **Providers** and **Pools**: the model servers agents may use.
 2. **Servers**: MCP servers, from the registry, npm, PyPI or by hand.
-3. **Agents → New agent**: a `cubicecho.agent/1` document as JSON.
+3. **Agents → New agent**: a `cubicecho.agent/2` document as JSON.
 4. **Workspaces**: one per app, with the agents it may run, its own server settings, and its
    keys.
 
@@ -51,9 +51,10 @@ curl http://localhost:3000/v1/chat/completions \
   -d '{"model": "personal-finance", "messages": [{"role": "user", "content": "What is due this week?"}]}'
 ```
 
-- **Leading system messages** become the agent's `host` prompt part, and `ai_router.task` a
-  `task` part, after the agent's own.
-- **Sampling settings** apply as the agent's override policy allows.
+- **Leading system messages** become the app's `app_system` prompt part, and `agent_core.prompt`
+  adds the app's own parts, after the agent's, as each agent part's `allowedModes` lets them.
+- **Every other field** the router doesn't read (`temperature`, `max_tokens`, `top_p`,
+  `reasoning_effort`, a provider's own) goes to the agent's model.
 - **Response headers:** every answer carries `X-Run-Id`. `Idempotency-Key` makes a retry safe,
   and `X-Conversation-Id` keeps the history for the app.
 - **App tools** sent in `tools` are handed back with `finish_reason: "tool_calls"`. Answering
@@ -85,7 +86,7 @@ OpenAI client or SDK) connects like this:
    rather than its main agent, which would bring its prompt and tools to every one of them:
 
    ```json
-   { "spec": "cubicecho.agent/1", "id": "plain", "model": { "model": "ollama/qwen3:8b" }, "tools": { "servers": [] } }
+   { "spec": "cubicecho.agent/2", "id": "plain", "model": { "model": "ollama/qwen3:8b" } }
    ```
 
 4. **The app's own tools.** Whatever the app sends in `tools` is an **app tool**: the router
@@ -97,14 +98,14 @@ OpenAI client or SDK) connects like this:
    too once an admin turns on **Settings → Leave out app tools that are the agent's under
    another server name**. The most tools one request may send is a router setting (128 by
    default).
-5. **Strict fields.** A field the router doesn't read and the agent's override policy doesn't
-   list (`reasoning_effort`, `chat_template_kwargs`, `metadata`, `store`, `logprobs`,
-   `service_tier` and the like) answers 400, naming it. A client that can't stop sending them
-   works once an admin sets **Settings → Fields the agent does not allow** to **Ignore the
-   field**: those fields are then dropped, and the answer names them in
-   `X-AI-Router-Ignored`, streamed or not. So is a newer SDK's `stream_options` key such as
-   `include_obfuscation` (as `stream_options.include_obfuscation`); `include_usage` still works. Messages, tools, `n` above 1, a `tool_choice` other
-   than `auto`, the older `functions`, and a bad value of an allowed field are refused either way.
+5. **Fields.** Every field the router doesn't read (`reasoning_effort`, `chat_template_kwargs`,
+   `metadata`, `store`, `logprobs` and the like) goes to the agent's model, as it would to any
+   OpenAI-compatible server. A newer SDK's `stream_options` key such as `include_obfuscation`
+   answers 400, naming it, until an admin sets **Settings → Unread stream options** to **Ignore
+   the field**: it is then dropped, and the answer names it in `X-AI-Router-Ignored` (as
+   `stream_options.include_obfuscation`), streamed or not; `include_usage` still works. Messages,
+   tools, `n` above 1, a `tool_choice` other than `auto`, the older `functions`, and a bad value
+   of a field the router reads are refused either way.
 6. **Timeouts.** A run without `stream` sends nothing until it ends, which can be long: see
    **Long runs** under [Running an agent](#running-an-agent). Prefer `stream: true`, or raise
    the client's timeout and send an `Idempotency-Key`.
