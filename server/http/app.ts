@@ -140,7 +140,7 @@ export async function createApp({
     }),
   );
   // The same keys over MCP: each agent the key's workspace may run, as a tool. Before the UI's fallback.
-  app.use('/mcp', createAgentMcpRoutes({ snapshot: routes, runs: runService, forwarder: services.forwarder }));
+  app.use('/mcp', createAgentMcpRoutes({ db, snapshot: routes, runs: runService, forwarder: services.forwarder }));
   // The same keys, each reading only its own workspace's runs.
   app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, runs: runService }));
   app.get('/healthz', async (_request, response) => {

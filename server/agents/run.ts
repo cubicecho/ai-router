@@ -267,6 +267,13 @@ export interface RunService {
    * such run.
    */
   cancel(runId: string, reason: string): Promise<RunRow | undefined>;
+  /**
+   * How a run going in this process ends: resolved once its end is recorded.
+   *
+   * @param runId - The run.
+   * @returns Its end, or null for a run this process isn't running.
+   */
+  finishing(runId: string): Promise<FinishedRun> | null;
   /** Stops the timers, fails the runs still going, and waits for them to be recorded. Waiting runs stay waiting. */
   stop(): Promise<void>;
 }
@@ -1142,6 +1149,7 @@ export function createRunService({
     },
     prune,
     cancel,
+    finishing: (runId) => live.get(runId)?.finished ?? null,
     start() {
       every(prune, settings.pruneEveryHours * MS_PER_HOUR, 'pruning old runs');
       every(() => expireOverdue(), settings.expireEveryMinutes * MS_PER_MINUTE, 'expiring waiting runs');

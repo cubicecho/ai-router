@@ -503,6 +503,8 @@ export interface RunSettings {
   waitTimeoutHours: number;
   /** How often waiting runs are checked for that timeout. */
   expireEveryMinutes: number;
+  /** How often `/mcp` asks a client to check a task, the run it started, when it polls rather than waits. */
+  taskPollIntervalMs: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -525,6 +527,7 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   sessionTitleLength: 80,
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
+  taskPollIntervalMs: 2_000,
 });
 
 /**

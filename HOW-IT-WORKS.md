@@ -16,6 +16,7 @@ What happens inside the loop itself (turns, tool loading, the system prompt) is 
 - [Waiting for the app](#waiting-for-the-app)
 - [How a run ends](#how-a-run-ends)
 - [What the app gets back](#what-the-app-gets-back)
+- [An agent call as an MCP task](#an-agent-call-as-an-mcp-task)
 - [Run events](#run-events)
 - [Conversations and sessions](#conversations-and-sessions)
 - [The snapshot](#the-snapshot)
@@ -206,7 +207,8 @@ flowchart TB
 - **A dropped connection** cancels the run, unless the request sent an `Idempotency-Key`: that run goes on to
   its timeout, so the retry gets its answer.
 - **`/mcp`** (`agents/mcp`) builds the same request from a tool call's `message`, with no app tools and no key,
-  and calls the same `beginRun`, so its runs never wait. `GET /v1/models` lists the same agents
+  and calls the same `beginRun`, so its runs never wait. A call may ask to run as an MCP task: see
+  [An agent call as an MCP task](#an-agent-call-as-an-mcp-task). `GET /v1/models` lists the same agents
   (`runnableAgents`), each marked `agent_core: { kind: "agent", prompt }` with its parts' names and
   `allowedModes`, never their text.
 
@@ -439,6 +441,43 @@ Afterwards, or while it runs, the same key reads its workspace's runs at `/runs`
 | `POST /runs/<id>/cancel` | Cancels a running or waiting run, with an optional `{ reason }` |
 
 Another workspace's run is the same 404 as one that never was. Refusals here are `{ error, code }`.
+
+## An agent call as an MCP task
+
+A `/mcp` call that asks to run as a task (MCP's 2025-11-25 tasks) is answered at once, and the run goes on without
+the connection. The task is the run: `agents/mcp-tasks` answers every task method from the runs table and the run bus,
+so there is no second store.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Client as MCP client
+  participant Door as /mcp
+  participant Svc as Run service
+  participant Bus as Run bus
+
+  Client->>Door: tools/call with task
+  Door->>Svc: beginRun, execute in the background
+  Door-->>Client: the task: id = run id, working
+  Note over Client: the connection may close, and the run goes on
+  Client->>Door: tasks/result (with a progress token)
+  Door->>Bus: watch the run
+  loop each event
+    Bus-->>Door: RunEvent
+    Door-->>Client: progress notification, the RunEvent in _meta, linked to the task
+  end
+  Door-->>Client: the agent's answer, _meta.runId
+```
+
+| Task method | Does |
+| --- | --- |
+| `tasks/get` | The run as a task: running is `working`, waiting is `input_required`, completed `completed`, failed and expired `failed`, cancelled `cancelled` |
+| `tasks/result` | Waits for the run's end, sending each of its events on the way, then answers as the call would have |
+| `tasks/list` | The workspace's runs, newest first |
+| `tasks/cancel` | Cancels the run, as `POST /runs/<id>/cancel` does. An ended task can't be cancelled |
+
+A key reaches only its own workspace's tasks. A caller that only polls `tasks/get` sees the status, and any caller can
+also follow `/runs/<id>/events` with the same key.
 
 ## Run events
 
