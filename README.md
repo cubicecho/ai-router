@@ -6,6 +6,8 @@ An app points any OpenAI client at the router's `/v1` and names an **agent** as 
 router runs the agent's whole loop server-side: its prompt, its models (providers and pools the
 router keeps), and its tools (MCP servers the router installs and runs, each as its own user).
 The app gets an ordinary chat completion back, and the run's record and events afterwards.
+How a request becomes a run, and where its model and tool calls go, is drawn in
+[HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
 It is the agents counterpart of [llm-router](https://github.com/cubicecho/llm-router) and
 [mcp-router](https://github.com/cubicecho/mcp-router), which stay for raw models and tools.

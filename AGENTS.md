@@ -20,6 +20,7 @@ What comes next is in the GitHub issues and `PLAN.md`'s later list.
 
 - **Concepts, actors, lifecycles and invariants:** [`.agents/domain-model.md`](.agents/domain-model.md).
   Use its terms everywhere.
+- **How a request, a run and its model and tool calls flow, in diagrams:** [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
 - **Decisions and the order of work:** [`PLAN.md`](PLAN.md).
 - **The agent format:** `../agent-core/docs/agent-spec-v2.md`, and how its prompt is stacked
   with an app's, `../agent-core/docs/agent-prompt-spec-v2.md` (ai-router's part is in
