@@ -39,7 +39,7 @@ const SETTINGS_SDL = parse(`
     default: Boolean!
   }
 
-  "What a request on /v1 gets for a field the agent's override policy doesn't list."
+  "What a request on /v1 gets for a stream_options key the router doesn't read."
   enum UnlistedFields {
     "Answer 400, naming the field."
     refuse
@@ -67,7 +67,7 @@ const SETTINGS_SDL = parse(`
     dropped. Off by default, since it is a guess; every drop is logged.
     """
     pruneAppToolsAcrossServers: BooleanSetting!
-    "What a request on /v1 gets for a field, such as reasoning_effort or metadata, that the agent's override policy doesn't list. Messages, tools, response_format, agent_core and ai_router are never ignored."
+    "What a request on /v1 gets for a stream_options key other than include_usage, which the router doesn't read. Every other field the router doesn't read goes to the agent's model."
     unlistedFields: UnlistedFieldsSetting!
   }
 

@@ -1,15 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_POLICY_RULES } from '../../server/agents/policy.ts';
 import { type UpgradeLog, upgradeStored } from '../../server/agents/upgrade.ts';
 import { agentRevisions } from '../../server/db/tables/agent-revisions.ts';
 import { agents } from '../../server/db/tables/agents.ts';
-import { overridePolicies } from '../../server/db/tables/override-policies.ts';
 import { type RunResume, RunStatus, runs } from '../../server/db/tables/runs.ts';
 import { closeTestDb, createTestDb, resetTestDb, type TestDb } from '../helpers.ts';
 
-// The boot upgrade to agent-core 7: version 1 documents become version 2, policies lose their prompt switches, and a
-// waiting run keeps its layers under the new names. Running it again changes nothing.
+// The boot upgrade to agent-core 7: version 1 documents become version 2, and a waiting run keeps its layers under
+// the new names. Running it again changes nothing.
 
 let db: TestDb;
 
@@ -29,14 +27,10 @@ function recordingLog(): UpgradeLog & { warnings: string[]; lines: string[] } {
  *
  * @param name - Its name.
  * @param document - Its revision's document.
- * @param [policyId] - Its override policy.
  * @returns The agent's and the revision's ids.
  */
-async function addAgent(name: string, document: Record<string, unknown>, policyId?: string) {
-  const [agent] = await db
-    .insert(agents)
-    .values({ name, ...(policyId === undefined ? {} : { overridePolicyId: policyId }) })
-    .returning();
+async function addAgent(name: string, document: Record<string, unknown>) {
+  const [agent] = await db.insert(agents).values({ name }).returning();
   if (agent === undefined) {
     throw new Error('No agent was added.');
   }
@@ -80,21 +74,6 @@ describe('the upgrade to agent-core 7', () => {
     });
     expect(revision?.warnings).toEqual([expect.stringContaining('prompt[1]')]);
     expect(log.warnings).toEqual([expect.stringContaining('agent "helper" revision 1')]);
-  });
-
-  it('takes the prompt switches out of every policy, naming the agents whose policy refused system messages', async () => {
-    const strictRules = { ...DEFAULT_POLICY_RULES, hostPrompt: false, taskPrompt: false };
-    const [strict] = await db.insert(overridePolicies).values({ name: 'strict', rules: strictRules }).returning();
-    if (strict === undefined) {
-      throw new Error('No policy was added.');
-    }
-    await addAgent('guarded', { spec: 'cubicecho.agent/2', id: 'guarded' }, strict.id);
-    await addAgent('open', { spec: 'cubicecho.agent/2', id: 'open' });
-    const log = recordingLog();
-    await upgradeStored(db, log);
-    const policies = await db.select().from(overridePolicies);
-    expect(policies.map((policy) => policy.rules)).toEqual([DEFAULT_POLICY_RULES, DEFAULT_POLICY_RULES]);
-    expect(log.warnings).toEqual([expect.stringContaining('agent "guarded" uses override policy "strict"')]);
   });
 
   it("keeps a waiting run's host text as its system messages and its task as an app part", async () => {

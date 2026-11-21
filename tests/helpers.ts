@@ -4,7 +4,6 @@ import { getTableName, is, sql, Table } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { type ExecutionResult, type GraphQLSchema, graphql } from 'graphql';
 import { inject } from 'vitest';
-import { DEFAULT_POLICY_RULES } from '../server/agents/policy.ts';
 import { createRunService, type RunService } from '../server/agents/run.ts';
 import { type AuthHost, fixedAuthHost } from '../server/auth/auth-host.ts';
 import { type Auth, createAuth } from '../server/auth/better-auth.ts';
@@ -16,7 +15,6 @@ import { CHILD_DEFAULTS } from '../server/core/defaults.ts';
 import { relations } from '../server/db/relations.ts';
 import * as dbSchema from '../server/db/schema.ts';
 import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
-import { DEFAULT_POLICY_ID, overridePolicies } from '../server/db/tables/override-policies.ts';
 import { servers } from '../server/db/tables/servers.ts';
 import { Role } from '../server/db/tables/users.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
@@ -77,18 +75,17 @@ export async function createTestDb(): Promise<TestDb> {
 }
 
 /**
- * Adds what the migrations seed and the code counts on: the default override policy and the admin server.
+ * Adds what the migrations seed and the code counts on: the admin server.
  *
  * @param db - A database with the tables and no rows.
  */
 async function seedTestDb(db: TestDb): Promise<void> {
-  await db.insert(overridePolicies).values({ id: DEFAULT_POLICY_ID, name: 'default', rules: DEFAULT_POLICY_RULES });
   await db.insert(servers).values(ADMIN_SERVER_ROW);
 }
 
 /**
- * Empties every table, so the next test starts from the database `createTestDb` returned, with the default
- * override policy and the admin server the migrations seed.
+ * Empties every table, so the next test starts from the database `createTestDb` returned, with the admin server
+ * the migrations seed.
  *
  * @param db - A database from `createTestDb`.
  */

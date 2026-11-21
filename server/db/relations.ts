@@ -53,10 +53,6 @@ export const relations = defineRelations(schema, (relate) => ({
     // Stated, since a revision names an agent twice: the one it is of, and the one whose run saved it.
     revisions: relate.many.agentRevisions({ from: relate.agents.id, to: relate.agentRevisions.agentId }),
     liveRevision: relate.one.agentRevisions({ from: relate.agents.liveRevisionId, to: relate.agentRevisions.id }),
-    overridePolicy: relate.one.overridePolicies({
-      from: relate.agents.overridePolicyId,
-      to: relate.overridePolicies.id,
-    }),
     workspaces: relate.many.workspaceAgents(),
     usage: relate.many.usageCounts(),
     runs: relate.many.runs(),
@@ -71,7 +67,6 @@ export const relations = defineRelations(schema, (relate) => ({
     savedByAgent: relate.one.agents({ from: relate.agentRevisions.savedByAgentId, to: relate.agents.id }),
     basedOn: relate.one.agentRevisions({ from: relate.agentRevisions.basedOnId, to: relate.agentRevisions.id }),
   },
-  overridePolicies: { agents: relate.many.agents() },
   workspaceAgents: {
     workspace: relate.one.workspaces({ from: relate.workspaceAgents.workspaceId, to: relate.workspaces.id }),
     agent: relate.one.agents({ from: relate.workspaceAgents.agentId, to: relate.agents.id }),

@@ -457,22 +457,6 @@ export const AGENT_CONFIG_DEFAULTS: Readonly<AgentConfigSettings> = Object.freez
   maxMessageLength: 500,
 });
 
-/** What an override policy may hold. */
-export interface OverridePolicySettings {
-  /** Characters in its description. */
-  maxDescriptionLength: number;
-  /** Request fields it may let an app set. */
-  maxSamplingFields: number;
-  /** Characters in one of those fields' names. */
-  maxFieldNameLength: number;
-}
-
-export const OVERRIDE_POLICY_DEFAULTS: Readonly<OverridePolicySettings> = Object.freeze({
-  maxDescriptionLength: 2_000,
-  maxSamplingFields: 64,
-  maxFieldNameLength: 64,
-});
-
 /** Agent runs on the agents endpoint, and their records. */
 export interface RunSettings {
   /** How long one run may take, from its start or resume to its answer, before it fails. Waiting doesn't count. */
@@ -556,8 +540,8 @@ export interface RouterSettings {
    */
   pruneAppToolsAcrossServers: boolean;
   /**
-   * What a request on `/v1` gets for a field the agent's override policy doesn't list: `refuse` answers 400 naming
-   * it, and `ignore` drops it, runs, and names it in `X-AI-Router-Ignored`.
+   * What a request on `/v1` gets for a `stream_options` key other than `include_usage`, which the router doesn't
+   * read: `refuse` answers 400 naming it, and `ignore` drops it, runs, and names it in `X-AI-Router-Ignored`.
    */
   unlistedFields: 'refuse' | 'ignore';
 }

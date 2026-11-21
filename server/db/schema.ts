@@ -6,7 +6,6 @@ export * from './tables/agents.ts';
 export * from './tables/conversations.ts';
 export * from './tables/model-prices.ts';
 export * from './tables/oidc-settings.ts';
-export * from './tables/override-policies.ts';
 export * from './tables/pool-targets.ts';
 export * from './tables/pools.ts';
 export * from './tables/providers.ts';

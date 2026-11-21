@@ -1,5 +1,4 @@
 import { asc, eq } from 'drizzle-orm';
-import type { OverridePolicyRules } from '../agents/policy.ts';
 import type { AdminRole } from '../core/admin-roles.ts';
 import { ROUTER_DEFAULTS, type RouterSettings } from '../core/defaults.ts';
 import { routerSettingsFrom, savedSettingsFrom } from '../core/settings.ts';
@@ -7,7 +6,6 @@ import type { ServerOAuth, ServerTransport } from '../tools/shapes.ts';
 import type { DB } from './client.ts';
 import { agentRevisions } from './tables/agent-revisions.ts';
 import { agents } from './tables/agents.ts';
-import { overridePolicies } from './tables/override-policies.ts';
 import { poolTargets } from './tables/pool-targets.ts';
 import { type PoolAffinity, type PoolStrategy, pools } from './tables/pools.ts';
 import { providers } from './tables/providers.ts';
@@ -117,7 +115,7 @@ export interface SnapshotServer {
   entries: ReadonlyMap<string, SnapshotServerEntry>;
 }
 
-/** An agent as a run sees it: its live document, its policy and who may run it. */
+/** An agent as a run sees it: its live document and who may run it. */
 export interface SnapshotAgent {
   id: string;
   name: string;
@@ -125,8 +123,6 @@ export interface SnapshotAgent {
   liveRevisionId: string | null;
   /** The live revision's document, as stored. null with no live revision. */
   document: Readonly<Record<string, unknown>> | null;
-  /** What the layers above it may change. */
-  policy: OverridePolicyRules;
   /**
    * The workspaces whose apps may run it, each with the servers it may use there, by name: exactly those, and none
    * when the list is empty. The agent's own `tools.servers` is not read.
@@ -252,7 +248,6 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     secretRows,
     entryRows,
     agentRows,
-    policyRows,
     offerRows,
     serverGrantRows,
     [settingsRow],
@@ -287,12 +282,10 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
         id: agents.id,
         name: agents.name,
         liveRevisionId: agents.liveRevisionId,
-        overridePolicyId: agents.overridePolicyId,
         document: agentRevisions.document,
       })
       .from(agents)
       .leftJoin(agentRevisions, eq(agentRevisions.id, agents.liveRevisionId)),
-    db.select({ id: overridePolicies.id, rules: overridePolicies.rules }).from(overridePolicies),
     db
       .select({ id: workspaceAgents.id, workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId })
       .from(workspaceAgents),
@@ -301,7 +294,6 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
       .from(workspaceAgentServers),
     db.select({ values: settings.values }).from(settings),
   ]);
-  const policies = new Map(policyRows.map((row) => [row.id, row.rules]));
   const serverNames = new Map(serverRows.map((row) => [row.id, row.name]));
   /** The names of the servers one workspace's offer of an agent grants it. */
   const serverNamesOf = (workspaceAgentId: string): string[] =>
@@ -318,11 +310,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     settings: routerSettingsFrom(savedSettingsFrom(settingsRow?.values)),
     servers: serversFrom(serverRows, secretRows, entryRows),
     agents: new Map(
-      agentRows.flatMap((row) => {
-        const policy = policies.get(row.overridePolicyId);
-        if (policy === undefined) {
-          return [];
-        }
+      agentRows.map((row) => {
         const workspaces = new Map(
           offerRows
             .filter((offer) => offer.agentId === row.id)
@@ -333,10 +321,9 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
           name: row.name,
           liveRevisionId: row.liveRevisionId,
           document: row.document,
-          policy,
           workspaces,
         };
-        return [[row.name, agent] as const];
+        return [row.name, agent] as const;
       }),
     ),
     workspaces: new Map(workspaceRows.map((row) => [row.id, row])),

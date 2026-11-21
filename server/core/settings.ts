@@ -18,7 +18,7 @@ const maxAppToolsSchema = z
 /** Whether an app tool under another server's name is dropped, as an admin may set it. */
 const pruneAcrossServersSchema = z.boolean('Send true or false for pruning app tools across servers.');
 
-/** What a request on `/v1` gets for a field the agent's override policy doesn't list. */
+/** What a request on `/v1` gets for a `stream_options` key the router doesn't read. */
 export const UnlistedFields = { Refuse: 'refuse', Ignore: 'ignore' } as const satisfies Record<
   string,
   RouterSettings['unlistedFields']

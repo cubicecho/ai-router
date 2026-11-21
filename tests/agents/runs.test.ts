@@ -263,11 +263,9 @@ describe('the agents endpoint', () => {
     expect(plain.some((line) => typeof line === 'object' && line !== null && 'usage' in line)).toBe(false);
   });
 
-  it('refuses what the override policy refuses, before any run is recorded', async () => {
+  it('refuses what the router refuses, before any run is recorded', async () => {
     const { base } = await h.startRouter();
     const cases: [Record<string, unknown>, string][] = [
-      [{ logit_bias: { 50256: -100 } }, 'logit_bias'],
-      [{ logprobs: true }, 'logprobs'],
       [{ n: 2 }, 'n'],
       [{ tool_choice: 'required' }, 'tool_choice'],
       [{ tools: [{ type: 'function', function: { name: 'ask user' } }] }, 'tools'],
@@ -284,33 +282,28 @@ describe('the agents endpoint', () => {
     expect(h.received).toEqual([]);
   });
 
-  it('drops the fields the policy does not list when the router ignores them, and names them, streamed or not', async () => {
+  it('passes every field the router does not read to the model, and drops unknown stream options only when told', async () => {
     const { base } = await h.startRouter();
-    const unlisted = { reasoning_effort: 'low', metadata: { app: 'task_server' }, store: false };
-    const refused = await h.complete(base, { model: 'helper', messages: [QUESTION], ...unlisted });
+    const extra = { reasoning_effort: 'low', metadata: { app: 'task_server' }, store: false, top_k: 40 };
+    const body = { model: 'helper', messages: [QUESTION], ...extra };
+    const answered = await h.complete(base, body);
+    expect(answered.status).toBe(HttpStatus.Ok);
+    expect(answered.headers.get(IGNORED_HEADER)).toBeNull();
+    expect((await answered.json()).choices[0].message.content).toBe('The tool said: hello there');
+    const [first] = h.received;
+    expect(first).toMatchObject(extra);
+
+    // A newer SDK's stream option is refused, or dropped and named once the router ignores them.
+    const streamOptions = { include_usage: true, include_obfuscation: false };
+    const refused = await h.complete(base, { ...body, stream: true, stream_options: streamOptions });
     expect(refused.status).toBe(HttpStatus.BadRequest);
-    expect((await refused.json()).error).toMatchObject({ param: 'reasoning_effort' });
-    expect(refused.headers.get(IGNORED_HEADER)).toBeNull();
+    expect((await refused.json()).error).toMatchObject({ param: 'stream_options' });
 
     await h.db.insert(settings).values({ values: { unlistedFields: UnlistedFields.Ignore } });
     await h.snapshot.rebuild();
-    const body = { model: 'helper', messages: [QUESTION], top_k: 40, ...unlisted };
-    const answered = await h.complete(base, body);
-    expect(answered.status).toBe(HttpStatus.Ok);
-    expect(answered.headers.get(IGNORED_HEADER)).toBe('reasoning_effort, metadata, store');
-    expect((await answered.json()).choices[0].message.content).toBe('The tool said: hello there');
-    const [first] = h.received;
-    expect(first?.top_k).toBe(40);
-    expect(first).not.toHaveProperty('metadata');
-    expect(first).not.toHaveProperty('store');
-
-    // A newer SDK's stream option is dropped too, and include_usage still asks for the usage chunk.
-    const streamOptions = { include_usage: true, include_obfuscation: false };
     const streamed = await h.complete(base, { ...body, stream: true, stream_options: streamOptions });
     expect(streamed.headers.get('content-type')).toContain('text/event-stream');
-    expect(streamed.headers.get(IGNORED_HEADER)).toBe(
-      'reasoning_effort, metadata, store, stream_options.include_obfuscation',
-    );
+    expect(streamed.headers.get(IGNORED_HEADER)).toBe('stream_options.include_obfuscation');
     const lines = await dataLines(streamed);
     expect(lines.at(-1)).toBe('[DONE]');
     expect(lines).toContainEqual(expect.objectContaining({ choices: [], usage: expect.any(Object) }));
@@ -318,7 +311,7 @@ describe('the agents endpoint', () => {
     const plain = await h.complete(base, { model: 'helper', messages: [QUESTION] });
     expect(plain.headers.get(IGNORED_HEADER)).toBeNull();
     await plain.json();
-    const structural = await h.complete(base, { model: 'helper', messages: [QUESTION], n: 2, ...unlisted });
+    const structural = await h.complete(base, { model: 'helper', messages: [QUESTION], n: 2, ...extra });
     expect(structural.status).toBe(HttpStatus.BadRequest);
     expect((await structural.json()).error).toMatchObject({ param: 'n' });
   });

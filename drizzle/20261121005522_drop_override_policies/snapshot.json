@@ -1,0 +1,137 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "0675e2c2-da9f-45bc-b2bf-b85bb77a37f3",
+  "prevIds": [
+    "ba61ce18-1847-42f5-9f72-df911acadd93"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "agents"
+      ],
+      "writes": [
+        "s|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "n|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "e|fk|public.agents.agents_override_policy_id_override_policies_id_fkey",
+        "n|con|public.agents.agents_override_policy_id_override_policies_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public",
+        "e|col|public.agents.override_policy_id"
+      ]
+    },
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "override_policies"
+      ],
+      "writes": [
+        "s|tbl|public.override_policies",
+        "n|tbl|public.override_policies",
+        "e|tbl|public.override_policies",
+        "n|rel|public.override_policies",
+        "n|type|public.override_policies"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "agents",
+        "idx_agents_override_policy_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_agents_override_policy_id",
+        "n|idx|public.idx_agents_override_policy_id",
+        "e|idx|public.idx_agents_override_policy_id",
+        "n|rel|public.idx_agents_override_policy_id"
+      ],
+      "reads": [
+        "e|tbl|public.agents",
+        "n|sch|public",
+        "e|col|public.agents.override_policy_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "agents",
+        "override_policy_id"
+      ],
+      "writes": [
+        "s|col|public.agents.override_policy_id",
+        "n|col|public.agents.override_policy_id",
+        "e|col|public.agents.override_policy_id"
+      ],
+      "reads": [
+        "n|tbl|public.agents",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"override_policies\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"agents\",\"override_policy_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"name\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"description\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"rules\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"created_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"override_policies\",\"updated_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"idx_agents_override_policy_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"uq_override_policies_name\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"agents\",\"agents_override_policy_id_override_policies_id_fkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"override_policies\",\"override_policies_pkey\"]"
+    }
+  ]
+}

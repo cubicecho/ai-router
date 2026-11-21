@@ -55,11 +55,6 @@ query Agent($id: UUID!) {
     name
     liveRevisionId
     autoPromote
-    overridePolicy {
-      id
-      name
-      description
-    }
     liveRevision {
       ...AgentRevisionFields
     }
