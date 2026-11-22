@@ -99,7 +99,7 @@ export function agentPartRules(agentName: string, document: Readonly<Record<stri
  * Builds the request layer: the sampling settings for the main model, and a narrowing of the servers.
  *
  * @param request - The checked request.
- * @param granted - The servers the run reaches before the request: those its workspace granted the agent.
+ * @param reached - The servers the run reaches before the request: the workspace's servers the agent has on there.
  * @param snapshot - The router's servers.
  * @returns The layer, or null when the request sets nothing.
  *
@@ -109,7 +109,7 @@ export function agentPartRules(agentName: string, document: Readonly<Record<stri
  * doesn't drop its `reasoning_effort` from there. A side task never reads
  * `model`, so none of this reaches one.
  */
-function requestLayer(request: RunRequest, granted: readonly string[], snapshot: Snapshot): AgentSpec | null {
+function requestLayer(request: RunRequest, reached: readonly string[], snapshot: Snapshot): AgentSpec | null {
   const { temperature, maxTokens, reasoningEffort, extraBody } = request.sampling;
   const model: ModelSpec = {
     ...(temperature === undefined ? {} : { temperature }),
@@ -118,7 +118,7 @@ function requestLayer(request: RunRequest, granted: readonly string[], snapshot:
     ...(Object.keys(extraBody).length === 0 ? {} : { extraBody }),
   };
   const setsModel = Object.keys(model).length > 0;
-  const servers = request.servers === null ? null : narrowedServers(granted, request.servers, snapshot);
+  const servers = request.servers === null ? null : narrowedServers(reached, request.servers, snapshot);
   if (setsModel === false && servers === null) {
     return null;
   }
@@ -130,40 +130,40 @@ function requestLayer(request: RunRequest, granted: readonly string[], snapshot:
 }
 
 /**
- * Puts the servers a workspace granted an agent in place of the ones its document names. ai-router doesn't read an
- * agent's own `tools.servers`: which servers an agent uses is the workspace's to decide, and none without a grant.
+ * Puts the servers an agent reaches in its workspace in place of the ones its document names. ai-router doesn't read
+ * an agent's own `tools.servers`: which servers an agent uses is the workspace's to decide.
  *
  * @param agent - The agent's own layer.
- * @param granted - The servers its workspace granted it, by name.
+ * @param reached - The servers it reaches in its workspace, by name.
  * @returns The layer, reaching exactly those servers.
  */
-function withGrantedServers(agent: AgentSpec, granted: readonly string[]): AgentSpec {
-  return { ...agent, tools: { ...agent.tools, servers: [...granted] } };
+function withWorkspaceServers(agent: AgentSpec, reached: readonly string[]): AgentSpec {
+  return { ...agent, tools: { ...agent.tools, servers: [...reached] } };
 }
 
 /**
  * Resolves a run's layers, the router's, the agent's and the request's, and stacks the app's parts on the agent's.
  *
  * @param agent - The agent's own layer.
- * @param granted - The servers the run's workspace granted the agent, by name. They replace the document's own.
+ * @param reached - The servers the agent reaches in the run's workspace, by name. They replace the document's own.
  * @param request - The checked request.
  * @param snapshot - The router's servers.
  * @returns The resolved agent, and its prompt with the app's parts.
  *
  * @remarks
- * The request can narrow the granted servers and never add one.
+ * The request can narrow those servers and never add one.
  * The request layer holds no prompt: the app's parts and system messages are stacked by agent-core's
  * `stackAppParts`, which prefixes every name with `app_`, so an app never overwrites or deletes an agent's part, and
  * extends or replaces one only where the part allows it. Nothing above the agent names an endpoint or a model.
  */
 export function resolveRun(
   agent: AgentSpec,
-  granted: readonly string[],
+  reached: readonly string[],
   request: RunRequest,
   snapshot: Snapshot,
 ): ResolvedRun {
-  const ownLayer = withGrantedServers(agent, granted);
-  const fromRequest = requestLayer(request, granted, snapshot);
+  const ownLayer = withWorkspaceServers(agent, reached);
+  const fromRequest = requestLayer(request, reached, snapshot);
   const resolved = resolveAgentSpec([ROUTER_LAYER, ownLayer, ...(fromRequest === null ? [] : [fromRequest])]);
   const prompt = stackAppParts(resolved.prompt, request.appParts ?? [], request.systemText ?? '');
   return { agent: resolved, prompt };

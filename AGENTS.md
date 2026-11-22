@@ -168,18 +168,20 @@ non-negotiables apply on top of these.
 
 ### Agents
 
-- **A workspace decides an agent's servers.** The workspace decides which agents an app may run,
-  and, per agent, which MCP servers its runs there reach: exactly those granted
-  (`workspace_agent_servers`, set by the people-only `setWorkspaceAgentServers`), and none
-  without a grant. The agent's document decides its models; ai-router ignores its
-  `tools.servers` (a save warns) until the spec drops it. No admin-server role reaches the grants,
-  so a run never widens its own reach. The admin server is reached only when granted, and its
-  tools still only as far as the workspace's roles. The calling workspace's server entry decides
-  how each server is configured, so its workspace instance is used; without an entry, the base
-  instance. An entry configures a server and never grants one.
+- **A workspace is the entry point, and decides an agent's servers.** A workspace holds the
+  agents an app may run and the MCP servers they work with (`workspace_servers`). Every agent
+  there reaches every server there, unless a person turns one off for it
+  (`workspace_agent_disabled_servers`, set by the people-only `setWorkspaceAgentServerEnabled`), so
+  a server added reaches every agent at once, and so does an agent added. Taking a server out of
+  a workspace forgets its switches there. The agent's document decides its models; ai-router
+  ignores its `tools.servers` (a save warns) until the spec drops it. No admin-server role reaches
+  a workspace's servers or their switches, so a run never widens its own reach. The admin server
+  is a workspace server like any other, its tools still only as far as the workspace's roles. The
+  workspace's entry for a server also decides how it is configured, so its workspace instance is
+  used; one that overrides nothing uses the base instance.
 - **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
   `endpoint` and the model never change for a request, and a caller's `servers` is intersected
-  with the workspace's grant. Every request field the router doesn't read goes to the agent's
+  with the workspace's servers on for the agent. Every request field the router doesn't read goes to the agent's
   model, and never reaches side tasks, unless the agent locks it: `model.lockedFields` in its
   document, checked with agent-core's `checkLockedFields` (never rules of our own). There are no
   override policies.
@@ -205,9 +207,9 @@ non-negotiables apply on top of these.
   refused: a notice, and `agent_core.warnings` on the answer (beside `choices`, or on the
   stream's finish chunk). There is no switch for system messages or app parts, and no task
   field. A resume that sends different system messages or parts is refused.
-- **A run's servers are an exact list.** `resolveRun` puts the workspace's grant in place of the
-  document's `tools.servers`, so there is no "every server": no grant means none, and an emptied
-  list means none, never all.
+- **A run's servers are an exact list.** `resolveRun` puts the workspace's servers on for the
+  agent in place of the document's `tools.servers`, worked out in the snapshot, so there is no
+  "every server": a workspace with none means none, and an emptied list means none, never all.
 - **An app tool that duplicates the agent's own is pruned, never refused.** Older apps send their
   own MCP servers' tools. The same name as one of the agent's tools is always dropped. The same
   tool under another server's name (equal after the first `__`, deep-equal input schemas) is

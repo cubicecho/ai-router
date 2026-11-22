@@ -19,12 +19,19 @@ export interface AgentWorkspacesSectionProps {
   agent: AgentRecord;
   /** What the agent is called on screen. */
   displayName: string;
-  /** The servers each workspace granted it, by the workspace's entry for it. */
-  grants: AgentQuery['agentGrants'];
+  /** The servers of the workspaces it is in. */
+  workspaceServers: AgentQuery['agentWorkspaceServers'];
+  /** The servers turned off for it, by the workspace's entry for it. */
+  disabledServers: AgentQuery['agentDisabledServers'];
 }
 
 /** The workspaces offering an agent: the only ones whose apps may run it. Untitled: its tab names it. */
-export function AgentWorkspacesSection({ agent, displayName, grants }: AgentWorkspacesSectionProps) {
+export function AgentWorkspacesSection({
+  agent,
+  displayName,
+  workspaceServers,
+  disabledServers,
+}: AgentWorkspacesSectionProps) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const choices = useQuery({
@@ -58,7 +65,7 @@ export function AgentWorkspacesSection({ agent, displayName, grants }: AgentWork
   return (
     <CardLayout
       level={2}
-      description="Only apps with these workspaces' keys may run it. Each workspace chooses the MCP servers it may use there, on its Agents tab."
+      description="Only apps with these workspaces' keys may run it. It reaches every MCP server a workspace has, unless turned off for it on that workspace's Agents tab."
       actionSlot={agent.workspaces.length > 0 ? add : undefined}
       contentSlot={
         <>
@@ -69,11 +76,18 @@ export function AgentWorkspacesSection({ agent, displayName, grants }: AgentWork
               label="Workspaces"
               contentSlot={agent.workspaces.map((entry) => {
                 const name = entry.workspace?.name ?? 'A deleted workspace';
-                const serverNames = grants.flatMap((grant) =>
-                  grant.workspaceAgentId === entry.id && grant.server !== null && grant.server !== undefined
-                    ? [grant.server.displayName ?? grant.server.name]
-                    : [],
-                );
+                const isOff = (serverId: string) =>
+                  disabledServers.some((row) => row.workspaceAgentId === entry.id && row.serverId === serverId);
+                const serverNames = workspaceServers
+                  .flatMap((row) =>
+                    row.workspaceId !== entry.workspace?.id ||
+                    row.server === null ||
+                    row.server === undefined ||
+                    isOff(row.serverId)
+                      ? []
+                      : [row.server.displayName ?? row.server.name],
+                  )
+                  .sort();
                 return (
                   <ListItem
                     key={entry.id}

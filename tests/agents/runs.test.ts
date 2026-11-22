@@ -13,7 +13,6 @@ import { createSessionToken, createTestAuth, createWorkspaceWithKey } from '../h
 import {
   AGENT_PROMPT,
   CREATE_AGENT,
-  CREATE_ENTRY,
   dataLines,
   ECHO,
   FIXTURE,
@@ -27,6 +26,10 @@ import {
 
 // A workspace key runs an agent end to end: the router's /v1, a fake provider reached through the models area's
 // own fetch, and the stdio fixture as the agent's MCP server.
+
+const UPDATE_ENTRY = `mutation ($workspaceId: UUID!, $serverId: UUID!, $set: UpdateWorkspaceServerInput!) {
+  updateWorkspaceServer(where: { workspaceId: { eq: $workspaceId }, serverId: { eq: $serverId } }, set: $set) { id }
+}`;
 
 const h = useRunHarness();
 
@@ -316,15 +319,18 @@ describe('the agents endpoint', () => {
     expect((await structural.json()).error).toMatchObject({ param: 'n' });
   });
 
-  it('runs a workspace instance with its own settings when the workspace has an entry for the server', async () => {
+  it("runs a workspace instance with its own settings when the workspace's entry overrides some", async () => {
     const { server } = await h.asUser.expectOk(
       'query ($name: String!) { server(where: { name: { eq: $name } }) { id } }',
       {
         name: SERVER,
       },
     );
-    await h.asUser.expectOk(CREATE_ENTRY, {
-      values: { workspaceId: h.workspaceId, serverId: server.id, env: { FIXTURE_GREETING: 'household a' } },
+    // The workspace has the server already, overriding nothing.
+    await h.asUser.expectOk(UPDATE_ENTRY, {
+      workspaceId: h.workspaceId,
+      serverId: server.id,
+      set: { env: { FIXTURE_GREETING: 'household a' } },
     });
     h.script = (body) => {
       const last = lastMessage(body);

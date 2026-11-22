@@ -1,11 +1,14 @@
 import type { OnWriteConfig, WriteHookPayload } from '@vantreeseba/drizzle-graphql';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { z } from 'zod';
 import { CALLER_RUN, CALLER_USER, type Context } from '../core/context.ts';
 import { badInput, forbidden } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { type ServerRow, servers } from '../db/tables/servers.ts';
 import { Role } from '../db/tables/users.ts';
+import { workspaceAgentDisabledServers } from '../db/tables/workspace-agent-disabled-servers.ts';
+import { workspaceAgentDisabledTools } from '../db/tables/workspace-agent-disabled-tools.ts';
+import { workspaceAgents } from '../db/tables/workspace-agents.ts';
 import type { WorkspaceServer } from '../db/tables/workspace-servers.ts';
 import { rebuildAfterCommit, writtenRows } from '../graphql/write-guards.ts';
 import type { DeletedEntry } from './api.ts';
@@ -96,14 +99,48 @@ async function afterServerUpdate(payload: WriteHookPayload): Promise<void> {
 }
 
 /**
- * Stops the workspace instances of deleted server entries and removes their folders, once the delete commits, and
- * rebuilds the snapshot. The `after` hook of a server entry delete.
+ * Forgets what was turned off for each agent of a workspace on a server it no longer has, so a server added back
+ * reaches every agent there, all its tools on, as a new one does.
+ *
+ * @param payload - The delete of workspace servers that just ran.
+ * @param deleted - The rows it deleted.
+ */
+async function forgetSwitches(payload: WriteHookPayload, deleted: readonly DeletedEntry[]): Promise<void> {
+  for (const { workspaceId, serverId } of deleted) {
+    const agentsThere = payload.tx
+      .select({ id: workspaceAgents.id })
+      .from(workspaceAgents)
+      .where(eq(workspaceAgents.workspaceId, workspaceId));
+    await payload.tx
+      .delete(workspaceAgentDisabledServers)
+      .where(
+        and(
+          eq(workspaceAgentDisabledServers.serverId, serverId),
+          inArray(workspaceAgentDisabledServers.workspaceAgentId, agentsThere),
+        ),
+      );
+    await payload.tx
+      .delete(workspaceAgentDisabledTools)
+      .where(
+        and(
+          eq(workspaceAgentDisabledTools.serverId, serverId),
+          inArray(workspaceAgentDisabledTools.workspaceAgentId, agentsThere),
+        ),
+      );
+  }
+}
+
+/**
+ * Takes servers out of their workspaces: forgets what was turned off on them there, then stops their workspace
+ * instances and removes their folders once the delete commits, and rebuilds the snapshot. The `after` hook of a
+ * workspace server delete.
  *
  * @param payload - The delete that just ran, with the rows it deleted.
  */
-function afterEntryDelete(payload: WriteHookPayload): void {
+async function afterEntryDelete(payload: WriteHookPayload): Promise<void> {
   const { tools }: Context = payload.context;
   const deleted: DeletedEntry[] = payload.rows;
+  await forgetSwitches(payload, deleted);
   payload.onCommit(() => tools.forgetEntries(deleted));
   rebuildAfterCommit(payload);
 }

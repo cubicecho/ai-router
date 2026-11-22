@@ -12,7 +12,7 @@ import { providers } from './tables/providers.ts';
 import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
 import { settings } from './tables/settings.ts';
-import { workspaceAgentServers } from './tables/workspace-agent-servers.ts';
+import { workspaceAgentDisabledServers } from './tables/workspace-agent-disabled-servers.ts';
 import { workspaceAgents } from './tables/workspace-agents.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
 import { workspaceServers } from './tables/workspace-servers.ts';
@@ -111,7 +111,7 @@ export interface SnapshotServer {
   signedIn: boolean;
   /** Its login, tokens included: read on every request an HTTP instance sends, so never from the database. */
   oauth: ServerOAuth | null;
-  /** By workspace id: the workspaces with an entry for it. */
+  /** By workspace id: the workspaces it is in, each entry how it is configured there. */
   entries: ReadonlyMap<string, SnapshotServerEntry>;
 }
 
@@ -124,8 +124,8 @@ export interface SnapshotAgent {
   /** The live revision's document, as stored. null with no live revision. */
   document: Readonly<Record<string, unknown>> | null;
   /**
-   * The workspaces whose apps may run it, each with the servers it may use there, by name: exactly those, and none
-   * when the list is empty. The agent's own `tools.servers` is not read.
+   * The workspaces whose apps may run it, each with the servers it reaches there, by name: the workspace's servers,
+   * less those turned off for it, and none when the list is empty. The agent's own `tools.servers` is not read.
    */
   workspaces: ReadonlyMap<string, readonly string[]>;
 }
@@ -249,7 +249,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     entryRows,
     agentRows,
     offerRows,
-    serverGrantRows,
+    disabledServerRows,
     [settingsRow],
   ] = await Promise.all([
     db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
@@ -290,16 +290,24 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
       .select({ id: workspaceAgents.id, workspaceId: workspaceAgents.workspaceId, agentId: workspaceAgents.agentId })
       .from(workspaceAgents),
     db
-      .select({ workspaceAgentId: workspaceAgentServers.workspaceAgentId, serverId: workspaceAgentServers.serverId })
-      .from(workspaceAgentServers),
+      .select({
+        workspaceAgentId: workspaceAgentDisabledServers.workspaceAgentId,
+        serverId: workspaceAgentDisabledServers.serverId,
+      })
+      .from(workspaceAgentDisabledServers),
     db.select({ values: settings.values }).from(settings),
   ]);
   const serverNames = new Map(serverRows.map((row) => [row.id, row.name]));
-  /** The names of the servers one workspace's offer of an agent grants it. */
-  const serverNamesOf = (workspaceAgentId: string): string[] =>
-    serverGrantRows.flatMap((grant) =>
-      grant.workspaceAgentId === workspaceAgentId ? (serverNames.get(grant.serverId) ?? []) : [],
-    );
+  const disabled = new Set(disabledServerRows.map((row) => `${row.workspaceAgentId}/${row.serverId}`));
+  /** The names of the servers an agent reaches in a workspace, sorted: the workspace's, less those turned off for it. */
+  const serverNamesOf = (offer: { id: string; workspaceId: string }): string[] =>
+    entryRows
+      .flatMap((entry) =>
+        entry.workspaceId === offer.workspaceId && disabled.has(`${offer.id}/${entry.serverId}`) === false
+          ? (serverNames.get(entry.serverId) ?? [])
+          : [],
+      )
+      .sort();
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
   for (const { poolId, providerId, model, weight } of targetRows) {
@@ -314,7 +322,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
         const workspaces = new Map(
           offerRows
             .filter((offer) => offer.agentId === row.id)
-            .map((offer) => [offer.workspaceId, serverNamesOf(offer.id)] as const),
+            .map((offer) => [offer.workspaceId, serverNamesOf(offer)] as const),
         );
         const agent: SnapshotAgent = {
           id: row.id,

@@ -1,0 +1,611 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a4fc3806-ae17-46e0-b09c-44b03d1abc11",
+  "prevIds": [
+    "0675e2c2-da9f-45bc-b2bf-b85bb77a37f3"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_servers"
+      ],
+      "writes": [
+        "s|tbl|public.workspace_agent_disabled_servers",
+        "n|tbl|public.workspace_agent_disabled_servers",
+        "e|tbl|public.workspace_agent_disabled_servers",
+        "n|rel|public.workspace_agent_disabled_servers",
+        "n|type|public.workspace_agent_disabled_servers",
+        "n|rel|public.workspace_agent_disabled_servers_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_tools"
+      ],
+      "writes": [
+        "s|tbl|public.workspace_agent_disabled_tools",
+        "n|tbl|public.workspace_agent_disabled_tools",
+        "e|tbl|public.workspace_agent_disabled_tools",
+        "n|rel|public.workspace_agent_disabled_tools",
+        "n|type|public.workspace_agent_disabled_tools",
+        "n|rel|public.workspace_agent_disabled_tools_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_disabled_servers",
+        "uq_workspace_agent_disabled_servers_workspace_agent_id_server_id"
+      ],
+      "writes": [
+        "s|idx|public.uq_workspace_agent_disabled_servers_workspace_agent_id_server_id",
+        "n|idx|public.uq_workspace_agent_disabled_servers_workspace_agent_id_server_id",
+        "e|idx|public.uq_workspace_agent_disabled_servers_workspace_agent_id_server_id",
+        "n|rel|public.uq_workspace_agent_disabled_servers_workspace_agent_id_server_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_servers.workspace_agent_id",
+        "n|col|public.workspace_agent_disabled_servers.server_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_disabled_servers",
+        "idx_workspace_agent_disabled_servers_server_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_workspace_agent_disabled_servers_server_id",
+        "n|idx|public.idx_workspace_agent_disabled_servers_server_id",
+        "e|idx|public.idx_workspace_agent_disabled_servers_server_id",
+        "n|rel|public.idx_workspace_agent_disabled_servers_server_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_servers.server_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_disabled_tools",
+        "uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool"
+      ],
+      "writes": [
+        "s|idx|public.uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool",
+        "n|idx|public.uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool",
+        "e|idx|public.uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool",
+        "n|rel|public.uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_tools",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_tools.workspace_agent_id",
+        "n|col|public.workspace_agent_disabled_tools.server_id",
+        "n|col|public.workspace_agent_disabled_tools.tool"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace_agent_disabled_tools",
+        "idx_workspace_agent_disabled_tools_server_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_workspace_agent_disabled_tools_server_id",
+        "n|idx|public.idx_workspace_agent_disabled_tools_server_id",
+        "e|idx|public.idx_workspace_agent_disabled_tools_server_id",
+        "n|rel|public.idx_workspace_agent_disabled_tools_server_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_tools",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_tools.server_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_servers"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_6KuozzaTS7GG_fkey",
+        "n|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_6KuozzaTS7GG_fkey",
+        "e|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_6KuozzaTS7GG_fkey",
+        "n|con|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_6KuozzaTS7GG_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_servers",
+        "n|sch|public",
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_servers.workspace_agent_id",
+        "n|col|public.workspace_agents.id",
+        "e|uniqueness|public.workspace_agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_servers"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_server_id_servers_id_fkey",
+        "n|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_server_id_servers_id_fkey",
+        "e|fk|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_server_id_servers_id_fkey",
+        "n|con|public.workspace_agent_disabled_servers.workspace_agent_disabled_servers_server_id_servers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_servers",
+        "n|sch|public",
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_servers.server_id",
+        "n|col|public.servers.id",
+        "e|uniqueness|public.servers.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_tools"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_cdRevjpazWpT_fkey",
+        "n|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_cdRevjpazWpT_fkey",
+        "e|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_cdRevjpazWpT_fkey",
+        "n|con|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_cdRevjpazWpT_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_tools",
+        "n|sch|public",
+        "n|tbl|public.workspace_agents",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_tools.workspace_agent_id",
+        "n|col|public.workspace_agents.id",
+        "e|uniqueness|public.workspace_agents.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_disabled_tools"
+      ],
+      "writes": [
+        "s|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_server_id_servers_id_fkey",
+        "n|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_server_id_servers_id_fkey",
+        "e|fk|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_server_id_servers_id_fkey",
+        "n|con|public.workspace_agent_disabled_tools.workspace_agent_disabled_tools_server_id_servers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace_agent_disabled_tools",
+        "n|sch|public",
+        "n|tbl|public.servers",
+        "n|sch|public",
+        "n|col|public.workspace_agent_disabled_tools.server_id",
+        "n|col|public.servers.id",
+        "e|uniqueness|public.servers.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "workspace_agent_disabled_servers",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "workspace_agent_disabled_tools",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "workspace_agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "server_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "workspace_agent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "server_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "tool",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "uq_workspace_agent_disabled_servers_workspace_agent_id_server_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "idx_workspace_agent_disabled_servers_server_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "uq_workspace_agent_disabled_tools_workspace_agent_id_server_id_tool",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "workspace_agent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "tool",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "idx_workspace_agent_disabled_tools_server_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "server_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "workspace_agent_disabled_servers_6KuozzaTS7GG_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspace_agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "workspace_agent_disabled_servers_server_id_servers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "server_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "servers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "workspace_agent_disabled_tools_cdRevjpazWpT_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "workspace_agent_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workspace_agents",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "workspace_agent_disabled_tools_server_id_servers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "server_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "servers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_servers",
+        "name": "workspace_agent_disabled_servers_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace_agent_disabled_tools",
+        "name": "workspace_agent_disabled_tools_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

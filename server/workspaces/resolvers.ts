@@ -1,15 +1,15 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
 import { requireUser } from '../auth/caller.ts';
 import { mintKey } from '../auth/keys.ts';
 import type { Context } from '../core/context.ts';
-import { badInput, notFound } from '../core/errors.ts';
+import { notFound } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { MS_PER_DAY } from '../core/wire.ts';
-import { servers } from '../db/tables/servers.ts';
-import { workspaceAgentServers } from '../db/tables/workspace-agent-servers.ts';
+import { workspaceAgentDisabledServers } from '../db/tables/workspace-agent-disabled-servers.ts';
 import { workspaceAgents } from '../db/tables/workspace-agents.ts';
 import { workspaceKeys } from '../db/tables/workspace-keys.ts';
+import { workspaceServers } from '../db/tables/workspace-servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
 import { keyInput } from './input.ts';
@@ -34,21 +34,24 @@ const WORKSPACES_SDL = parse(`
     "Revokes a key. An app using it is refused from the next request. True when there was such a key."
     revokeWorkspaceKey(id: UUID!): Boolean!
     """
-    Sets which MCP servers an agent may use in a workspace, replacing what was set. Its runs there reach exactly
-    these, and none when the list is empty, from the next request. Answers the servers now granted.
+    Turns one of a workspace's servers on or off for one agent there. Every agent reaches every server of its
+    workspace unless it is turned off for it. Takes effect from the next request, and answers whether it is on.
     """
-    setWorkspaceAgentServers(
+    setWorkspaceAgentServerEnabled(
       "The workspace's entry for the agent."
       workspaceAgentId: UUID!
-      serverIds: [UUID!]!
-    ): [UUID!]!
+      "A server the workspace has."
+      serverId: UUID!
+      enabled: Boolean!
+    ): Boolean!
   }
 `);
 
-/** What `setWorkspaceAgentServers` is given. */
-interface SetAgentServersArgs {
+/** What `setWorkspaceAgentServerEnabled` is given. */
+interface SetAgentServerEnabledArgs {
   workspaceAgentId: string;
-  serverIds: readonly string[];
+  serverId: string;
+  enabled: boolean;
 }
 
 /** What `createWorkspaceKey` is given. */
@@ -59,7 +62,7 @@ interface CreateKeyArgs {
 }
 
 /**
- * Adds the workspace fields CRUD can't express: making and revoking keys, and which servers an agent may use.
+ * Adds the workspace fields CRUD can't express: making and revoking keys, and turning a workspace's servers off for one of its agents.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -99,36 +102,38 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
     return deleted.length > 0;
   };
 
-  mutations.setWorkspaceAgentServers.resolve = async (_parent: unknown, args: SetAgentServersArgs, ctx: Context) => {
+  mutations.setWorkspaceAgentServerEnabled.resolve = async (
+    _parent: unknown,
+    args: SetAgentServerEnabledArgs,
+    ctx: Context,
+  ) => {
     requireUser(ctx.caller);
-    const serverIds = [...new Set(args.serverIds)];
-    const granted = await ctx.db.transaction(async (tx) => {
+    const { workspaceAgentId, serverId, enabled } = args;
+    await ctx.db.transaction(async (tx) => {
       const [entry] = await tx
         .select({ id: workspaceAgents.id })
         .from(workspaceAgents)
-        .where(eq(workspaceAgents.id, args.workspaceAgentId));
+        .innerJoin(
+          workspaceServers,
+          and(eq(workspaceServers.workspaceId, workspaceAgents.workspaceId), eq(workspaceServers.serverId, serverId)),
+        )
+        .where(eq(workspaceAgents.id, workspaceAgentId));
       if (entry === undefined) {
-        throw notFound('That workspace does not run that agent.');
+        throw notFound('That workspace does not run that agent, or does not have that server.');
       }
-      const known =
-        serverIds.length === 0
-          ? []
-          : await tx.select({ id: servers.id }).from(servers).where(inArray(servers.id, serverIds));
-      const hasUnknown = known.length < serverIds.length;
-      if (hasUnknown) {
-        throw badInput('One of those servers does not exist.');
+      const isOff = and(
+        eq(workspaceAgentDisabledServers.workspaceAgentId, workspaceAgentId),
+        eq(workspaceAgentDisabledServers.serverId, serverId),
+      );
+      if (enabled) {
+        await tx.delete(workspaceAgentDisabledServers).where(isOff);
+      } else {
+        await tx.insert(workspaceAgentDisabledServers).values({ workspaceAgentId, serverId }).onConflictDoNothing();
       }
-      await tx.delete(workspaceAgentServers).where(eq(workspaceAgentServers.workspaceAgentId, entry.id));
-      if (serverIds.length > 0) {
-        await tx
-          .insert(workspaceAgentServers)
-          .values(serverIds.map((serverId) => ({ workspaceAgentId: entry.id, serverId })));
-      }
-      return serverIds;
     });
     // Before answering, so the next request reaches what was set.
     await ctx.snapshot.rebuild();
-    return granted;
+    return enabled;
   };
 
   return extended;

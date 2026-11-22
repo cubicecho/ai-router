@@ -60,12 +60,12 @@ function overridesOf(entry: WorkspaceServerFieldsFragment, secrets: readonly str
   if (secrets.length > 0) {
     parts.push(`secrets: ${secrets.join(', ')}`);
   }
-  return parts.length === 0 ? 'Overrides nothing yet' : parts.join(', ');
+  return parts.length === 0 ? "Uses the server's own settings" : parts.join(', ');
 }
 
 /**
- * A workspace's entries for servers: the settings its agent runs use in place of each server's own. Untitled: its
- * tab names it.
+ * A workspace's MCP servers: every agent here reaches each one unless it is turned off for that agent, and each entry
+ * may set what the workspace's runs use in place of the server's own settings. Untitled: its tab names it.
  */
 export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServersSectionProps) {
   const queryClient = useQueryClient();
@@ -92,7 +92,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
   return (
     <CardLayout
       level={2}
-      description="An entry sets a server's settings for this workspace's agent runs, such as an account's login. It never adds the server to a run."
+      description="Every agent here reaches these, unless one is turned off for it on the Agents tab. Each can also override the server's settings for this workspace, such as an account's login."
       actionSlot={rows.length > 0 ? add : undefined}
       contentSlot={
         <>
@@ -102,7 +102,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
             what="its MCP Servers"
             count={rows.length}
             emptySlot={
-              <EmptyState compact title="No entries yet, so runs here use each MCP Server as it is." actionSlot={add} />
+              <EmptyState compact title="No MCP Servers yet, so agents here have no MCP tools." actionSlot={add} />
             }
           />
           <List
@@ -157,7 +157,7 @@ export function WorkspaceServersSection({ workspaceId, isAdmin }: WorkspaceServe
                       <ConfirmButton
                         size="sm"
                         title={`Remove ${name} from this workspace?`}
-                        description="Runs here use the server's own settings again. Its secret overrides here are kept."
+                        description="No agent here reaches it from the next request, and what was turned off for each agent is forgotten. Its secret overrides here are kept."
                         confirmLabel="Remove"
                         onConfirm={() => remove.mutate(entry.id)}
                         content="Remove"

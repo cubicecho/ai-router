@@ -5,9 +5,10 @@ import { childUidInRange, servers } from './servers.ts';
 import { workspaces } from './workspaces.ts';
 
 /**
- * A server entry: how one server is configured for the agent runs one workspace starts, such as one
- * household's budget login. It never adds the server to a run; the agent decides that. A workspace
- * with no entry for a server uses its base instance. Secret overrides are in `server_secrets`.
+ * A workspace server: the row puts a server in a workspace, so every agent there reaches it unless it is turned off for
+ * that agent (`workspace_agent_disabled_servers`). It also configures the server for that workspace's runs, such as one
+ * household's budget login; a row that overrides nothing runs the base instance. Only a person adds or removes one.
+ * Secret overrides are in `server_secrets`.
  */
 export const workspaceServers = pgTable(
   'workspace_servers',
@@ -52,5 +53,5 @@ export const workspaceServers = pgTable(
   ],
 );
 
-/** A server entry row as read. */
+/** A workspace server row as read. */
 export type WorkspaceServer = typeof workspaceServers.$inferSelect;

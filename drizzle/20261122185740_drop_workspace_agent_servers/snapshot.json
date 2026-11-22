@@ -1,0 +1,71 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8bc10409-44c9-4580-90fc-0038238a9aba",
+  "prevIds": [
+    "a4fc3806-ae17-46e0-b09c-44b03d1abc11"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace_agent_servers"
+      ],
+      "writes": [
+        "s|tbl|public.workspace_agent_servers",
+        "n|tbl|public.workspace_agent_servers",
+        "e|tbl|public.workspace_agent_servers",
+        "n|rel|public.workspace_agent_servers",
+        "n|type|public.workspace_agent_servers"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"workspace_agent_servers\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"workspace_agent_servers\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"workspace_agent_servers\",\"workspace_agent_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"workspace_agent_servers\",\"server_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"workspace_agent_servers\",\"created_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"uq_workspace_agent_servers_workspace_agent_id_server_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"idx_workspace_agent_servers_server_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"workspace_agent_servers\",\"workspace_agent_servers_F4RH4WORxIlx_fkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"workspace_agent_servers\",\"workspace_agent_servers_server_id_servers_id_fkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"workspace_agent_servers\",\"workspace_agent_servers_pkey\"]"
+    }
+  ]
+}

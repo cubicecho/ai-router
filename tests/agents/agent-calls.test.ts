@@ -14,6 +14,7 @@ import {
   INSTALL,
   lastMessage,
   type Reply,
+  SET_SERVER_ENABLED,
   sentToolNames,
   until,
   useRunHarness,
@@ -64,6 +65,13 @@ async function addAgentsServer(base: string): Promise<string> {
     },
   });
   await h.offer(h.workspaceId, createAgent.id, [AGENTS]);
+  // A server added to a workspace reaches every agent there, so the helper is kept from calling agents itself.
+  const agentsId = h.snapshot.current().servers.get(AGENTS)?.id;
+  await h.asUser.expectOk(SET_SERVER_ENABLED, {
+    workspaceAgentId: h.helperEntryId,
+    serverId: agentsId,
+    enabled: false,
+  });
   return createAgent.id;
 }
 

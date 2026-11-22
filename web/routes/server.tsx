@@ -226,7 +226,7 @@ export function ServerRoute() {
                       <PropertyRow
                         label="Runs"
                         value="Inside the router"
-                        hint="The router's own management, as tools. A workspace's entry for it grants its agent runs roles, and an agent reaches it only by naming it."
+                        hint="The router's own management, as tools. A workspace that has it grants its agent runs roles through it, and every agent there reaches it unless turned off."
                       />
                     ) : null}
                     <PropertyRow label="From" value={describeSource(sourceOf(record.source))} />

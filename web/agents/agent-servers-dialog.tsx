@@ -1,14 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { SetWorkspaceAgentServersDocument, type WorkspaceAgentsQuery } from '@/__generated__/graphql';
-import { ComboboxField, useAppForm } from '@/components/app-form';
+import { SetWorkspaceAgentServerEnabledDocument, type WorkspaceAgentsQuery } from '@/__generated__/graphql';
 import { DialogLayout } from '@/components/dialog-layout';
+import { EmptyState } from '@/components/empty-state';
+import { List } from '@/components/list';
+import { ListItem } from '@/components/list-item';
+import { RowMeta, rowNameFact } from '@/components/row-meta';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FormElement } from '@/components/ui/form-element';
+import { Switch } from '@/components/ui/switch';
 import { request } from '@/lib/gql';
 import { BUILTIN, transportOf } from '@/tools/shapes';
 
-/** A server the dialog offers, as the workspace's agents query reads it. */
-type ServerChoice = WorkspaceAgentsQuery['serverChoices'][number];
+/** A server the workspace has, as the workspace's agents query reads it. */
+export type WorkspaceServerChoice = NonNullable<WorkspaceAgentsQuery['workspaceServers'][number]['server']>;
 
 /** What the dialog is given. */
 export interface AgentServersDialogProps {
@@ -19,81 +23,82 @@ export interface AgentServersDialogProps {
   workspaceAgentId: string;
   /** The agent's name, for the title. */
   agentName: string;
-  /** The servers granted now, by id. */
-  granted: readonly string[];
-  /** Every server on the router. */
-  choices: readonly ServerChoice[];
+  /** The workspace's servers. */
+  servers: readonly WorkspaceServerChoice[];
+  /** The ids of those turned off for the agent. */
+  disabled: ReadonlySet<string>;
 }
 
 /**
- * Says how a server is listed in the picker.
- *
- * @param server - The server.
- * @returns Its label, with what sets it apart: the admin server, or one that is off.
+ * Turns the workspace's servers on or off for one agent there, each as it is switched. Every agent reaches every server
+ * of its workspace unless it is turned off for it.
  */
-function labelOf(server: ServerChoice): string {
-  const name = server.displayName ?? server.name;
-  if (transportOf(server.transport).type === BUILTIN) {
-    return `${name} (built in)`;
-  }
-  return server.enabled ? name : `${name} (off)`;
-}
-
-/** Chooses the MCP servers an agent may use in one workspace: its runs there reach exactly these. */
 export function AgentServersDialog({
   open,
   onOpenChange,
   workspaceId,
   workspaceAgentId,
   agentName,
-  granted,
-  choices,
+  servers,
+  disabled,
 }: AgentServersDialogProps) {
   const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (serverIds: string[]) => request(SetWorkspaceAgentServersDocument, { workspaceAgentId, serverIds }),
-    onSuccess: () => {
+  const toggle = useMutation({
+    mutationFn: ({ serverId, enabled }: { serverId: string; enabled: boolean }) =>
+      request(SetWorkspaceAgentServerEnabledDocument, { workspaceAgentId, serverId, enabled }),
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'agents'] });
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
-      onOpenChange(false);
     },
   });
-  const form = useAppForm({
-    defaultValues: { serverIds: [...granted] },
-    onSubmit: ({ value }) => save.mutateAsync(value.serverIds).catch(() => undefined),
-  });
-  const options = choices.map((server) => ({ value: server.id, label: labelOf(server), meta: server.name }));
 
   return (
     <DialogLayout
       open={open}
       onOpenChange={onOpenChange}
       title={`MCP servers for ${agentName}`}
-      description="Its runs in this workspace use tools from exactly these, and from none when none are chosen. The admin server's tools also need roles, set on the MCP tab."
-      hasUnsavedChanges={() => form.state.isDefaultValue === false}
-      wrapperSlot={(parts, { className }) => (
-        <form.AppForm>
-          <FormElement onSubmit={() => form.handleSubmit()} className={className}>
-            {parts}
-          </FormElement>
-        </form.AppForm>
-      )}
+      description="Its runs in this workspace use tools from every server that is on. A change takes effect from the next request. The admin server's tools also need roles, set on the MCP tab."
       contentSlot={
-        <ComboboxField
-          form={form}
-          name="serverIds"
-          label="MCP servers"
-          multiple
-          options={options}
-          placeholder="None: no MCP tools here"
-        />
+        servers.length === 0 ? (
+          <EmptyState compact title="This workspace has no MCP servers yet. Add them on its MCP tab." />
+        ) : (
+          <List
+            label="MCP servers"
+            contentSlot={servers.map((server) => {
+              const name = server.displayName ?? server.name;
+              const isOn = disabled.has(server.id) === false;
+              const isBuiltin = transportOf(server.transport).type === BUILTIN;
+              return (
+                <ListItem
+                  key={server.id}
+                  title={name}
+                  description={isOn ? 'On' : 'Off for this agent'}
+                  meta={
+                    <RowMeta
+                      facts={[rowNameFact(server.displayName, server.name)]}
+                      badgesSlot={
+                        <>
+                          {isBuiltin ? <Badge variant="secondary">Built in</Badge> : null}
+                          {server.enabled ? null : <Badge variant="warning-soft">Takes no calls</Badge>}
+                        </>
+                      }
+                    />
+                  }
+                  actionSlot={
+                    <Switch
+                      checked={isOn}
+                      accessibilityLabel={`${name} for ${agentName}`}
+                      disabled={toggle.isPending}
+                      onCheckedChange={(enabled) => toggle.mutate({ serverId: server.id, enabled })}
+                    />
+                  }
+                />
+              );
+            })}
+          />
+        )
       }
-      footerActionsSlot={(close) => (
-        <>
-          <Button variant="outline" onClick={close} content="Cancel" />
-          <form.SubmitButton createLabel="Save" />
-        </>
-      )}
+      footerActionsSlot={(close) => <Button variant="outline" onClick={close} content="Done" />}
     />
   );
 }

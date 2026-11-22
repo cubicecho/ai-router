@@ -39,7 +39,8 @@ export const relations = defineRelations(schema, (relate) => ({
     secrets: relate.many.serverSecrets(),
     workspaces: relate.many.workspaceServers(),
     activity: relate.many.activity(),
-    agentGrants: relate.many.workspaceAgentServers(),
+    disabledFor: relate.many.workspaceAgentDisabledServers(),
+    toolsDisabledFor: relate.many.workspaceAgentDisabledTools(),
   },
   serverSecrets: {
     server: relate.one.servers({ from: relate.serverSecrets.serverId, to: relate.servers.id }),
@@ -70,14 +71,22 @@ export const relations = defineRelations(schema, (relate) => ({
   workspaceAgents: {
     workspace: relate.one.workspaces({ from: relate.workspaceAgents.workspaceId, to: relate.workspaces.id }),
     agent: relate.one.agents({ from: relate.workspaceAgents.agentId, to: relate.agents.id }),
-    servers: relate.many.workspaceAgentServers(),
+    disabledServers: relate.many.workspaceAgentDisabledServers(),
+    disabledTools: relate.many.workspaceAgentDisabledTools(),
   },
-  workspaceAgentServers: {
+  workspaceAgentDisabledServers: {
     workspaceAgent: relate.one.workspaceAgents({
-      from: relate.workspaceAgentServers.workspaceAgentId,
+      from: relate.workspaceAgentDisabledServers.workspaceAgentId,
       to: relate.workspaceAgents.id,
     }),
-    server: relate.one.servers({ from: relate.workspaceAgentServers.serverId, to: relate.servers.id }),
+    server: relate.one.servers({ from: relate.workspaceAgentDisabledServers.serverId, to: relate.servers.id }),
+  },
+  workspaceAgentDisabledTools: {
+    workspaceAgent: relate.one.workspaceAgents({
+      from: relate.workspaceAgentDisabledTools.workspaceAgentId,
+      to: relate.workspaceAgents.id,
+    }),
+    server: relate.one.servers({ from: relate.workspaceAgentDisabledTools.serverId, to: relate.servers.id }),
   },
   runs: {
     workspace: relate.one.workspaces({ from: relate.runs.workspaceId, to: relate.workspaces.id }),
