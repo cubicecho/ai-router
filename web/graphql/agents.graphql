@@ -186,6 +186,15 @@ query WorkspaceAgents($workspaceId: UUID!) {
     workspaceAgentId
     serverId
   }
+  # The tools turned off for each of them here, by the tool's own name on its server.
+  disabledTools: workspaceAgentDisabledTools(
+    where: { workspaceAgent: { workspaceId: { eq: $workspaceId } } }
+    limit: 500
+  ) {
+    workspaceAgentId
+    serverId
+    tool
+  }
   agents(orderBy: { name: { direction: asc, priority: 1 } }) {
     ...WorkspaceAgentChoice
   }
@@ -204,6 +213,10 @@ query WorkspaceAgents($workspaceId: UUID!) {
 
 mutation SetWorkspaceAgentServerEnabled($workspaceAgentId: UUID!, $serverId: UUID!, $enabled: Boolean!) {
   setWorkspaceAgentServerEnabled(workspaceAgentId: $workspaceAgentId, serverId: $serverId, enabled: $enabled)
+}
+
+mutation SetWorkspaceAgentToolEnabled($workspaceAgentId: UUID!, $serverId: UUID!, $tool: String!, $enabled: Boolean!) {
+  setWorkspaceAgentToolEnabled(workspaceAgentId: $workspaceAgentId, serverId: $serverId, tool: $tool, enabled: $enabled)
 }
 
 mutation CreateWorkspaceAgent($workspaceId: UUID!, $agentId: UUID!) {

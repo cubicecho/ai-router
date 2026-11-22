@@ -237,6 +237,7 @@ sequenceDiagram
   Svc->>Svc: conversation busy? 409
   Svc->>Inst: reachedTools: listTools per server it reaches
   Inst-->>Svc: tools, or a notice for each server that failed
+  Svc->>Svc: leave out the tools turned off for the agent here
   Svc->>Svc: runToolNames, pruneAppTools
   Svc->>DB: insert running row (or find the Idempotency-Key's run)
   Svc->>Bus: open
@@ -277,6 +278,10 @@ sequenceDiagram
 
 - **The run keeps the revision it started with.** A revision promoted while it runs applies to the next one.
 - **A server that won't start or list** is left out with a notice; it never fails the run.
+- **A tool turned off for the agent in its workspace** (`SnapshotAgent.disabledTools`, by server name and the
+  tool's own name) is left out as its server lists, before any tool is named, so it takes no name, no slot in the
+  catalogue, and no app tool is pruned for it. The model can't call it: a call to a name the run doesn't have is
+  answered with an error, never forwarded.
 - **Each tool gets a model name** by `agents/tool-names` `runToolNames`: `<server>__<tool>`, with any character
   outside `[a-zA-Z0-9_-]` made `_`, and a name over 64 characters or shared by two tools cut and hashed. The
   map back to the server and tool lives for this run only.

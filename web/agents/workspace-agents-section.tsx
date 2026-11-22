@@ -25,7 +25,8 @@ export interface WorkspaceAgentsSectionProps {
 
 /**
  * The agents a workspace offers: the only ones an app calling with its keys may list and run, each with the
- * workspace's MCP servers it reaches here, every one unless turned off for it. Untitled: its tab names it.
+ * workspace's MCP servers it reaches here, every one unless turned off for it, and every tool of those unless turned
+ * off. Untitled: its tab names it.
  */
 export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionProps) {
   const queryClient = useQueryClient();
@@ -55,6 +56,16 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
     new Set(
       (entries.data?.disabledServers ?? []).flatMap((row) => (row.workspaceAgentId === entryId ? [row.serverId] : [])),
     );
+  /** The tools turned off for one entry's agent, by server id. */
+  const disabledToolsFor = (entryId: string): Map<string, Set<string>> => {
+    const byServer = new Map<string, Set<string>>();
+    for (const row of entries.data?.disabledTools ?? []) {
+      if (row.workspaceAgentId === entryId) {
+        byServer.set(row.serverId, (byServer.get(row.serverId) ?? new Set()).add(row.tool));
+      }
+    }
+    return byServer;
+  };
   /** What one entry's agent reaches here, by name. */
   const reachedBy = (entryId: string): string[] => {
     const disabled = disabledFor(entryId);
@@ -153,6 +164,7 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
               agentName={choosingEntry.agent === null ? 'a deleted agent' : displayNameOf(choosingEntry.agent)}
               servers={workspaceServers}
               disabled={disabledFor(choosingEntry.id)}
+              disabledTools={disabledToolsFor(choosingEntry.id)}
             />
           )}
           {isAdding ? (

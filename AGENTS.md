@@ -179,6 +179,14 @@ non-negotiables apply on top of these.
   is a workspace server like any other, its tools still only as far as the workspace's roles. The
   workspace's entry for a server also decides how it is configured, so its workspace instance is
   used; one that overrides nothing uses the base instance.
+- **A tool turned off for an agent is never named.** A workspace's server reaches an agent with
+  every tool on but those a person turned off for it there (`workspace_agent_disabled_tools`, by
+  the tool's own name on its server, set by the people-only `setWorkspaceAgentToolEnabled`).
+  `agents/run` `reachedTools` leaves them out as each server lists, before `runToolNames`, so a
+  turned-off tool takes no name and no catalogue slot, a call to it is refused, and
+  `pruneAppTools` never sees it: an app tool that duplicates it goes to the app. A tool the server
+  adds later is on. A server turned off turns off all its tools and keeps their choices. On the
+  admin server it narrows what the roles reach, and never widens it.
 - **A layer adds and never widens.** The layers are the router's, the agent's and the request's.
   `endpoint` and the model never change for a request, and a caller's `servers` is intersected
   with the workspace's servers on for the agent. Every request field the router doesn't read goes to the agent's

@@ -65,8 +65,9 @@ query ServerInstances($id: UUID!) {
   }
 }
 
-query ServerTools($id: UUID!) {
-  serverTools(id: $id) {
+# A workspaceId lists the instance that workspace's runs use.
+query ServerTools($id: UUID!, $workspaceId: UUID) {
+  serverTools(id: $id, workspaceId: $workspaceId) {
     name
     title
     description

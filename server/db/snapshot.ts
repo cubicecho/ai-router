@@ -13,6 +13,7 @@ import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
 import { settings } from './tables/settings.ts';
 import { workspaceAgentDisabledServers } from './tables/workspace-agent-disabled-servers.ts';
+import { workspaceAgentDisabledTools } from './tables/workspace-agent-disabled-tools.ts';
 import { workspaceAgents } from './tables/workspace-agents.ts';
 import { workspaceKeys } from './tables/workspace-keys.ts';
 import { workspaceServers } from './tables/workspace-servers.ts';
@@ -128,6 +129,11 @@ export interface SnapshotAgent {
    * less those turned off for it, and none when the list is empty. The agent's own `tools.servers` is not read.
    */
   workspaces: ReadonlyMap<string, readonly string[]>;
+  /**
+   * By workspace id, then by server name: the tools turned off for it there, by each tool's own name on its server.
+   * Only read for a server it reaches, so a server turned off keeps its choices for when it is turned on again.
+   */
+  disabledTools: ReadonlyMap<string, ReadonlyMap<string, ReadonlySet<string>>>;
 }
 
 /** Everything requests route by, read once and held in memory. */
@@ -250,6 +256,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     agentRows,
     offerRows,
     disabledServerRows,
+    disabledToolRows,
     [settingsRow],
   ] = await Promise.all([
     db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
@@ -295,6 +302,13 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
         serverId: workspaceAgentDisabledServers.serverId,
       })
       .from(workspaceAgentDisabledServers),
+    db
+      .select({
+        workspaceAgentId: workspaceAgentDisabledTools.workspaceAgentId,
+        serverId: workspaceAgentDisabledTools.serverId,
+        tool: workspaceAgentDisabledTools.tool,
+      })
+      .from(workspaceAgentDisabledTools),
     db.select({ values: settings.values }).from(settings),
   ]);
   const serverNames = new Map(serverRows.map((row) => [row.id, row.name]));
@@ -308,6 +322,17 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
           : [],
       )
       .sort();
+  /** The tools turned off for an agent in a workspace, by server name. */
+  const disabledToolsOf = (offerId: string): Map<string, Set<string>> => {
+    const byServer = new Map<string, Set<string>>();
+    for (const row of disabledToolRows) {
+      const serverName = serverNames.get(row.serverId);
+      if (row.workspaceAgentId === offerId && serverName !== undefined) {
+        byServer.set(serverName, (byServer.get(serverName) ?? new Set()).add(row.tool));
+      }
+    }
+    return byServer;
+  };
   const providerNames = new Map(providerRows.map((row) => [row.id, row.name]));
   const targetsByPool = new Map<string, SnapshotTarget[]>();
   for (const { poolId, providerId, model, weight } of targetRows) {
@@ -319,17 +344,16 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     servers: serversFrom(serverRows, secretRows, entryRows),
     agents: new Map(
       agentRows.map((row) => {
-        const workspaces = new Map(
-          offerRows
-            .filter((offer) => offer.agentId === row.id)
-            .map((offer) => [offer.workspaceId, serverNamesOf(offer)] as const),
-        );
+        const offers = offerRows.filter((offer) => offer.agentId === row.id);
+        const workspaces = new Map(offers.map((offer) => [offer.workspaceId, serverNamesOf(offer)] as const));
+        const disabledTools = new Map(offers.map((offer) => [offer.workspaceId, disabledToolsOf(offer.id)] as const));
         const agent: SnapshotAgent = {
           id: row.id,
           name: row.name,
           liveRevisionId: row.liveRevisionId,
           document: row.document,
           workspaces,
+          disabledTools,
         };
         return [row.name, agent] as const;
       }),

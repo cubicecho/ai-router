@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { WORKSPACE_DEFAULTS } from '../core/defaults.ts';
 import { nameSchema } from '../core/names.ts';
 
-const { maxNameLength, maxDescriptionLength, maxKeyNameLength, maxKeyExpiryDays } = WORKSPACE_DEFAULTS;
+const { maxNameLength, maxDescriptionLength, maxKeyNameLength, maxKeyExpiryDays, maxToolNameLength } =
+  WORKSPACE_DEFAULTS;
 
 /** A workspace's columns as a write states them. Partial, since an update's `set` carries only what changed. */
 export const workspaceInput = z
@@ -23,4 +24,9 @@ export const keyInput = z.object({
     .min(1, 'A key that expires lasts at least a day.')
     .max(maxKeyExpiryDays, `A key may last at most ${maxKeyExpiryDays} days.`)
     .nullish(),
+});
+
+/** A tool's name on its server, as turning it off for an agent names it. */
+export const toolNameInput = z.object({
+  tool: z.string().min(1, 'Name a tool.').max(maxToolNameLength, 'Tool name is too long.'),
 });

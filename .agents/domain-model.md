@@ -284,6 +284,7 @@ created (shown once) --> in use --revoke--> deleted
 | What the router keeps is in agent-core 7's words: every revision holds a version 2 document, and a waiting run keeps its system messages and app parts. A version 1 document sent to be saved is upgraded first, with a warning; stored ones were upgraded once at boot | `agents/document` `checkDocument`, `agents/upgrade` `upgradeStored`, the `agent_core_7` migration |
 | A run's servers are an exact list: the workspace's servers that are on for the agent, as the request narrowed them. A workspace with none, a list naming only unknown servers, or a narrowing to nothing means none, never all | `agents/layers` `withWorkspaceServers`, `agents/reach` |
 | The admin server is a workspace server like any other: every agent of a workspace that has it reaches it, unless it is turned off for one, and it lists only what that workspace's roles reach | `agents/reach`, `admin/server` |
+| A tool a person turned off for an agent in a workspace is left out of that agent's runs there as each server lists its tools, before the run names them: it takes no name and no slot in the catalogue, a call to it is refused as one the run doesn't have, and an app tool that duplicates it is handed to the app, not pruned. Every other tool of a server that is on is reached, a new one too. A server turned off turns off all its tools and keeps their choices for when it is on again; taking it out of the workspace forgets them. On the admin server it only narrows what the roles reach. Only a person turns a tool off or on: no admin-server role reaches `setWorkspaceAgentToolEnabled` | `workspaces/resolvers` `setWorkspaceAgentToolEnabled`, `graphql/permissions`, `db/snapshot` (`SnapshotAgent.disabledTools`), `agents/run` `reachedTools`, `tools/hooks` `forgetSwitches` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
@@ -454,6 +455,13 @@ Everything about the code comes after `Owner:`.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
+- **Turned-off tool:** one tool of a workspace's server that a person turned off for one agent
+  there, such as a GitHub server's `merge_pull_request` for a triage agent. Its runs in that
+  workspace don't see it; every other tool of the server, and any it adds later, stays on. It is
+  kept by the tool's own name on its server, so a tool the server renames is on again under its
+  new name, and one it stops offering is shown as gone. Owner: `workspace_agent_disabled_tools`,
+  set by `workspaces/resolvers` `setWorkspaceAgentToolEnabled`; read into the snapshot as
+  `SnapshotAgent.disabledTools` and left out by `agents/run` `reachedTools`.
 - **Tool's model name:** the name a run's model calls a tool by. Models accept only letters,
   digits, `_` and `-`, up to 64 characters, so a name that breaks that is changed in a way that is
   the same every time, and the run remembers which tool each name stands for. Owner:

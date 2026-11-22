@@ -5,7 +5,8 @@ import { workspaceAgents } from './workspace-agents.ts';
 /**
  * A tool of a workspace server turned off for one agent there, by the tool's own name on its server (never the name a
  * run gives it). Every tool of a server that is on is reached but those turned off here, so a tool the server adds
- * later is on. Written only by a person. A row for a tool the server no longer offers changes nothing.
+ * later is on. Written only by a person (`setWorkspaceAgentToolEnabled`). A row for a tool the server no longer offers
+ * changes nothing.
  */
 export const workspaceAgentDisabledTools = pgTable(
   'workspace_agent_disabled_tools',

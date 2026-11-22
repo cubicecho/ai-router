@@ -165,6 +165,8 @@ export const permissions: PermissionsMap = {
     deleteWorkspaceAgent: isUser,
     // People only: no admin-server role reaches it, so a run never turns a server on for itself.
     setWorkspaceAgentServerEnabled: isUser,
+    // People only: no admin-server role reaches it, so a run never turns a tool on for itself.
+    setWorkspaceAgentToolEnabled: isUser,
     createWorkspaceServer: isUser,
     updateWorkspaceServer: isUser,
     deleteWorkspaceServer: isUser,

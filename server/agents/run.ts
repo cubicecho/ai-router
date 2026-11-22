@@ -483,11 +483,16 @@ export function createRunService({
    * @param sent - The app's own tools, as the request sent them.
    * @returns The tools, with the app's that duplicate one of them left out. A server that can't start or list is left
    * out and said so, never failing the run.
+   *
+   * @remarks
+   * A tool turned off for the agent in its workspace is left out as each server is listed, before the tools are named,
+   * so it takes no name and no slot in the catalogue, and an app tool that duplicates it is kept.
    */
   const reachedTools = async ({ config, workspace, agent }: RunInput, sent: AppTool[]): Promise<RunTools> => {
     const workspaceId = workspace.id;
     const notices: string[] = [];
     const reach = reachOf(config.servers, snapshot.current());
+    const disabledTools = agent.disabledTools.get(workspaceId);
     for (const name of reach.missing) {
       notices.push(`server "${name}" is not on this router or is turned off; it is left out.`);
     }
@@ -495,7 +500,9 @@ export function createRunService({
       reach.servers.map(async (server): Promise<ReachedTool[]> => {
         try {
           const served = await tools.listTools(server.id, workspaceId);
-          return served.map((tool) => ({
+          const off = disabledTools?.get(server.name);
+          const kept = off === undefined ? served : served.filter((tool) => off.has(tool.name) === false);
+          return kept.map((tool) => ({
             serverId: server.id,
             serverName: server.name,
             tool: tool.name,
