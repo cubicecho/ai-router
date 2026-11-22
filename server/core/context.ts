@@ -45,6 +45,8 @@ export interface RunCaller {
   agentId: string;
   /** The roles the workspace's entry for `ai-router` grants. Empty grants nothing. */
   roles: readonly AdminRole[];
+  /** The depth an agent a tool call it makes would start is at, as the run's own calls carry it. */
+  depth: number;
 }
 
 /** Who a request is from, read once from its credential, or handed over by a run. */

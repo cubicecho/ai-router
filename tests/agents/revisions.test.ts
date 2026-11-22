@@ -11,6 +11,7 @@ const run: Caller = {
   workspaceId: 'workspace-1',
   agentId: 'author-1',
   roles: [AdminRole.AgentsManage],
+  depth: 1,
 };
 const key: Caller = { kind: CALLER_WORKSPACE, workspaceId: 'workspace-1', keyId: 'key-1' };
 

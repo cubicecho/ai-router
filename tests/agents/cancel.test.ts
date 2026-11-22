@@ -234,7 +234,14 @@ describe('cancelRun', () => {
     expect((await asKey.expectError(CANCEL_RUN, { id: runId })).code).toBe('FORBIDDEN');
     const asRun = createClient(
       h.db,
-      { kind: CALLER_RUN, runId, workspaceId: h.workspaceId, agentId: h.agentId, roles: Object.values(AdminRole) },
+      {
+        kind: CALLER_RUN,
+        runId,
+        workspaceId: h.workspaceId,
+        agentId: h.agentId,
+        roles: Object.values(AdminRole),
+        depth: 1,
+      },
       deps,
     );
     expect((await asRun.expectError(CANCEL_RUN, { id: runId })).code).toBe('FORBIDDEN');

@@ -15,7 +15,9 @@ import {
   ToolDiscovery,
   type ToolDispatch,
 } from '@cubicecho/agent-core';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { and, arrayOverlaps, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
@@ -79,6 +81,10 @@ const GOING: RunStatus[] = [RunStatus.Running, RunStatus.Waiting];
  * again, and a run stopping at an app tool is waiting.
  */
 const CANCEL_ATTEMPTS = 3;
+/** Where a run's record is read, on the router that ran it: what a called agent's run links to. */
+const RUN_RECORD_PATH = '/runs/';
+/** A run's id, as a called agent's answer names it. */
+const runIdSchema = z.uuid();
 
 /** A request's `Idempotency-Key`, and the hash of the body it came with. */
 export interface Idempotency {
@@ -100,6 +106,8 @@ export interface RunInput {
   conversation: Conversation | null;
   /** The session the request says it belongs to (`readSessionKey`). Recorded on a new run; a resume keeps the run's. */
   sessionKey: string | null;
+  /** How many agents deep the run is: 0 for one an app started, one more for each agent call through `/mcp`. */
+  depth: number;
 }
 
 /** A waiting run that a request's tool messages answer. */
@@ -341,6 +349,17 @@ interface Segment {
   spent: { input: number; output: number };
   /** The layers the run started with, kept for its next wait. */
   layers: Pick<RunResume, 'systemText' | 'appParts' | 'servers' | 'sampling'>;
+}
+
+/**
+ * Reads the run a tool call started, when the tool is an agent behind a router's `/mcp`.
+ *
+ * @param result - What the tool answered.
+ * @returns The called agent's run id, from the answer's `_meta.runId`, or null for any other tool.
+ */
+function calledRunOf(result: CallToolResult): string | null {
+  const parsed = runIdSchema.safeParse(result._meta?.runId);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -717,7 +736,20 @@ export function createRunService({
           runId,
           workspaceId: workspace.id,
           signal: callSignal ?? runSignal,
+          depth: input.depth + 1,
+          // Until agent-core nests one run's events in another's (cubicecho/agent-core#247), a line each.
+          onProgress: (text) => say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text }),
         });
+        const childRunId = calledRunOf(result);
+        if (childRunId !== null) {
+          say({
+            kind: RunEventKind.Notice,
+            id: call.id,
+            name: call.name,
+            text: `${call.name} ran as run ${childRunId}.`,
+            link: { name: childRunId, uri: `${RUN_RECORD_PATH}${childRunId}` },
+          });
+        }
         if (isToolError(result)) {
           throw new Error(toolResultText(result));
         }

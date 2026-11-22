@@ -45,7 +45,7 @@ import {
 } from './request.ts';
 import { type FinishedRun, type Idempotency, type RepeatedRun, RunConflict, type RunService } from './run.ts';
 import { readSessionKey } from './session.ts';
-import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
+import { APP_RUN_DEPTH, beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** The header a retry-safe request carries. */
 const IDEMPOTENCY_HEADER = 'idempotency-key';
@@ -385,7 +385,18 @@ export function createAgentRoutes({
           agentName: agent.name,
         });
         const config = withRouterFetch(resolved, fetch);
-        const input = { workspace, agent, request: runRequest, config, prompt, idempotency, conversation, sessionKey };
+        const input = {
+          workspace,
+          agent,
+          request: runRequest,
+          config,
+          prompt,
+          idempotency,
+          conversation,
+          sessionKey,
+          // Only a /v1 run waits, so only one an app started resumes.
+          depth: APP_RUN_DEPTH,
+        };
         started = await runs.resume(input, waiting);
       } else {
         started = await beginRun(runs, forwarder, current, {
@@ -395,6 +406,7 @@ export function createAgentRoutes({
           conversation,
           sessionKey,
           idempotency,
+          depth: APP_RUN_DEPTH,
         });
       }
     } catch (error) {

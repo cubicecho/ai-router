@@ -273,6 +273,8 @@ created (shown once) --> in use --revoke--> deleted
 | An app disconnecting cancels its run, unless it sent an `Idempotency-Key` or started the run as an MCP task: that run goes on, so the retry or the task's caller gets its answer. A run past the run timeout fails | `agents/run`, `agents/mcp`; `RUN_DEFAULTS.timeoutMinutes` |
 | A cancel ends only a run that is running or waiting, as `cancelled` with one last `done`; an ended run is answered unchanged. A key cancels only its own workspace's runs, and another workspace's run answers the same 404 as one that doesn't exist. `cancelRun` is for people: no admin-server role reaches it | `agents/run` `cancel`, `agents/run-records`; `graphql/permissions` |
 | `/mcp` lists exactly the agents `/v1/models` does for the same key, and a tool call is a run of the key's workspace, read like any request. It never hands calls back, so its runs never wait | `agents/mcp`, `agents/start` |
+| A run's tool call names the depth an agent it starts would be at (the run's own, plus one; an app's run is 0) in `_meta["cubicecho.com/agent-depth"]`, and the admin server's run marker carries it on to the calls it makes. `/mcp` refuses a call past `RUN_DEFAULTS.maxAgentDepth`, so agents calling each other stop. Only the number leaves the router, never a run's id | `tools/services` `callMeta`, `agents/mcp` `depthOf`, `agents/run` |
+| A tool whose listing says it may run as a task, on a server that takes tool calls as tasks, is called as one. The server's call timeout covers starting it and each quiet stretch after, when the router asks how the task stands; the run's own timeout covers the rest. A run cancelled or timed out cancels the task. A task asking for input fails the call | `tools/instance` `callTool` |
 | An MCP task is a run: its id is the run's, its status is read from the run's, and a key reaches only its own workspace's tasks, another workspace's answering as missing. Cancelling a task cancels the run, and an ended task can't be cancelled. A waiter on `tasks/result` gets each of the run's events, agent-core's `RunEvent` unchanged, as it happens | `agents/mcp-tasks` `serveTasks`, over the runs table and `agents/run-bus` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
@@ -354,6 +356,14 @@ Everything about the code comes after `Owner:`.
   handlers of the router's own over the runs table and the run bus. Each event is a progress
   notification linked to the task, with the `RunEvent` in `_meta["cubicecho.com/run-event"]`;
   `RUN_DEFAULTS.taskPollIntervalMs` is the poll interval a task names.
+- **Agent call:** an agent's run calling another agent. A workspace adds a router's `/mcp` (this
+  one or another) as a streamable-HTTP server, with a workspace key in its headers, and each agent
+  behind it is a tool for the agents granted that server. The call runs as a task, and the called
+  agent's run is a run of its own, under the key's workspace. Its steps show in the caller's run
+  as notices with the call's id, and a last notice links to its run (`/runs/<id>`), read from the
+  answer's `_meta.runId`. Each run is one agent deeper than its caller, and `/mcp` refuses a call
+  past `RUN_DEFAULTS.maxAgentDepth`. Owner: `agents/run` (dispatch), `tools/instance`,
+  `agents/mcp`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `GET /runs` (its workspace's runs, newest first, `?session=` for one

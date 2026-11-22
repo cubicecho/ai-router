@@ -23,7 +23,12 @@ export interface NewRun {
   /** The session it belongs to, or null. */
   sessionKey: string | null;
   idempotency: Idempotency | null;
+  /** How many agents deep it is: `APP_RUN_DEPTH`, or the depth an agent's call to `/mcp` names. */
+  depth: number;
 }
+
+/** The depth of a run an app started on `/v1`: no agent called it. */
+export const APP_RUN_DEPTH = 0;
 
 /**
  * Finds the agent a workspace may run by its name.
@@ -75,7 +80,7 @@ export function beginRun(
   runs: RunService,
   forwarder: Forwarder,
   snapshot: Snapshot,
-  { workspace, agent, request, conversation, sessionKey, idempotency }: NewRun,
+  { workspace, agent, request, conversation, sessionKey, idempotency, depth }: NewRun,
 ): Promise<StartedRun | RepeatedRun> {
   const withConversation = conversation === null ? request : withHistory(request, conversation);
   const { agent: resolved, prompt } = resolveRun(
@@ -91,6 +96,16 @@ export function beginRun(
     agentName: agent.name,
   });
   const config = withRouterFetch(resolved, fetch);
-  const input = { workspace, agent, request: withConversation, config, prompt, idempotency, conversation, sessionKey };
+  const input = {
+    workspace,
+    agent,
+    request: withConversation,
+    config,
+    prompt,
+    idempotency,
+    conversation,
+    sessionKey,
+    depth,
+  };
   return runs.begin(input);
 }

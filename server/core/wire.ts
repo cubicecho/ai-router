@@ -30,3 +30,9 @@ export const SECONDS_PER_MINUTE = 60;
 export const SECONDS_PER_DAY = 86_400;
 /** Milliseconds in one day. */
 export const MS_PER_DAY = 86_400_000;
+
+/**
+ * The `_meta` key a run's tool call carries its depth under: how many agents deep the agent it would start is. `/mcp`
+ * reads it to refuse calls past `RUN_DEFAULTS.maxAgentDepth`. Only the number is sent, never a run's id.
+ */
+export const AGENT_DEPTH_META_KEY = 'cubicecho.com/agent-depth';

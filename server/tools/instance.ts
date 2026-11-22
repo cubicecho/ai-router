@@ -8,11 +8,16 @@ import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontex
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
+  type CallToolRequest,
   type CallToolResult,
   CallToolResultSchema,
+  CancelTaskResultSchema,
+  CreateTaskResultSchema,
+  GetTaskResultSchema,
   type JSONRPCMessage,
   McpError,
   ErrorCode as McpErrorCode,
+  type Progress,
   type Tool,
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
@@ -151,9 +156,18 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** How long the call may take. Shortens the server's `callTimeoutMs`, and never lengthens it. */
   timeoutMs?: number;
-  /** The request's `_meta`: for the admin server, the run the call is for. */
+  /** The request's `_meta`: the depth an agent the call starts would be at, and for the admin server, its run. */
   meta?: Record<string, unknown>;
+  /** Hears each progress message the server sends while the call runs. */
+  onProgress?: (message: string) => void;
 }
+
+/** A task's statuses that the server is still working through. */
+const TASK_WORKING = 'working';
+/** A task that waits for its caller to answer the server, which a run's call never can. */
+const TASK_INPUT_REQUIRED = 'input_required';
+/** How a tool says it may run as a task, in its listing. */
+const TASK_SUPPORT: ReadonlySet<string> = new Set(['optional', 'required']);
 
 /** What an instance is built with, beside its server. */
 export interface InstanceOptions {
@@ -374,6 +388,20 @@ function isMcpError(error: unknown, code: McpErrorCode): boolean {
 }
 
 /**
+ * Passes a server's progress messages on.
+ *
+ * @param onProgress - Hears each message.
+ * @returns The SDK's progress listener. A notification without a message says nothing to pass on.
+ */
+function progressListener(onProgress: (message: string) => void): (progress: Progress) => void {
+  return ({ message }) => {
+    if (message !== undefined && message !== '') {
+      onProgress(message);
+    }
+  };
+}
+
+/**
  * One running connection to one server: a stdio program the router started, or a server it reached over HTTP.
  *
  * @remarks
@@ -476,33 +504,41 @@ export class Instance {
   }
 
   /**
-   * Calls one of the server's tools.
+   * Calls one of the server's tools: as a task, when the tool's listing and the server say it can run as one.
    *
    * @param tool - The tool's name at the server.
    * @param args - Its arguments.
-   * @param [options] - An abort signal, and a shorter timeout.
+   * @param [options] - An abort signal, a shorter timeout, the request's `_meta` and a progress listener.
    * @returns What the tool answered, `isError` results included. Throws an `InstanceError` when the instance can't
    * start, the call times out or the connection closes under it, and the SDK's error for anything else.
+   *
+   * @remarks
+   * A task's call timeout covers starting it and each quiet stretch after: a task that sends progress, or that the
+   * server says is still working, goes on until it ends or `options.signal` aborts it, which cancels the task. Without
+   * a signal, the call timeout covers the whole task.
    */
   async callTool(tool: string, args: Record<string, unknown>, options: CallOptions = {}): Promise<CallToolResult> {
     const startedAt = Date.now();
     const { callTimeoutMs } = this.server;
     const timeout = Math.min(options.timeoutMs ?? callTimeoutMs, callTimeoutMs);
+    const params: CallToolRequest['params'] = {
+      name: tool,
+      arguments: args,
+      ...(options.meta === undefined ? {} : { _meta: options.meta }),
+    };
+    const onprogress = options.onProgress === undefined ? undefined : progressListener(options.onProgress);
     this.begin();
     try {
-      const result = await this.withConnection(({ client }) =>
-        client.request(
-          {
-            method: 'tools/call',
-            params: { name: tool, arguments: args, ...(options.meta === undefined ? {} : { _meta: options.meta }) },
-          },
-          CallToolResultSchema,
-          {
-            signal: options.signal,
-            timeout,
-          },
-        ),
-      );
+      const isTask = await this.runsAsTask(tool);
+      const result = isTask
+        ? await this.callAsTask(params, timeout, options.signal ?? AbortSignal.timeout(timeout), onprogress)
+        : await this.withConnection(({ client }) =>
+            client.request({ method: 'tools/call', params }, CallToolResultSchema, {
+              signal: options.signal,
+              timeout,
+              ...(onprogress === undefined ? {} : { onprogress }),
+            }),
+          );
       this.report(tool, startedAt, isToolError(result) ? toolResultText(result) : undefined);
       return result;
     } catch (error) {
@@ -546,6 +582,107 @@ export class Instance {
       await new Promise<void>((resolve) => this.drained.push(resolve));
     }
     await this.stop();
+  }
+
+  /**
+   * Whether a call to a tool runs as a task: its listing says it may, and the server says it takes tool calls as tasks.
+   *
+   * @param tool - The tool's name at the server.
+   * @returns true to call it as a task. A listing that fails says no, and the call itself reports why.
+   */
+  private async runsAsTask(tool: string): Promise<boolean> {
+    const listed = await this.listTools().catch(() => []);
+    const support = listed.find((entry) => entry.name === tool)?.execution?.taskSupport;
+    const isOffered = support !== undefined && TASK_SUPPORT.has(support);
+    if (isOffered === false) {
+      return false;
+    }
+    return this.withConnection(
+      async ({ client }) => client.getServerCapabilities()?.tasks?.requests?.tools?.call !== undefined,
+    );
+  }
+
+  /**
+   * Calls a tool as a task, and waits for its result.
+   *
+   * @param params - The call.
+   * @param timeout - How long starting it, and each quiet stretch after, may take.
+   * @param signal - Ends the wait. When it aborts, the server is asked to cancel the task.
+   * @param [onprogress] - Hears the task's progress.
+   * @returns What the tool answered.
+   */
+  private async callAsTask(
+    params: CallToolRequest['params'],
+    timeout: number,
+    signal: AbortSignal,
+    onprogress?: (progress: Progress) => void,
+  ): Promise<CallToolResult> {
+    const created = await this.withConnection(({ client }) =>
+      client.request({ method: 'tools/call', params }, CreateTaskResultSchema, { signal, timeout, task: {} }),
+    );
+    const { taskId } = created.task;
+    try {
+      return await this.taskResult(taskId, timeout, signal, onprogress);
+    } catch (error) {
+      if (signal.aborted) {
+        await this.withConnection(({ client }) =>
+          client.request({ method: 'tasks/cancel', params: { taskId } }, CancelTaskResultSchema, { timeout }),
+        ).catch((cancelError: unknown) =>
+          console.warn(`[tools] could not cancel task ${taskId} on ${this.server.name}: ${errorMessage(cancelError)}`),
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Waits for a task's result: `tasks/result` with its progress, asking how the task stands whenever a whole timeout
+   * passes without a word.
+   *
+   * @param taskId - The task.
+   * @param timeout - How long a quiet stretch may last before the task is checked.
+   * @param signal - Ends the wait.
+   * @param [onprogress] - Hears the task's progress.
+   * @returns What the tool answered.
+   * @throws {@link InstanceError} When the task asks for input, which a run's call has no way to give.
+   */
+  private async taskResult(
+    taskId: string,
+    timeout: number,
+    signal: AbortSignal,
+    onprogress?: (progress: Progress) => void,
+  ): Promise<CallToolResult> {
+    for (;;) {
+      try {
+        return await this.withConnection(({ client }) =>
+          client.request({ method: 'tasks/result', params: { taskId } }, CallToolResultSchema, {
+            signal,
+            timeout,
+            resetTimeoutOnProgress: true,
+            ...(onprogress === undefined ? {} : { onprogress }),
+          }),
+        );
+      } catch (error) {
+        // The SDK reports an abort as a timeout too.
+        const isQuiet = isMcpError(error, McpErrorCode.RequestTimeout) && signal.aborted === false;
+        if (isQuiet === false) {
+          throw error;
+        }
+      }
+      const task = await this.withConnection(({ client }) =>
+        client.request({ method: 'tasks/get', params: { taskId } }, GetTaskResultSchema, { signal, timeout }),
+      );
+      if (task.status === TASK_INPUT_REQUIRED) {
+        throw new InstanceError(
+          InstanceErrorCode.Misbehaved,
+          this.server.name,
+          `asked for input during task ${taskId}, which a run's tool call can't give`,
+        );
+      }
+      if (task.status === TASK_WORKING) {
+        await delay(task.pollInterval ?? this.settings.taskPollIntervalMs, undefined, { signal });
+      }
+    }
   }
 
   /**

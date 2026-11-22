@@ -336,6 +336,12 @@ flowchart TB
   adm -- "_meta names the run" --> gql["the permissioned GraphQL schema,<br/>as RunCaller"]
 ```
 
+- **A tool that may run as a task is called as one**, when its server takes tool calls as tasks. The server's
+  call timeout covers starting it and each quiet stretch after; the run's own timeout covers the rest, and
+  cancelling the run cancels the task. Its progress messages become notices under the call.
+- **Every call names a depth in `_meta`**: how many agents deep an agent it starts would be. Another server
+  gets only that number; the admin server gets the run, with the depth in it.
+
 - **A stdio instance starts on its first call** and stops when idle. A workspace instance runs as its entry's
   own uid with the server's group, in the server's install folder, with a HOME of its own.
 - **The admin server's tools are listed as far as the roles reach** (`canReachField`), and every call is
@@ -478,6 +484,39 @@ sequenceDiagram
 
 A key reaches only its own workspace's tasks. A caller that only polls `tasks/get` sees the status, and any caller can
 also follow `/runs/<id>/events` with the same key.
+
+### An agent calling an agent
+
+Add a router's `/mcp` as a streamable-HTTP server, with a workspace key in its headers, and grant it to an agent.
+Each agent behind it is then a tool for that agent, called as a task.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Run of agent A
+  participant Inst as Instance of the agents server
+  participant Door as /mcp
+  participant B as Run of agent B
+
+  A->>Inst: dispatch: agents__b, depth = A's + 1
+  Inst->>Door: tools/call with task, _meta agent-depth
+  Door->>Door: refuse past maxAgentDepth
+  Door->>B: beginRun at that depth
+  Door-->>Inst: the task: B's run id
+  Inst->>Door: tasks/result (with a progress token)
+  loop each step of B
+    Door-->>Inst: progress
+    Inst-->>A: a notice under the call
+  end
+  Door-->>Inst: B's answer, _meta.runId
+  Inst-->>A: the tool's result, and a notice linking B's run
+```
+
+- **B's run is a run of its own**, under the key's workspace, and the run page shows it under A's call.
+- **A quiet stretch longer than the server's call timeout** ends the wait on `tasks/result`: the instance asks
+  `tasks/get`, and waits on again while the task is working.
+- **Until agent-core nests one run's events in another's** ([agent-core#247](https://github.com/cubicecho/agent-core/issues/247)),
+  each of B's steps is a line.
 
 ## Run events
 

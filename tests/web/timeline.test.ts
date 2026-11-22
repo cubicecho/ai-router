@@ -73,6 +73,29 @@ describe('timelineOf', () => {
     expect(entries[1]).toMatchObject({ type: 'tool', result: 'no such file', ok: false });
   });
 
+  it("puts a called agent's steps and its run under the call, and other notices on their own", () => {
+    const entries = timelineOf([
+      event(1, { kind: 'notice', text: 'a tool was left out' }),
+      event(2, { kind: 'tool-call', name: 'agents__helper', id: 'a', text: '{"message":"hi"}' }),
+      event(3, { kind: 'notice', name: 'agents__helper', id: 'a', text: 'Calling fs__read' }),
+      event(4, { kind: 'notice', name: 'agents__helper', id: 'a', text: 'Thinking' }),
+      event(5, {
+        kind: 'notice',
+        name: 'agents__helper',
+        id: 'a',
+        text: 'agents__helper ran as run r-1.',
+        link: { name: 'r-1', uri: '/runs/r-1' },
+      }),
+      event(6, { kind: 'tool-result', name: 'agents__helper', id: 'a', ok: true, text: 'done' }),
+    ]);
+    expect(entries.map((entry) => entry.type)).toEqual(['note', 'tool']);
+    expect(entries[1]).toMatchObject({
+      progress: ['Calling fs__read', 'Thinking'],
+      calledRunId: 'r-1',
+      result: 'done',
+    });
+  });
+
   it('leaves a call open until its result arrives', () => {
     const [call] = timelineOf([event(1, { kind: 'tool-call', name: 'echo', id: 'a' })]);
     expect(call).toMatchObject({ type: 'tool', result: null, ok: null });

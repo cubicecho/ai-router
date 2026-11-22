@@ -343,6 +343,8 @@ export interface InstanceSettings {
   closeGraceMs: number;
   /** How long the helper may take to signal an isolated program. */
   signalTimeoutMs: number;
+  /** How often a tool call's task is checked when its server names no interval and has gone quiet. */
+  taskPollIntervalMs: number;
 }
 
 export const INSTANCE_DEFAULTS: Readonly<InstanceSettings> = Object.freeze({
@@ -357,6 +359,7 @@ export const INSTANCE_DEFAULTS: Readonly<InstanceSettings> = Object.freeze({
   stderrTailChars: 4_000,
   closeGraceMs: 2_000,
   signalTimeoutMs: 5_000,
+  taskPollIntervalMs: 2_000,
 });
 
 /** Reading MCP registries. */
@@ -505,6 +508,11 @@ export interface RunSettings {
   expireEveryMinutes: number;
   /** How often `/mcp` asks a client to check a task, the run it started, when it polls rather than waits. */
   taskPollIntervalMs: number;
+  /**
+   * How deep agents may call agents through `/mcp`: a run an app started is 0, and each call to an agent one more.
+   * A call past it is refused, so agents calling each other can't run on forever.
+   */
+  maxAgentDepth: number;
 }
 
 export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
@@ -528,6 +536,7 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   waitTimeoutHours: 24,
   expireEveryMinutes: 5,
   taskPollIntervalMs: 2_000,
+  maxAgentDepth: 3,
 });
 
 /**

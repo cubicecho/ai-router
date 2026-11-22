@@ -17,7 +17,12 @@ export type BuiltinConnector = (server: ResolvedServer) => Promise<Transport>;
 export const RUN_META_KEY = 'ai-router/run';
 
 /** The run a call to the admin server is for, as `_meta` carries it. */
-const runMetaSchema = z.object({ runId: z.string().min(1), agentId: z.string().min(1) });
+const runMetaSchema = z.object({
+  runId: z.string().min(1),
+  agentId: z.string().min(1),
+  /** The depth an agent a call through it would start is at: `RunToolCall.depth`. */
+  depth: z.number().int().nonnegative(),
+});
 /** The run a call to the admin server is for. */
 export type RunMeta = z.infer<typeof runMetaSchema>;
 
@@ -63,7 +68,7 @@ export function refuseIfBuiltin(server: { transport: Pick<ServerTransport, 'type
  * @returns The `_meta` object. Set by the router's own dispatch, never by the model.
  */
 export function runMeta(run: RunToolCall): Record<string, RunMeta> {
-  return { [RUN_META_KEY]: { runId: run.runId, agentId: run.agentId } };
+  return { [RUN_META_KEY]: { runId: run.runId, agentId: run.agentId, depth: run.depth } };
 }
 
 /**

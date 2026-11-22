@@ -74,6 +74,10 @@ export type TimelineEntry =
       result: string | null;
       ok: boolean | null;
       logs: ServerLogLine[];
+      /** What the server said while the call ran: a called agent's steps, one line each. */
+      progress: string[];
+      /** The run a called agent ran the call as, or null for any other tool. */
+      calledRunId: string | null;
     })
   | (EntryBase & { type: 'note'; kind: string; text: string })
   | (EntryBase & { type: 'input'; text: string })
@@ -84,6 +88,9 @@ export type TimelineEntry =
 
 /** A tool entry. */
 type ToolEntry = Extract<TimelineEntry, { type: 'tool' }>;
+
+/** Where the router records a run: a called agent's notice links to its run there. */
+const RUN_RECORD_PATH = '/runs/';
 
 /**
  * Whether a value is a plain object.
@@ -170,7 +177,8 @@ function callFor(calls: readonly ToolEntry[], event: TimelineEvent, isOpenOnly: 
 
 /**
  * Builds the timeline from a run's events: streamed text gathered into one entry per run of it, each tool call
- * joined to its result and its server's log lines, and the rest one entry each.
+ * joined to its result, its server's log lines and progress, and the run of an agent it called, and the rest one
+ * entry each.
  *
  * @param events - The run's events, in any order, perhaps repeated.
  * @returns The entries, oldest first.
@@ -202,6 +210,8 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
           result: null,
           ok: null,
           logs: [],
+          progress: [],
+          calledRunId: null,
         };
         calls.push(call);
         entries.push(call);
@@ -224,6 +234,19 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
           entries.push({ ...base, type: 'log', name: event.name, level, text: event.text });
         } else {
           call.logs.push({ level, text: event.text });
+        }
+        break;
+      }
+      case EventKind.Notice: {
+        // A notice with a call's id is what the call's server said while it ran.
+        const call = event.id === null || event.id === undefined ? undefined : callFor(calls, event, false);
+        const uri = uriOf(event.link);
+        if (call === undefined) {
+          entries.push({ ...base, type: 'note', kind: event.kind, text: event.text });
+        } else if (uri?.startsWith(RUN_RECORD_PATH)) {
+          call.calledRunId = uri.slice(RUN_RECORD_PATH.length);
+        } else {
+          call.progress.push(event.text);
         }
         break;
       }

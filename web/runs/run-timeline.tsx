@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import type { ReactElement, ReactNode } from 'react';
 import { CollapsibleRow } from '@/components/collapsible-row';
 import { List, ListRow } from '@/components/list';
@@ -91,11 +92,23 @@ function callBadge(entry: Extract<TimelineEntry, { type: 'tool' }>, isLive: bool
   );
 }
 
-/** One call: its arguments, its server's log lines and what it answered. */
+/** One call: its arguments, its server's log lines and progress, the agent run it started, and what it answered. */
 function ToolBody({ entry }: { entry: Extract<TimelineEntry, { type: 'tool' }> }) {
+  const { calledRunId } = entry;
   return (
     <div className="grid gap-2">
+      {calledRunId === null ? null : (
+        <span className="text-sm">
+          Ran as{' '}
+          <Link to="/agent-runs/$runId" params={{ runId: calledRunId }} className="underline underline-offset-2">
+            run {calledRunId}
+          </Link>
+        </span>
+      )}
       {entry.args === '' ? null : <CodeBlock title="Arguments" content={prettyOf(entry.args)} wrap maxHeight="sm" />}
+      {entry.progress.length === 0 ? null : (
+        <CodeBlock title="Progress" content={entry.progress.join('\n')} wrap maxHeight="sm" />
+      )}
       {entry.logs.length === 0 ? null : (
         <CodeBlock
           title="Server log"
