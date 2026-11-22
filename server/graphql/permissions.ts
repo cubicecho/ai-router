@@ -152,6 +152,8 @@ export const permissions: PermissionsMap = {
     createWorkspace: isUser,
     updateWorkspace: isUser,
     deleteWorkspace: isUser,
+    // People only: no admin-server role reaches it, since it widens what the new workspace's runs reach.
+    copyWorkspace: isUser,
     createWorkspaceKey: isUser,
     revokeWorkspaceKey: isUser,
     setProviderApiKey: isAdmin,

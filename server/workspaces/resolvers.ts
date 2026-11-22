@@ -1,9 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
 import { requireUser } from '../auth/caller.ts';
 import { mintKey } from '../auth/keys.ts';
 import type { Context } from '../core/context.ts';
-import { notFound } from '../core/errors.ts';
+import { badInput, notFound } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { MS_PER_DAY } from '../core/wire.ts';
 import type { Transaction } from '../db/client.ts';
@@ -14,7 +14,7 @@ import { workspaceKeys } from '../db/tables/workspace-keys.ts';
 import { workspaceServers } from '../db/tables/workspace-servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
-import { keyInput, toolNameInput } from './input.ts';
+import { keyInput, toolNameInput, workspaceInput } from './input.ts';
 
 const WORKSPACES_SDL = parse(`
   "A workspace key as it is made. The secret is in this answer and nowhere else, so show it to the person now."
@@ -61,8 +61,32 @@ const WORKSPACES_SDL = parse(`
       tool: String!
       enabled: Boolean!
     ): Boolean!
+    """
+    Makes a workspace that starts like another: the same agents, the same servers with their env, args, URL and roles,
+    and the same servers and tools turned off for each agent, so its runs reach what the other's do. It never copies
+    keys or secrets: the new workspace has no key until one is made, and its servers use their own secrets until it
+    is given overrides. Each of its servers gets its own workspace instance.
+    """
+    copyWorkspace(
+      "The workspace to start from."
+      fromWorkspaceId: UUID!
+      slug: String!
+      name: String!
+      description: String
+    ): Workspace!
   }
 `);
+
+/** What `copyWorkspace` is given. */
+interface CopyWorkspaceArgs {
+  fromWorkspaceId: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+}
+
+/** What a new workspace states: all of its columns but the description are required. */
+const newWorkspaceInput = workspaceInput.required({ slug: true, name: true });
 
 /** What `setWorkspaceAgentServerEnabled` is given. */
 interface SetAgentServerEnabledArgs {
@@ -106,8 +130,8 @@ async function requireAgentAndServer(tx: Transaction, workspaceAgentId: string, 
 }
 
 /**
- * Adds the workspace fields CRUD can't express: making and revoking keys, and turning a workspace's servers, or single
- * tools of them, off for one of its agents.
+ * Adds the workspace fields CRUD can't express: making and revoking keys, turning a workspace's servers, or single
+ * tools of them, off for one of its agents, and copying a workspace into a new one.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -195,6 +219,104 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
     // Before answering, so the next request reaches what was set.
     await ctx.snapshot.rebuild();
     return enabled;
+  };
+
+  mutations.copyWorkspace.resolve = async (_parent: unknown, args: CopyWorkspaceArgs, ctx: Context) => {
+    requireUser(ctx.caller);
+    const values = parseOrThrow(newWorkspaceInput, { ...args, description: args.description ?? '' });
+    const workspace = await ctx.db.transaction(async (tx) => {
+      const [source] = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.id, args.fromWorkspaceId));
+      if (source === undefined) {
+        throw notFound('The workspace to copy from was not found.');
+      }
+      const [taken] = await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, values.slug));
+      if (taken !== undefined) {
+        throw badInput('A workspace with that slug already exists.');
+      }
+      const [created] = await tx.insert(workspaces).values(values).returning();
+      if (created === undefined) {
+        throw new Error('The workspace insert returned no row.');
+      }
+      const entries = await tx
+        .select({ id: workspaceAgents.id, agentId: workspaceAgents.agentId })
+        .from(workspaceAgents)
+        .where(eq(workspaceAgents.workspaceId, source.id));
+      const copiedEntries =
+        entries.length === 0
+          ? []
+          : await tx
+              .insert(workspaceAgents)
+              .values(entries.map(({ agentId }) => ({ workspaceId: created.id, agentId })))
+              .returning({ id: workspaceAgents.id, agentId: workspaceAgents.agentId });
+      const newEntryIdByAgent = new Map(copiedEntries.map((entry) => [entry.agentId, entry.id]));
+      const agentIdByOldEntry = new Map(entries.map((entry) => [entry.id, entry.agentId]));
+      // The new workspace's entry for the agent the source's entry is for.
+      const newEntryIdOf = (oldEntryId: string): string => {
+        const newId = newEntryIdByAgent.get(agentIdByOldEntry.get(oldEntryId) ?? '');
+        if (newId === undefined) {
+          throw new Error('A copied workspace agent has no new entry.');
+        }
+        return newId;
+      };
+
+      // childUid and installDir are left out, so each entry gets its own uid and workspace instance.
+      const serverEntries = await tx
+        .select({
+          serverId: workspaceServers.serverId,
+          env: workspaceServers.env,
+          args: workspaceServers.args,
+          url: workspaceServers.url,
+          roles: workspaceServers.roles,
+        })
+        .from(workspaceServers)
+        .where(eq(workspaceServers.workspaceId, source.id));
+      if (serverEntries.length > 0) {
+        await tx.insert(workspaceServers).values(serverEntries.map((entry) => ({ ...entry, workspaceId: created.id })));
+      }
+
+      const oldEntryIds = entries.map((entry) => entry.id);
+      if (oldEntryIds.length > 0) {
+        const disabledServers = await tx
+          .select({
+            workspaceAgentId: workspaceAgentDisabledServers.workspaceAgentId,
+            serverId: workspaceAgentDisabledServers.serverId,
+          })
+          .from(workspaceAgentDisabledServers)
+          .where(inArray(workspaceAgentDisabledServers.workspaceAgentId, oldEntryIds));
+        if (disabledServers.length > 0) {
+          await tx.insert(workspaceAgentDisabledServers).values(
+            disabledServers.map((row) => ({
+              workspaceAgentId: newEntryIdOf(row.workspaceAgentId),
+              serverId: row.serverId,
+            })),
+          );
+        }
+        const disabledTools = await tx
+          .select({
+            workspaceAgentId: workspaceAgentDisabledTools.workspaceAgentId,
+            serverId: workspaceAgentDisabledTools.serverId,
+            tool: workspaceAgentDisabledTools.tool,
+          })
+          .from(workspaceAgentDisabledTools)
+          .where(inArray(workspaceAgentDisabledTools.workspaceAgentId, oldEntryIds));
+        if (disabledTools.length > 0) {
+          await tx.insert(workspaceAgentDisabledTools).values(
+            disabledTools.map((row) => ({
+              workspaceAgentId: newEntryIdOf(row.workspaceAgentId),
+              serverId: row.serverId,
+              tool: row.tool,
+            })),
+          );
+        }
+      }
+      return created;
+    });
+    // Before answering, so the new workspace's agents reach their servers at once.
+    await ctx.snapshot.rebuild();
+    return workspace;
   };
 
   return extended;

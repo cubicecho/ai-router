@@ -110,6 +110,10 @@ non-negotiables apply on top of these.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
   each is set by its own write-only mutation. Reads answer `apiKeySet: boolean`. A test plants
   each secret and scans every answer.
+- **A copied workspace carries no keys and no secrets.** `copyWorkspace` (people-only) copies the
+  agents, the server entries' env, args, URL and roles, and what is turned off per agent, mapping
+  each old workspace agent to its new one. Each entry gets a fresh `childUid` and no `installDir`,
+  so the copy has instances of its own. `workspace_keys` and `server_secrets` are never read.
 
 ### Endpoints and names
 

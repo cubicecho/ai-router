@@ -92,7 +92,7 @@ export function WorkspacesRoute() {
               }
             />
           ) : null}
-          <WorkspaceDialog open={isCreating} onOpenChange={setIsCreating} workspace={null} />
+          <WorkspaceDialog open={isCreating} onOpenChange={setIsCreating} workspace={null} copyChoices={rows} />
         </>
       }
     />

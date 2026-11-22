@@ -119,6 +119,9 @@ flowchart TB
 - **Roles live on the entry for `ai-router`** and nowhere else. The admin server is a workspace server like
   any other; the roles decide which management tools a run is listed, and the schema's permissions guard
   each call.
+- **A new workspace may start as a copy of another** (`copyWorkspace`, people-only): the same agents,
+  servers and per-agent switches, so each agent reaches what it does there, with instances of its
+  own. Keys and secrets are never copied.
 
 ## From a request to a resolved run
 
