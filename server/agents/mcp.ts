@@ -13,13 +13,14 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import express, { type Request, type Response, type Router } from 'express';
+import { z } from 'zod';
 import { ConflictingKeysError } from '../auth/caller.ts';
 import { version } from '../core/config.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
-import { HttpStatus } from '../core/wire.ts';
+import { AGENT_DEPTH_META_KEY, HttpStatus } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import { RunStatus } from '../db/tables/runs.ts';
@@ -30,7 +31,7 @@ import { resolveAgent, UnreadableAgentError } from './layers.ts';
 import { callResultOf, serveTasks, TASKS_CAPABILITY, taskOf } from './mcp-tasks.ts';
 import { RequestRefusal, readRunRequest } from './request.ts';
 import { RunConflict, type RunListener, type RunService, type StartedRun } from './run.ts';
-import { beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
+import { APP_RUN_DEPTH, beginRun, type RunnableAgent, runnableAgent, runnableAgents } from './start.ts';
 
 /** What the door calls itself to an MCP client. */
 const SERVER_NAME = 'ai-router-agents';
@@ -43,6 +44,9 @@ const PROGRESS_KINDS: ReadonlySet<string> = new Set([
   RunEventKind.ToolResult,
   RunEventKind.Notice,
 ]);
+
+/** A call's depth, as an agent's run sends it. */
+const depthSchema = z.number().int().nonnegative();
 
 /** What every agent's tool takes. */
 const INPUT_SCHEMA: Tool['inputSchema'] = {
@@ -129,6 +133,18 @@ function progressMessage(event: RunEvent): string | null {
 }
 
 /**
+ * Reads how deep the run a call would start is.
+ *
+ * @param meta - The call's `_meta`.
+ * @returns The depth an agent's run named, or `APP_RUN_DEPTH` for a call from anything else.
+ */
+function depthOf(meta: unknown): number {
+  const named = isRecord(meta) ? meta[AGENT_DEPTH_META_KEY] : undefined;
+  const parsed = depthSchema.safeParse(named);
+  return parsed.success ? parsed.data : APP_RUN_DEPTH;
+}
+
+/**
  * Names a tool call across requests: a client numbers its own, so the id is read within its key.
  *
  * @param caller - The key the call came with.
@@ -170,6 +186,7 @@ export function createAgentMcpRoutes({ db, snapshot, runs, forwarder, now = () =
    * @param caller - The key's workspace.
    * @param name - The tool, which is the agent's name.
    * @param args - What the call sent.
+   * @param meta - The call's `_meta`, which names its depth when an agent's run made it.
    * @returns The run, to execute, or why the call is refused, as a failed result.
    * @throws {@link McpError} For an agent the key may not run, or a call without a message.
    */
@@ -177,7 +194,14 @@ export function createAgentMcpRoutes({ db, snapshot, runs, forwarder, now = () =
     caller: WorkspaceCaller,
     name: string,
     args: unknown,
+    meta: unknown,
   ): Promise<StartedRun | CallToolResult> => {
+    const depth = depthOf(meta);
+    if (depth > RUN_DEFAULTS.maxAgentDepth) {
+      return failed(
+        `Agents may call agents ${RUN_DEFAULTS.maxAgentDepth} deep, and this call would be ${depth} deep. Answer without calling ${name}.`,
+      );
+    }
     const current = snapshot.current();
     const workspace = current.workspaces.get(caller.workspaceId);
     const agent = runnableAgent(current.agents, caller.workspaceId, name);
@@ -202,6 +226,7 @@ export function createAgentMcpRoutes({ db, snapshot, runs, forwarder, now = () =
         conversation,
         sessionKey: key,
         idempotency: null,
+        depth,
       });
     } catch (error) {
       const isRefused =
@@ -294,7 +319,7 @@ export function createAgentMcpRoutes({ db, snapshot, runs, forwarder, now = () =
     }));
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const progressToken = request.params._meta?.progressToken;
-      const started = await startCall(caller, request.params.name, request.params.arguments);
+      const started = await startCall(caller, request.params.name, request.params.arguments, request.params._meta);
       if (request.params.task !== undefined) {
         return callAgentAsTask(started, progressToken);
       }

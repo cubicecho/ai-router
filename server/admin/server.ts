@@ -145,7 +145,7 @@ function callerOf(workspaceId: string | null, roles: readonly AdminRole[], extra
   if (run === null || workspaceId === null) {
     throw forbidden(RUNS_ONLY);
   }
-  return { kind: CALLER_RUN, runId: run.runId, agentId: run.agentId, workspaceId, roles };
+  return { kind: CALLER_RUN, runId: run.runId, agentId: run.agentId, workspaceId, roles, depth: run.depth };
 }
 
 /**

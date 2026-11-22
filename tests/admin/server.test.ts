@@ -59,7 +59,13 @@ const UNLISTED = /(Aggregate|GroupBy)$/;
 const FIXTURE = fileURLToPath(new URL('../tools/fixtures/stdio-server.ts', import.meta.url));
 
 /** The run every call in these tests is made for. */
-const RUN: RunToolCall = { agentId: 'agent-1', agentName: 'helper', runId: 'run-1', workspaceId: 'workspace-1' };
+const RUN: RunToolCall = {
+  agentId: 'agent-1',
+  agentName: 'helper',
+  runId: 'run-1',
+  workspaceId: 'workspace-1',
+  depth: 1,
+};
 
 let db: TestDb;
 let root: string;
@@ -221,7 +227,13 @@ describe('a call to the admin server', () => {
         transport: { type: TRANSPORT_STDIO, command: process.execPath, args: [FIXTURE] },
       },
     });
-    const made: RunToolCall = { agentId: createAgent.id, agentName: 'helper', runId: run?.id ?? '', workspaceId };
+    const made: RunToolCall = {
+      agentId: createAgent.id,
+      agentName: 'helper',
+      runId: run?.id ?? '',
+      workspaceId,
+      depth: 1,
+    };
     // On the base instance, as an agent trying a tool usually does: the activity still names the run's workspace.
     const result = await tools.callTool(
       adminServerId,
@@ -332,6 +344,7 @@ describe('a call to the admin server', () => {
       agentId: RUN.agentId,
       workspaceId,
       roles: [AdminRole.AgentsRead],
+      depth: 1,
     });
     const result = await graphql({
       schema: createSchema(db),

@@ -87,6 +87,7 @@ function asRunOf(overrides: Partial<Pick<RunCaller, 'workspaceId' | 'agentId' | 
     workspaceId,
     agentId: author.id,
     roles: [AdminRole.AgentsManage],
+    depth: 1,
     ...overrides,
   };
   return createClient(db, caller);

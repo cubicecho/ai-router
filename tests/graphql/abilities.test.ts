@@ -28,7 +28,7 @@ const { read, create, update, delete: remove } = Actions;
  * @returns The caller.
  */
 function runCaller(workspaceId: string, roles: RunCaller['roles']): RunCaller {
-  return { kind: CALLER_RUN, runId: 'run-1', workspaceId, agentId: 'agent-1', roles };
+  return { kind: CALLER_RUN, runId: 'run-1', workspaceId, agentId: 'agent-1', roles, depth: 1 };
 }
 
 describe('abilityFor', () => {

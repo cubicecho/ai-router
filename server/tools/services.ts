@@ -4,6 +4,7 @@ import { INSTANCE_DEFAULTS } from '../core/defaults.ts';
 import { badInput, conflict, errorMessage, notFound, upstreamFailed } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
 import { parseOrThrow } from '../core/validation.ts';
+import { AGENT_DEPTH_META_KEY } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost, SnapshotServer, SnapshotServerEntry } from '../db/snapshot.ts';
 import { registries } from '../db/tables/registries.ts';
@@ -75,6 +76,17 @@ export interface ToolServiceDeps {
  */
 function asUpstream(error: unknown): unknown {
   return error instanceof InstanceError ? upstreamFailed(error.message) : error;
+}
+
+/**
+ * Writes a run's tool call's `_meta`.
+ *
+ * @param server - The server called.
+ * @param run - The run the call is for.
+ * @returns The run, for the admin server; for any other, the depth an agent the call starts would be at.
+ */
+function callMeta(server: ResolvedServer, run: RunToolCall): Record<string, unknown> {
+  return isBuiltin(server) ? runMeta(run) : { [AGENT_DEPTH_META_KEY]: run.depth };
 }
 
 /**
@@ -442,8 +454,8 @@ export function createToolServices({
     try {
       const result = await instances.callTool(resolved, tool, args, {
         ...(run?.signal === undefined ? {} : { signal: run.signal }),
-        // Who the call is for, which only the admin server reads. Another server is never told.
-        ...(run !== undefined && isBuiltin(resolved) ? { meta: runMeta(run) } : {}),
+        ...(run?.onProgress === undefined ? {} : { onProgress: run.onProgress }),
+        ...(run === undefined ? {} : { meta: callMeta(resolved, run) }),
       });
       record(result.isError !== true, result.isError === true ? 'The tool answered an error.' : null);
       return result;

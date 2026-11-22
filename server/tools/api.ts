@@ -43,6 +43,10 @@ export interface RunToolCall {
   workspaceId: string;
   /** Abandons the call: the server is told it was cancelled. */
   signal?: AbortSignal;
+  /** How many agents deep an agent the call starts would be: the run's own depth, plus one. */
+  depth: number;
+  /** Hears each progress message the server sends while the call runs, a called agent's steps included. */
+  onProgress?: (message: string) => void;
 }
 
 /** One running or stopped connection to a server. */

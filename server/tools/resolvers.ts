@@ -256,6 +256,7 @@ async function runCallOf(ctx: Context, caller: RunCaller): Promise<RunToolCall> 
     agentId: caller.agentId,
     agentName: row?.agentName ?? caller.agentId,
     workspaceId: caller.workspaceId,
+    depth: caller.depth,
   };
 }
 

@@ -146,7 +146,7 @@ describe('the router settings', () => {
     const asKey = createClient(db, workspaceCaller(workspaceId, keyId), { snapshot });
     expect((await asKey.expectError(UPDATE, { input: { maxAppTools: 4 } })).code).toBe(ErrorCode.Forbidden);
     expect((await asKey.expectError(READ)).code).toBe(ErrorCode.Forbidden);
-    const run = { kind: CALLER_RUN, runId: 'run-1', workspaceId, agentId: 'agent-1', roles: ADMIN_ROLES };
+    const run = { kind: CALLER_RUN, runId: 'run-1', workspaceId, agentId: 'agent-1', roles: ADMIN_ROLES, depth: 1 };
     const asRun = createClient(db, run, { snapshot });
     expect((await asRun.expectError(UPDATE, { input: { maxAppTools: 4 } })).code).toBe(ErrorCode.Forbidden);
     expect((await asRun.expectError(READ)).code).toBe(ErrorCode.Forbidden);

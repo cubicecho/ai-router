@@ -121,6 +121,10 @@ non-negotiables apply on top of these.
   run as an MCP task (2025-11-25): it is answered at once, the task is the run (same id, read from
   the runs table, never a second store), its run outlives the connection, and `tasks/result`
   streams the run's `RunEvent`s as progress notifications linked to the task (`agents/mcp-tasks`).
+- **An agent calls an agent through a router's `/mcp`, added as a server.** A run calls any tool
+  that supports tasks as a task (`tools/instance`), and each call names its depth in
+  `_meta["cubicecho.com/agent-depth"]`: `/mcp` refuses one past `RUN_DEFAULTS.maxAgentDepth`.
+  Never send a run's id to another server; the number is all that leaves.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
 - **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the
@@ -138,7 +142,7 @@ non-negotiables apply on top of these.
 - **The admin server lists only what the roles reach, and the schema's permissions are the lock.**
   Its tools come from the same permissioned schema `/graphql` serves, executed with the run's
   `RunCaller`, whose roles are read from the snapshot. A call names its run in `_meta`, set by the
-  dispatch and never sent to another server. A run never changes or restarts `ai-router`. The
+  dispatch and never sent to another server, which is told only the call's depth. A run never changes or restarts `ai-router`. The
   listing must fit `MCP_DEFAULTS`; prune it in `admin/server`, never in the schema.
 - **No discovery yet.** mcp-router's AI Catalog, cards and LAN announce/discovery are not
   ported in the first pass. When they come, the public catalog names only the endpoint, and

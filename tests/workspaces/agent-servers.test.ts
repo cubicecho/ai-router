@@ -137,6 +137,7 @@ describe("an agent's servers in a workspace", () => {
       workspaceId,
       agentId,
       roles: Object.values(AdminRole),
+      depth: 1,
     });
     const byRun = await asRun.expectError(GRANT, { workspaceAgentId: entryId, serverIds: [serverIds.actual] });
     expect(byRun.code).toBe(ErrorCode.Forbidden);

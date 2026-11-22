@@ -393,6 +393,8 @@ describe('stopping a stdio program', () => {
 describe('a streamable-HTTP instance', () => {
   it('counts its calls in flight', async () => {
     const instance = track(httpServer());
+    // Listed first, as a run's tools are: a call to a server not yet listed lists it too, to see if it runs as a task.
+    await instance.listTools();
     const call = instance.callTool('header', {});
     expect(instance.inFlightCount).toBe(1);
     await call;
