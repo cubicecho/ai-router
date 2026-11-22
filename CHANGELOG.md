@@ -1,3 +1,12 @@
+# [0.17.0](https://github.com/cubicecho/ai-router/compare/v0.16.0...v0.17.0) (2026-11-22)
+
+### Features
+
+* **agents:** a run calls a server's tool as an MCP task, so agents can call agents ([b5efb14](https://github.com/cubicecho/ai-router/commit/b5efb14dde477f8f2fbc1299f40fcb558a8d5b9f)), closes [#51](https://github.com/cubicecho/ai-router/issues/51)
+* **workspaces:** copy a workspace's agents and MCP servers into a new one ([23513f1](https://github.com/cubicecho/ai-router/commit/23513f13b66b1b3c0b69f7ba2508a4ec1d0ad2cf)), closes [#45](https://github.com/cubicecho/ai-router/issues/45)
+* **workspaces:** every agent reaches the workspace's servers unless turned off ([22fe709](https://github.com/cubicecho/ai-router/commit/22fe709ac78dc12657ee036ba7922b11c750c3c3)), closes [#46](https://github.com/cubicecho/ai-router/issues/46)
+* **workspaces:** turn off single tools of a workspace's server for one agent ([72df5f4](https://github.com/cubicecho/ai-router/commit/72df5f47e1a2a1645d35d442074547d89b51c552)), closes [#47](https://github.com/cubicecho/ai-router/issues/47)
+
 # [0.16.0](https://github.com/cubicecho/ai-router/compare/v0.15.0...v0.16.0) (2026-11-21)
 
 ### Features
