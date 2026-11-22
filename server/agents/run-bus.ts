@@ -1,4 +1,4 @@
-import { fold, type RunEvent, type RunEventInput, RunEventKind } from '@cubicecho/agent-core';
+import { fold, isNested, type RunEvent, type RunEventInput, RunEventKind } from '@cubicecho/agent-core';
 import { and, asc, eq, gt, inArray, max } from 'drizzle-orm';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
@@ -55,10 +55,15 @@ function rowsOf(runId: string, events: RunEvent[]): StoredRow[] {
  *
  * @param event - An event.
  * @param other - The event after it.
- * @returns true when both are streamed text of the same kind, in the same exchange.
+ * @returns true when both are streamed text of the same kind, in the same exchange, from the same run.
  */
 function isSameStretch(event: RunEvent, other: RunEvent): boolean {
-  return STREAMED.has(event.kind) && event.kind === other.kind && event.exchange === other.exchange;
+  return (
+    STREAMED.has(event.kind) &&
+    event.kind === other.kind &&
+    event.exchange === other.exchange &&
+    JSON.stringify(event.via ?? []) === JSON.stringify(other.via ?? [])
+  );
 }
 
 /**
@@ -324,7 +329,8 @@ export function createRunBus(db: DB, overrides: Partial<RunSettings> = {}, now: 
           for (const event of events) {
             yield event;
             last = event.seq;
-            if (event.kind === RunEventKind.Done) {
+            // A called run's `done`, nested in this one, doesn't end this one.
+            if (event.kind === RunEventKind.Done && isNested(event) === false) {
               return;
             }
           }

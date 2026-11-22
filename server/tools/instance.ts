@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { PROGRESS_FIELD, progressEvent } from '@cubicecho/agent-core';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -24,7 +25,8 @@ import {
 import { version } from '../core/config.ts';
 import { INSTANCE_DEFAULTS, type InstanceSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { HttpStatus } from '../core/wire.ts';
+import { HttpStatus, RUN_EVENT_META_KEY } from '../core/wire.ts';
+import type { ToolProgress } from './api.ts';
 import type { BuiltinConnector } from './builtin.ts';
 import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 import { type ChildExec, childCommand, childEnv, execChild } from './install-folder.ts';
@@ -158,8 +160,8 @@ export interface CallOptions {
   timeoutMs?: number;
   /** The request's `_meta`: the depth an agent the call starts would be at, and for the admin server, its run. */
   meta?: Record<string, unknown>;
-  /** Hears each progress message the server sends while the call runs. */
-  onProgress?: (message: string) => void;
+  /** Hears what the server says while the call runs. */
+  onProgress?: (progress: ToolProgress) => void;
 }
 
 /** A task's statuses that the server is still working through. */
@@ -388,15 +390,22 @@ function isMcpError(error: unknown, code: McpErrorCode): boolean {
 }
 
 /**
- * Passes a server's progress messages on.
+ * Passes on what a server says while a call runs.
  *
- * @param onProgress - Hears each message.
- * @returns The SDK's progress listener. A notification without a message says nothing to pass on.
+ * @param onProgress - Hears each step of an agent run, or else each message.
+ * @returns The SDK's progress listener. A notification with neither says nothing to pass on.
+ *
+ * @remarks
+ * A server is untrusted, so its event goes through agent-core's reader, which drops a malformed one.
  */
-function progressListener(onProgress: (message: string) => void): (progress: Progress) => void {
-  return ({ message }) => {
-    if (message !== undefined && message !== '') {
-      onProgress(message);
+function progressListener(onProgress: (progress: ToolProgress) => void): (progress: Progress) => void {
+  return (progress) => {
+    const meta: unknown = (progress as { _meta?: Record<string, unknown> })._meta?.[RUN_EVENT_META_KEY];
+    const event = meta === undefined ? undefined : progressEvent({ [PROGRESS_FIELD]: { event: meta } });
+    if (event !== undefined) {
+      onProgress({ event });
+    } else if (progress.message !== undefined && progress.message !== '') {
+      onProgress({ message: progress.message });
     }
   };
 }

@@ -1,4 +1,4 @@
-import { type RunEvent, RunEventKind } from '@cubicecho/agent-core';
+import { isNested, type RunEvent, RunEventKind } from '@cubicecho/agent-core';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
@@ -114,10 +114,10 @@ function toolOf(agent: RunnableAgent): Tool {
  * Says what a run's event is, as a progress message.
  *
  * @param event - The event.
- * @returns A line, or null for an event that is not a step.
+ * @returns A line, or null for an event that is not a step of this run.
  */
 function progressMessage(event: RunEvent): string | null {
-  if (PROGRESS_KINDS.has(event.kind) === false) {
+  if (PROGRESS_KINDS.has(event.kind) === false || isNested(event)) {
     return null;
   }
   if (event.kind === RunEventKind.ToolCall) {

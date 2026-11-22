@@ -1,4 +1,11 @@
-import { progressChunk, type RunEvent, RunEventKind, type StackWarning, withProgress } from '@cubicecho/agent-core';
+import {
+  isNested,
+  progressChunk,
+  type RunEvent,
+  RunEventKind,
+  type StackWarning,
+  withProgress,
+} from '@cubicecho/agent-core';
 import type { Response } from 'express';
 import { HttpStatus, MS_PER_SECOND } from '../core/wire.ts';
 import type { OpenAiErrorBody } from '../models/openai-error.ts';
@@ -94,9 +101,13 @@ function warningsField(warnings: readonly StackWarning[]): { [AGENT_CORE_FIELD]?
  * Says what a run's event is in the words a chat client shows as a model's reasoning.
  *
  * @param event - The event.
- * @returns The scratchpad's text as it streams, a line for a tool called or come back, or null for any other event.
+ * @returns The scratchpad's text as it streams, a line for a tool called or come back, or null for any other event
+ * and for one from a run this one called.
  */
 export function reasoningText(event: RunEvent): string | null {
+  if (isNested(event)) {
+    return null;
+  }
   if (event.kind === RunEventKind.Thinking) {
     return event.text;
   }

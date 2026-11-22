@@ -7,9 +7,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
-import { RUN_EVENT_META_KEY } from '../../server/agents/mcp-tasks.ts';
 import { isRecord } from '../../server/core/is-record.ts';
-import { HttpStatus } from '../../server/core/wire.ts';
+import { HttpStatus, RUN_EVENT_META_KEY } from '../../server/core/wire.ts';
 import { RunStatus, runs } from '../../server/db/tables/runs.ts';
 import { createWorkspaceWithKey } from '../helpers.ts';
 import { ECHO, lastMessage, QUESTION, sentMessages, until, useRunHarness } from './run-harness.ts';

@@ -113,6 +113,7 @@ subscription RunEvents($runId: UUID!) {
     level
     link
     loads
+    via
   }
 }
 

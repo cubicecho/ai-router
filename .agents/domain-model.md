@@ -362,8 +362,9 @@ Everything about the code comes after `Owner:`.
 - **Agent call:** an agent's run calling another agent. A workspace adds a router's `/mcp` (this
   one or another) as a streamable-HTTP server, with a workspace key in its headers, and each agent
   behind it is a tool for the agents of that workspace that have it on. The call runs as a task, and the called
-  agent's run is a run of its own, under the key's workspace. Its steps show in the caller's run
-  as notices with the call's id, and a last notice links to its run (`/runs/<id>`), read from the
+  agent's run is a run of its own, under the key's workspace. Its events are filed in the caller's
+  run with agent-core's `nestEvent`, `via` naming the run and call each came from, and shown under
+  the call, never acted on. A last notice links to its run (`/runs/<id>`), read from the
   answer's `_meta.runId`. Each run is one agent deeper than its caller, and `/mcp` refuses a call
   past `RUN_DEFAULTS.maxAgentDepth`. Owner: `agents/run` (dispatch), `tools/instance`,
   `agents/mcp`.

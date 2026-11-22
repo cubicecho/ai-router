@@ -5,6 +5,7 @@ import {
   createRuntime,
   failedRun,
   freshCallId,
+  nestEvent,
   preview,
   type RunEvent,
   type RunEventInput,
@@ -349,6 +350,28 @@ interface Segment {
   spent: { input: number; output: number };
   /** The layers the run started with, kept for its next wait. */
   layers: Pick<RunResume, 'systemText' | 'appParts' | 'servers' | 'sampling'>;
+}
+
+/**
+ * Files a called agent's event under the call that ran it.
+ *
+ * @param event - The event, as the called run's server sent it.
+ * @param callId - The call.
+ * @param heard - The last `seq` heard from each run during this call. Updated.
+ * @returns The event to publish, or null for a repeat, or for one nested deeper than agents may call.
+ *
+ * @remarks
+ * `tasks/result` starts from a run's first event each time a quiet task is asked again, so repeats are dropped by
+ * `seq`. The server is untrusted, and a `via` longer than the limit could only be made up.
+ */
+function nestedEvent(event: RunEvent, callId: string, heard: Map<string, number>): RunEventInput | null {
+  const isRepeat = event.seq <= (heard.get(event.runId) ?? 0);
+  const isTooDeep = (event.via?.length ?? 0) >= RUN_DEFAULTS.maxAgentDepth;
+  if (isRepeat || isTooDeep) {
+    return null;
+  }
+  heard.set(event.runId, event.seq);
+  return nestEvent(event, { runId: event.runId, callId });
 }
 
 /**
@@ -737,6 +760,7 @@ export function createRunService({
         if (target === undefined) {
           throw new Error(`This run has no tool named "${call.name}".`);
         }
+        const heard = new Map<string, number>();
         const result = await tools.callTool(target.serverId, workspace.id, target.tool, call.args, {
           agentId: agent.id,
           agentName: agent.name,
@@ -744,8 +768,16 @@ export function createRunService({
           workspaceId: workspace.id,
           signal: callSignal ?? runSignal,
           depth: input.depth + 1,
-          // Until agent-core nests one run's events in another's (cubicecho/agent-core#247), a line each.
-          onProgress: (text) => say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text }),
+          onProgress: (progress) => {
+            if (progress.event === undefined) {
+              say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text: progress.message });
+              return;
+            }
+            const nested = nestedEvent(progress.event, call.id, heard);
+            if (nested !== null) {
+              say(nested);
+            }
+          },
         });
         const childRunId = calledRunOf(result);
         if (childRunId !== null) {

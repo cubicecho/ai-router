@@ -518,8 +518,8 @@ sequenceDiagram
   Door-->>Inst: the task: B's run id
   Inst->>Door: tasks/result (with a progress token)
   loop each step of B
-    Door-->>Inst: progress
-    Inst-->>A: a notice under the call
+    Door-->>Inst: progress, with B's RunEvent in _meta
+    Inst-->>A: the event, nested under the call (via)
   end
   Door-->>Inst: B's answer, _meta.runId
   Inst-->>A: the tool's result, and a notice linking B's run
@@ -528,8 +528,10 @@ sequenceDiagram
 - **B's run is a run of its own**, under the key's workspace, and the run page shows it under A's call.
 - **A quiet stretch longer than the server's call timeout** ends the wait on `tasks/result`: the instance asks
   `tasks/get`, and waits on again while the task is working.
-- **Until agent-core nests one run's events in another's** ([agent-core#247](https://github.com/cubicecho/agent-core/issues/247)),
-  each of B's steps is a line.
+- **B's events are filed in A's run with agent-core's `nestEvent`,** numbered in A's sequence, and `via` says
+  which run and call each came from. They are shown and never acted on: B's `done` doesn't end a follower of A,
+  its text never joins A's, and a client without progress doesn't see it as A's reasoning. Another server's
+  progress messages stay plain lines under the call.
 
 ## Run events
 

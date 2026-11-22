@@ -36,3 +36,6 @@ export const MS_PER_DAY = 86_400_000;
  * reads it to refuse calls past `RUN_DEFAULTS.maxAgentDepth`. Only the number is sent, never a run's id.
  */
 export const AGENT_DEPTH_META_KEY = 'cubicecho.com/agent-depth';
+
+/** The `_meta` key a task's progress notification carries the run's `RunEvent` under. */
+export const RUN_EVENT_META_KEY = 'cubicecho.com/run-event';

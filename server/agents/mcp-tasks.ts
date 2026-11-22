@@ -17,17 +17,11 @@ import { z } from 'zod';
 import type { WorkspaceCaller } from '../core/context.ts';
 import { RUN_DEFAULTS } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { MS_PER_DAY } from '../core/wire.ts';
+import { MS_PER_DAY, RUN_EVENT_META_KEY } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { type RunRow, RunStatus, runs } from '../db/tables/runs.ts';
 import type { RunService } from './run.ts';
 import { APP_CANCELLED } from './run-records.ts';
-
-/**
- * The `_meta` key a progress notification carries the run's event under: agent-core's `RunEvent`, unchanged, as a
- * `/v1` progress chunk carries it.
- */
-export const RUN_EVENT_META_KEY = 'cubicecho.com/run-event';
 
 /** What `/mcp` says it can do with tasks: list and cancel them, and run a tool call as one. */
 export const TASKS_CAPABILITY = { list: {}, cancel: {}, requests: { tools: { call: {} } } };

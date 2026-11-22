@@ -92,6 +92,7 @@ describe('timelineOf', () => {
     expect(entries[1]).toMatchObject({
       progress: ['Calling fs__read', 'Thinking'],
       calledRunId: 'r-1',
+      nested: [],
       result: 'done',
     });
   });
@@ -175,5 +176,25 @@ describe('run input', () => {
       { role: 'tool', content: 'blue', toolCallId: 'abc', images: 0 },
     ]);
     expect(inputMessagesOf(null)).toEqual([]);
+  });
+
+  it("files a called run's events under its call, and keeps them out of the caller's own", () => {
+    const via = [{ runId: 'child', callId: 'c1' }];
+    const entries = timelineOf([
+      { seq: 1, at: 1, kind: 'tool-call', text: '{}', name: 'agents__helper', id: 'c1', exchange: '', ok: null },
+      { seq: 2, at: 2, kind: 'output', text: 'inner', name: '', exchange: '', ok: null, via },
+      { seq: 3, at: 3, kind: 'done', text: '', name: '', exchange: '', ok: true, via },
+      { seq: 4, at: 4, kind: 'tool-result', text: 'hi', name: 'agents__helper', id: 'c1', exchange: '', ok: true },
+    ]);
+    expect(entries).toHaveLength(1);
+    const [call] = entries;
+    expect(call?.type === 'tool' ? call.nested.map((event) => [event.kind, event.via]) : null).toEqual([
+      ['output', []],
+      ['done', []],
+    ]);
+    expect(call?.type === 'tool' ? timelineOf(call.nested).map((entry) => entry.type) : null).toEqual([
+      'output',
+      'done',
+    ]);
   });
 });

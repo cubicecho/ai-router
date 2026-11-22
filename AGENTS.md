@@ -128,7 +128,9 @@ non-negotiables apply on top of these.
 - **An agent calls an agent through a router's `/mcp`, added as a server.** A run calls any tool
   that supports tasks as a task (`tools/instance`), and each call names its depth in
   `_meta["cubicecho.com/agent-depth"]`: `/mcp` refuses one past `RUN_DEFAULTS.maxAgentDepth`.
-  Never send a run's id to another server; the number is all that leaves.
+  Never send a run's id to another server; the number is all that leaves. The called run's events
+  come back in `_meta["cubicecho.com/run-event"]` and are filed under the call with `nestEvent`.
+  Anything that acts on an event (ending a follower, reasoning text, counting) skips `isNested` ones.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
   document names its model.
 - **Reserved name:** `ai-router` is the admin server's row, which a migration adds with the

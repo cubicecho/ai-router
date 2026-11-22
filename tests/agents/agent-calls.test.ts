@@ -126,9 +126,16 @@ describe('an agent calling an agent', () => {
       ['helper', RunStatus.Completed],
     ]);
     const [boss, helper] = rows;
-    const notices = (await eventsOf(base, boss?.id ?? '')).filter((event) => event.kind === 'notice');
-    // The called run's steps, each a line under the call, then where its run is.
-    expect(notices).toContainEqual(expect.objectContaining({ name: CALL_HELPER, text: 'Calling fix_ture__echo' }));
+    const events = await eventsOf(base, boss?.id ?? '');
+    const notices = events.filter((event) => event.kind === 'notice');
+    // The called run's own events, filed under the call that ran it, its `done` included.
+    const callId = events.find((event) => event.kind === 'tool-call' && event.via === undefined)?.id;
+    const hop = [{ runId: helper?.id, callId }];
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'tool-call', name: 'fix_ture__echo', via: hop }));
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'done', ok: true, via: hop }));
+    // Its `done` didn't end the caller's: the caller's own comes last.
+    expect(events.at(-1)).toMatchObject({ kind: 'done', ok: true });
+    expect(events.at(-1)?.via).toBeUndefined();
     expect(notices).toContainEqual(
       expect.objectContaining({ name: CALL_HELPER, link: { name: helper?.id, uri: `/runs/${helper?.id}` } }),
     );
@@ -157,6 +164,25 @@ describe('an agent calling an agent', () => {
     const methods = requests.mock.calls.map(([request]) => request.method);
     expect(methods).toEqual(expect.arrayContaining(['tasks/get']));
     expect(methods.filter((method) => method === 'tasks/result').length).toBeGreaterThan(1);
+    // Asking again starts from the called run's first event, and none of them is filed twice.
+    const [boss] = await h.db.select().from(runs).where(eq(runs.agentName, 'boss'));
+    const nested = (await eventsOf(base, boss?.id ?? '')).filter((event) => event.via !== undefined);
+    const toolCalls = nested.filter((event) => event.kind === 'tool-call');
+    expect(toolCalls).toHaveLength(1);
+  });
+
+  it("keeps a called agent's work out of a plain client's reasoning and answer", async () => {
+    const { base } = await h.startRouter();
+    await addAgentsServer(base);
+    h.script = callerScript(CALL_HELPER);
+    const response = await h.complete(base, {
+      model: 'boss',
+      stream: true,
+      messages: [{ role: 'user', content: 'hello there' }],
+    });
+    const body = await response.text();
+    expect(body).toContain(CALL_HELPER);
+    expect(body).not.toContain('fix_ture__echo');
   });
 
   it(`refuses a call more than ${RUN_DEFAULTS.maxAgentDepth} agents deep, so an agent calling itself stops`, async () => {

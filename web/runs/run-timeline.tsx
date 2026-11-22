@@ -93,7 +93,7 @@ function callBadge(entry: Extract<TimelineEntry, { type: 'tool' }>, isLive: bool
 }
 
 /** One call: its arguments, its server's log lines and progress, the agent run it started, and what it answered. */
-function ToolBody({ entry }: { entry: Extract<TimelineEntry, { type: 'tool' }> }) {
+function ToolBody({ entry, isLive }: { entry: Extract<TimelineEntry, { type: 'tool' }>; isLive: boolean }) {
   const { calledRunId } = entry;
   return (
     <div className="grid gap-2">
@@ -109,6 +109,7 @@ function ToolBody({ entry }: { entry: Extract<TimelineEntry, { type: 'tool' }> }
       {entry.progress.length === 0 ? null : (
         <CodeBlock title="Progress" content={entry.progress.join('\n')} wrap maxHeight="sm" />
       )}
+      {entry.nested.length === 0 ? null : <RunTimeline events={entry.nested} startedAt={entry.at} isLive={isLive} />}
       {entry.logs.length === 0 ? null : (
         <CodeBlock
           title="Server log"
@@ -160,7 +161,7 @@ function rowOf(entry: TimelineEntry, isLive: boolean): TimelineRow {
       return {
         icon: <Zap />,
         title: <span className="font-mono">{entry.name}</span>,
-        body: <ToolBody entry={entry} />,
+        body: <ToolBody entry={entry} isLive={isLive} />,
         badge: callBadge(entry, isLive),
       };
     case 'input':

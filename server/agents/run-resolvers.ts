@@ -55,6 +55,8 @@ const EVENT_TYPE_SDL = `
     level: String
     "What load_tools loaded, on its tool-result."
     loads: JSON
+    "Where it came from when a run this one called said it: each run and call, outermost first. Absent on the run's own."
+    via: JSON
   }
 `;
 
