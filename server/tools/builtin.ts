@@ -14,7 +14,7 @@ import { RESERVED_SERVER_NAME, type ResolvedServer, type ServerTransport, TRANSP
 export type BuiltinConnector = (server: ResolvedServer) => Promise<Transport>;
 
 /** The `_meta` key a call to the admin server names its run under. */
-export const RUN_META_KEY = 'ai-router/run';
+export const RUN_META_KEY = 'cubicecho.com/run';
 
 /** The run a call to the admin server is for, as `_meta` carries it. */
 const runMetaSchema = z.object({
