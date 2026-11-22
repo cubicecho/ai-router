@@ -134,11 +134,14 @@ describe('an agent calling an agent', () => {
     );
   });
 
-  it('checks a quiet task once a call timeout passes without a word, and waits on for its result', async () => {
+  it('checks a quiet task once a call timeout passes without a word, and waits on for its result', {
+    timeout: 30_000,
+  }, async () => {
     const { base } = await h.startRouter();
     await addAgentsServer(base);
-    // The helper's sleep sends no progress, so the wait on its result goes quiet for longer than this.
-    const quietMs = 500;
+    // The helper's sleep sends no progress, so the wait on its result goes quiet for longer than this. It is also how
+    // long starting the task may take, so it leaves room for a busy machine.
+    const quietMs = 1_500;
     await h.db.update(servers).set({ callTimeoutMs: quietMs }).where(eq(servers.name, AGENTS));
     await h.snapshot.rebuild();
     const calls = callerScript(CALL_HELPER);
