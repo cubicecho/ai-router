@@ -69,13 +69,22 @@ query Agent($id: UUID!) {
       }
     }
   }
-  # What each workspace granted it: one flat list, so the cost doesn't multiply by its workspaces.
-  agentGrants: workspaceAgentServers(where: { workspaceAgent: { agentId: { eq: $id } } }, limit: 500) {
-    workspaceAgentId
+  # The servers of the workspaces it is in: one flat list, so the cost doesn't multiply by its workspaces.
+  agentWorkspaceServers: workspaceServers(
+    where: { workspace: { agents: { some: { agentId: { eq: $id } } } } }
+    limit: 500
+  ) {
+    workspaceId
+    serverId
     server {
       name
       displayName
     }
+  }
+  # The servers turned off for it in each workspace: one flat list, so the cost doesn't multiply by its workspaces.
+  agentDisabledServers: workspaceAgentDisabledServers(where: { workspaceAgent: { agentId: { eq: $id } } }, limit: 500) {
+    workspaceAgentId
+    serverId
   }
 }
 
@@ -169,26 +178,45 @@ query WorkspaceAgents($workspaceId: UUID!) {
       ...WorkspaceAgentChoice
     }
   }
-  # Which servers each of them may use here: one flat list, so the cost doesn't multiply by the agents.
-  grants: workspaceAgentServers(where: { workspaceAgent: { workspaceId: { eq: $workspaceId } } }, limit: 500) {
+  # The servers turned off for each of them here: one flat list, so the cost doesn't multiply by the agents.
+  disabledServers: workspaceAgentDisabledServers(
+    where: { workspaceAgent: { workspaceId: { eq: $workspaceId } } }
+    limit: 500
+  ) {
     workspaceAgentId
     serverId
+  }
+  # The tools turned off for each of them here, by the tool's own name on its server.
+  disabledTools: workspaceAgentDisabledTools(
+    where: { workspaceAgent: { workspaceId: { eq: $workspaceId } } }
+    limit: 500
+  ) {
+    workspaceAgentId
+    serverId
+    tool
   }
   agents(orderBy: { name: { direction: asc, priority: 1 } }) {
     ...WorkspaceAgentChoice
   }
-  # What an agent may be granted here: every server, the admin server included.
-  serverChoices: servers(orderBy: { name: { direction: asc, priority: 1 } }, limit: 500) {
-    id
-    name
-    displayName
-    enabled
-    transport
+  # Every agent here reaches these, unless one is turned off for it.
+  workspaceServers(where: { workspaceId: { eq: $workspaceId } }, limit: 500) {
+    serverId
+    server {
+      id
+      name
+      displayName
+      enabled
+      transport
+    }
   }
 }
 
-mutation SetWorkspaceAgentServers($workspaceAgentId: UUID!, $serverIds: [UUID!]!) {
-  setWorkspaceAgentServers(workspaceAgentId: $workspaceAgentId, serverIds: $serverIds)
+mutation SetWorkspaceAgentServerEnabled($workspaceAgentId: UUID!, $serverId: UUID!, $enabled: Boolean!) {
+  setWorkspaceAgentServerEnabled(workspaceAgentId: $workspaceAgentId, serverId: $serverId, enabled: $enabled)
+}
+
+mutation SetWorkspaceAgentToolEnabled($workspaceAgentId: UUID!, $serverId: UUID!, $tool: String!, $enabled: Boolean!) {
+  setWorkspaceAgentToolEnabled(workspaceAgentId: $workspaceAgentId, serverId: $serverId, tool: $tool, enabled: $enabled)
 }
 
 mutation CreateWorkspaceAgent($workspaceId: UUID!, $agentId: UUID!) {

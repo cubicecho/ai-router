@@ -147,6 +147,8 @@ export interface WorkspaceSettings {
   maxKeyNameLength: number;
   /** Longest key lifetime a person may choose, in days. */
   maxKeyExpiryDays: number;
+  /** Longest tool name that may be turned off for an agent, in characters: MCP asks for at most 128. */
+  maxToolNameLength: number;
 }
 
 export const WORKSPACE_DEFAULTS: Readonly<WorkspaceSettings> = Object.freeze({
@@ -154,6 +156,7 @@ export const WORKSPACE_DEFAULTS: Readonly<WorkspaceSettings> = Object.freeze({
   maxDescriptionLength: 2_000,
   maxKeyNameLength: 120,
   maxKeyExpiryDays: 3_650,
+  maxToolNameLength: 128,
 });
 
 /** Running MCP servers as their own users. */

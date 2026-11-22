@@ -139,11 +139,11 @@ export function WorkspaceServerDialog({
     <DialogLayout
       open={open}
       onOpenChange={onOpenChange}
-      title={isEdit ? `${entry.server?.name ?? 'Server'} in this workspace` : 'Configure a server'}
+      title={isEdit ? `${entry.server?.name ?? 'Server'} in this workspace` : 'Add a server'}
       description={
         kind === 'roles'
-          ? "What this workspace's agent runs may do through the admin server. An agent still has to name it."
-          : "Settings this workspace's agent runs use in place of the server's own. An entry never adds the server to a run."
+          ? "What this workspace's agent runs may do through the admin server. Every agent here reaches it, unless turned off for one on the Agents tab."
+          : "Every agent here reaches it, unless turned off for one on the Agents tab. Anything set here replaces the server's own setting for this workspace's runs."
       }
       hasUnsavedChanges={() => form.state.isDefaultValue === false}
       wrapperSlot={(parts, { className }) => (

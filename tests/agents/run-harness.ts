@@ -52,9 +52,9 @@ export const INSTALL = `mutation ($input: InstallServerInput!) { installServer(i
 export const CREATE_PROVIDER = 'mutation ($values: CreateProviderInput!) { createProvider(values: $values) { id } }';
 export const CREATE_AGENT = 'mutation ($document: JSON!) { createAgent(document: $document) { id liveRevisionId } }';
 export const OFFER = 'mutation ($v: CreateWorkspaceAgentInput!) { createWorkspaceAgent(values: $v) { id } }';
-/** Sets which servers an agent may use in a workspace. */
-const SET_SERVERS = `mutation ($workspaceAgentId: UUID!, $serverIds: [UUID!]!) {
-  setWorkspaceAgentServers(workspaceAgentId: $workspaceAgentId, serverIds: $serverIds)
+/** Turns one of a workspace's servers on or off for an agent there. */
+export const SET_SERVER_ENABLED = `mutation ($workspaceAgentId: UUID!, $serverId: UUID!, $enabled: Boolean!) {
+  setWorkspaceAgentServerEnabled(workspaceAgentId: $workspaceAgentId, serverId: $serverId, enabled: $enabled)
 }`;
 export const CREATE_ENTRY =
   'mutation ($values: CreateWorkspaceServerInput!) { createWorkspaceServer(values: $values) { id } }';
@@ -217,6 +217,8 @@ export class RunHarness {
   workspaceId!: string;
   keySecret!: string;
   agentId!: string;
+  /** The workspace's entry for the helper. */
+  helperEntryId!: string;
   revisionId!: string;
   /** The bodies the fake provider was sent, chat completions only. */
   received: Record<string, unknown>[] = [];
@@ -254,22 +256,47 @@ export class RunHarness {
   };
 
   /**
-   * Lets a workspace's apps run an agent, and grants it servers there, as a person does on the workspace's Agents tab.
+   * Lets a workspace's apps run an agent that reaches exactly the servers named, as a person does on the workspace
+   * page: each named server is added to the workspace if it isn't there, and the workspace's others are turned off for
+   * the agent.
    *
    * @param workspaceId - The workspace.
    * @param agentId - The agent.
-   * @param [serverNames] - The servers it may use there: the harness's own, unless told otherwise.
+   * @param [serverNames] - The servers it reaches there: the harness's own, unless told otherwise.
+   * @returns The workspace's entry for the agent.
    */
-  async offer(workspaceId: string, agentId: string, serverNames: readonly string[] = [SERVER]): Promise<void> {
+  async offer(workspaceId: string, agentId: string, serverNames: readonly string[] = [SERVER]): Promise<string> {
     const { createWorkspaceAgent } = await this.asUser.expectOk(OFFER, { v: { workspaceId, agentId } });
-    const serverIds = serverNames.map((name) => {
-      const id = this.snapshot.current().servers.get(name)?.id;
-      if (id === undefined) {
-        throw new Error(`The router has no server ${name}.`);
+    for (const name of serverNames) {
+      await this.addToWorkspace(workspaceId, name);
+    }
+    for (const server of this.snapshot.current().servers.values()) {
+      const isOther = server.entries.has(workspaceId) && serverNames.includes(server.name) === false;
+      if (isOther) {
+        await this.asUser.expectOk(SET_SERVER_ENABLED, {
+          workspaceAgentId: createWorkspaceAgent.id,
+          serverId: server.id,
+          enabled: false,
+        });
       }
-      return id;
-    });
-    await this.asUser.expectOk(SET_SERVERS, { workspaceAgentId: createWorkspaceAgent.id, serverIds });
+    }
+    return createWorkspaceAgent.id;
+  }
+
+  /**
+   * Adds a server to a workspace, overriding nothing, unless it is there already.
+   *
+   * @param workspaceId - The workspace.
+   * @param name - The server.
+   */
+  async addToWorkspace(workspaceId: string, name: string): Promise<void> {
+    const server = this.snapshot.current().servers.get(name);
+    if (server === undefined) {
+      throw new Error(`The router has no server ${name}.`);
+    }
+    if (server.entries.has(workspaceId) === false) {
+      await this.asUser.expectOk(CREATE_ENTRY, { values: { workspaceId, serverId: server.id } });
+    }
   }
 
   /**
@@ -406,7 +433,7 @@ export function useRunHarness(): RunHarness {
     });
     h.agentId = createAgent.id;
     h.revisionId = createAgent.liveRevisionId;
-    await h.offer(h.workspaceId, h.agentId);
+    h.helperEntryId = await h.offer(h.workspaceId, h.agentId);
   });
 
   afterEach(async () => {

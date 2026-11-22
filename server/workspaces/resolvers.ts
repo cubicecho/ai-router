@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { extendSchema, type GraphQLSchema, parse } from 'graphql';
 import { requireUser } from '../auth/caller.ts';
 import { mintKey } from '../auth/keys.ts';
@@ -6,13 +6,15 @@ import type { Context } from '../core/context.ts';
 import { badInput, notFound } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { MS_PER_DAY } from '../core/wire.ts';
-import { servers } from '../db/tables/servers.ts';
-import { workspaceAgentServers } from '../db/tables/workspace-agent-servers.ts';
+import type { Transaction } from '../db/client.ts';
+import { workspaceAgentDisabledServers } from '../db/tables/workspace-agent-disabled-servers.ts';
+import { workspaceAgentDisabledTools } from '../db/tables/workspace-agent-disabled-tools.ts';
 import { workspaceAgents } from '../db/tables/workspace-agents.ts';
 import { workspaceKeys } from '../db/tables/workspace-keys.ts';
+import { workspaceServers } from '../db/tables/workspace-servers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
-import { keyInput } from './input.ts';
+import { keyInput, toolNameInput, workspaceInput } from './input.ts';
 
 const WORKSPACES_SDL = parse(`
   "A workspace key as it is made. The secret is in this answer and nowhere else, so show it to the person now."
@@ -34,21 +36,68 @@ const WORKSPACES_SDL = parse(`
     "Revokes a key. An app using it is refused from the next request. True when there was such a key."
     revokeWorkspaceKey(id: UUID!): Boolean!
     """
-    Sets which MCP servers an agent may use in a workspace, replacing what was set. Its runs there reach exactly
-    these, and none when the list is empty, from the next request. Answers the servers now granted.
+    Turns one of a workspace's servers on or off for one agent there. Every agent reaches every server of its
+    workspace unless it is turned off for it. Takes effect from the next request, and answers whether it is on.
     """
-    setWorkspaceAgentServers(
+    setWorkspaceAgentServerEnabled(
       "The workspace's entry for the agent."
       workspaceAgentId: UUID!
-      serverIds: [UUID!]!
-    ): [UUID!]!
+      "A server the workspace has."
+      serverId: UUID!
+      enabled: Boolean!
+    ): Boolean!
+    """
+    Turns one tool of a workspace's server on or off for one agent there. Every tool of a server that is on is reached
+    unless it is turned off for the agent, so a tool the server adds later is on. A server turned off turns off all its
+    tools, and these choices come back when it is turned on. Takes effect from the next request, and answers whether
+    the tool is on.
+    """
+    setWorkspaceAgentToolEnabled(
+      "The workspace's entry for the agent."
+      workspaceAgentId: UUID!
+      "A server the workspace has."
+      serverId: UUID!
+      "The tool's own name on its server, before any \`<server>__\`."
+      tool: String!
+      enabled: Boolean!
+    ): Boolean!
+    """
+    Makes a workspace that starts like another: the same agents, the same servers with their env, args, URL and roles,
+    and the same servers and tools turned off for each agent, so its runs reach what the other's do. It never copies
+    keys or secrets: the new workspace has no key until one is made, and its servers use their own secrets until it
+    is given overrides. Each of its servers gets its own workspace instance.
+    """
+    copyWorkspace(
+      "The workspace to start from."
+      fromWorkspaceId: UUID!
+      slug: String!
+      name: String!
+      description: String
+    ): Workspace!
   }
 `);
 
-/** What `setWorkspaceAgentServers` is given. */
-interface SetAgentServersArgs {
+/** What `copyWorkspace` is given. */
+interface CopyWorkspaceArgs {
+  fromWorkspaceId: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+}
+
+/** What a new workspace states: all of its columns but the description are required. */
+const newWorkspaceInput = workspaceInput.required({ slug: true, name: true });
+
+/** What `setWorkspaceAgentServerEnabled` is given. */
+interface SetAgentServerEnabledArgs {
   workspaceAgentId: string;
-  serverIds: readonly string[];
+  serverId: string;
+  enabled: boolean;
+}
+
+/** What `setWorkspaceAgentToolEnabled` is given. */
+interface SetAgentToolEnabledArgs extends SetAgentServerEnabledArgs {
+  tool: string;
 }
 
 /** What `createWorkspaceKey` is given. */
@@ -59,7 +108,30 @@ interface CreateKeyArgs {
 }
 
 /**
- * Adds the workspace fields CRUD can't express: making and revoking keys, and which servers an agent may use.
+ * Refuses a switch for an agent and a server unless the agent's workspace runs it and has the server.
+ *
+ * @param tx - The switch's transaction.
+ * @param workspaceAgentId - The workspace's entry for the agent.
+ * @param serverId - The server.
+ * @throws When the workspace doesn't run the agent or doesn't have the server: NOT_FOUND.
+ */
+async function requireAgentAndServer(tx: Transaction, workspaceAgentId: string, serverId: string): Promise<void> {
+  const [entry] = await tx
+    .select({ id: workspaceAgents.id })
+    .from(workspaceAgents)
+    .innerJoin(
+      workspaceServers,
+      and(eq(workspaceServers.workspaceId, workspaceAgents.workspaceId), eq(workspaceServers.serverId, serverId)),
+    )
+    .where(eq(workspaceAgents.id, workspaceAgentId));
+  if (entry === undefined) {
+    throw notFound('That workspace does not run that agent, or does not have that server.');
+  }
+}
+
+/**
+ * Adds the workspace fields CRUD can't express: making and revoking keys, turning a workspace's servers, or single
+ * tools of them, off for one of its agents, and copying a workspace into a new one.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -99,36 +171,152 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
     return deleted.length > 0;
   };
 
-  mutations.setWorkspaceAgentServers.resolve = async (_parent: unknown, args: SetAgentServersArgs, ctx: Context) => {
+  mutations.setWorkspaceAgentServerEnabled.resolve = async (
+    _parent: unknown,
+    args: SetAgentServerEnabledArgs,
+    ctx: Context,
+  ) => {
     requireUser(ctx.caller);
-    const serverIds = [...new Set(args.serverIds)];
-    const granted = await ctx.db.transaction(async (tx) => {
-      const [entry] = await tx
-        .select({ id: workspaceAgents.id })
-        .from(workspaceAgents)
-        .where(eq(workspaceAgents.id, args.workspaceAgentId));
-      if (entry === undefined) {
-        throw notFound('That workspace does not run that agent.');
+    const { workspaceAgentId, serverId, enabled } = args;
+    await ctx.db.transaction(async (tx) => {
+      await requireAgentAndServer(tx, workspaceAgentId, serverId);
+      const isOff = and(
+        eq(workspaceAgentDisabledServers.workspaceAgentId, workspaceAgentId),
+        eq(workspaceAgentDisabledServers.serverId, serverId),
+      );
+      if (enabled) {
+        await tx.delete(workspaceAgentDisabledServers).where(isOff);
+      } else {
+        await tx.insert(workspaceAgentDisabledServers).values({ workspaceAgentId, serverId }).onConflictDoNothing();
       }
-      const known =
-        serverIds.length === 0
-          ? []
-          : await tx.select({ id: servers.id }).from(servers).where(inArray(servers.id, serverIds));
-      const hasUnknown = known.length < serverIds.length;
-      if (hasUnknown) {
-        throw badInput('One of those servers does not exist.');
-      }
-      await tx.delete(workspaceAgentServers).where(eq(workspaceAgentServers.workspaceAgentId, entry.id));
-      if (serverIds.length > 0) {
-        await tx
-          .insert(workspaceAgentServers)
-          .values(serverIds.map((serverId) => ({ workspaceAgentId: entry.id, serverId })));
-      }
-      return serverIds;
     });
     // Before answering, so the next request reaches what was set.
     await ctx.snapshot.rebuild();
-    return granted;
+    return enabled;
+  };
+
+  mutations.setWorkspaceAgentToolEnabled.resolve = async (
+    _parent: unknown,
+    args: SetAgentToolEnabledArgs,
+    ctx: Context,
+  ) => {
+    requireUser(ctx.caller);
+    const { workspaceAgentId, serverId, enabled } = args;
+    const { tool } = parseOrThrow(toolNameInput, args);
+    await ctx.db.transaction(async (tx) => {
+      await requireAgentAndServer(tx, workspaceAgentId, serverId);
+      const isOff = and(
+        eq(workspaceAgentDisabledTools.workspaceAgentId, workspaceAgentId),
+        eq(workspaceAgentDisabledTools.serverId, serverId),
+        eq(workspaceAgentDisabledTools.tool, tool),
+      );
+      if (enabled) {
+        await tx.delete(workspaceAgentDisabledTools).where(isOff);
+      } else {
+        await tx.insert(workspaceAgentDisabledTools).values({ workspaceAgentId, serverId, tool }).onConflictDoNothing();
+      }
+    });
+    // Before answering, so the next request reaches what was set.
+    await ctx.snapshot.rebuild();
+    return enabled;
+  };
+
+  mutations.copyWorkspace.resolve = async (_parent: unknown, args: CopyWorkspaceArgs, ctx: Context) => {
+    requireUser(ctx.caller);
+    const values = parseOrThrow(newWorkspaceInput, { ...args, description: args.description ?? '' });
+    const workspace = await ctx.db.transaction(async (tx) => {
+      const [source] = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.id, args.fromWorkspaceId));
+      if (source === undefined) {
+        throw notFound('The workspace to copy from was not found.');
+      }
+      const [taken] = await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, values.slug));
+      if (taken !== undefined) {
+        throw badInput('A workspace with that slug already exists.');
+      }
+      const [created] = await tx.insert(workspaces).values(values).returning();
+      if (created === undefined) {
+        throw new Error('The workspace insert returned no row.');
+      }
+      const entries = await tx
+        .select({ id: workspaceAgents.id, agentId: workspaceAgents.agentId })
+        .from(workspaceAgents)
+        .where(eq(workspaceAgents.workspaceId, source.id));
+      const copiedEntries =
+        entries.length === 0
+          ? []
+          : await tx
+              .insert(workspaceAgents)
+              .values(entries.map(({ agentId }) => ({ workspaceId: created.id, agentId })))
+              .returning({ id: workspaceAgents.id, agentId: workspaceAgents.agentId });
+      const newEntryIdByAgent = new Map(copiedEntries.map((entry) => [entry.agentId, entry.id]));
+      const agentIdByOldEntry = new Map(entries.map((entry) => [entry.id, entry.agentId]));
+      // The new workspace's entry for the agent the source's entry is for.
+      const newEntryIdOf = (oldEntryId: string): string => {
+        const newId = newEntryIdByAgent.get(agentIdByOldEntry.get(oldEntryId) ?? '');
+        if (newId === undefined) {
+          throw new Error('A copied workspace agent has no new entry.');
+        }
+        return newId;
+      };
+
+      // childUid and installDir are left out, so each entry gets its own uid and workspace instance.
+      const serverEntries = await tx
+        .select({
+          serverId: workspaceServers.serverId,
+          env: workspaceServers.env,
+          args: workspaceServers.args,
+          url: workspaceServers.url,
+          roles: workspaceServers.roles,
+        })
+        .from(workspaceServers)
+        .where(eq(workspaceServers.workspaceId, source.id));
+      if (serverEntries.length > 0) {
+        await tx.insert(workspaceServers).values(serverEntries.map((entry) => ({ ...entry, workspaceId: created.id })));
+      }
+
+      const oldEntryIds = entries.map((entry) => entry.id);
+      if (oldEntryIds.length > 0) {
+        const disabledServers = await tx
+          .select({
+            workspaceAgentId: workspaceAgentDisabledServers.workspaceAgentId,
+            serverId: workspaceAgentDisabledServers.serverId,
+          })
+          .from(workspaceAgentDisabledServers)
+          .where(inArray(workspaceAgentDisabledServers.workspaceAgentId, oldEntryIds));
+        if (disabledServers.length > 0) {
+          await tx.insert(workspaceAgentDisabledServers).values(
+            disabledServers.map((row) => ({
+              workspaceAgentId: newEntryIdOf(row.workspaceAgentId),
+              serverId: row.serverId,
+            })),
+          );
+        }
+        const disabledTools = await tx
+          .select({
+            workspaceAgentId: workspaceAgentDisabledTools.workspaceAgentId,
+            serverId: workspaceAgentDisabledTools.serverId,
+            tool: workspaceAgentDisabledTools.tool,
+          })
+          .from(workspaceAgentDisabledTools)
+          .where(inArray(workspaceAgentDisabledTools.workspaceAgentId, oldEntryIds));
+        if (disabledTools.length > 0) {
+          await tx.insert(workspaceAgentDisabledTools).values(
+            disabledTools.map((row) => ({
+              workspaceAgentId: newEntryIdOf(row.workspaceAgentId),
+              serverId: row.serverId,
+              tool: row.tool,
+            })),
+          );
+        }
+      }
+      return created;
+    });
+    // Before answering, so the new workspace's agents reach their servers at once.
+    await ctx.snapshot.rebuild();
+    return workspace;
   };
 
   return extended;

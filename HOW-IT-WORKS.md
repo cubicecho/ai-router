@@ -86,34 +86,42 @@ Who a request is from is read once, from its credential (`auth/caller`):
 
 ## What a workspace decides
 
-A workspace owns nothing. It is a set of choices about agents and servers that live on their own, and its
-keys carry those choices to every request.
+A workspace is the entry point: an app's key belongs to one, and the workspace puts agents and MCP servers
+together for that app. It owns neither; both live on their own, and its keys carry its choices to every
+request.
 
 ```mermaid
 flowchart TB
   key["Workspace key<br/>workspace_keys: SHA-256 only"] --> ws["Workspace"]
 
   ws -- "which agents it may run" --> wa["workspace_agents"]
-  wa -- "per agent: which servers<br/>its runs there reach" --> grant["Server grants<br/>workspace_agent_servers"]
-  ws -- "how each server is set up<br/>for its runs" --> entry["Server entries<br/>workspace_servers"]
+  ws -- "its servers, each set up<br/>for its runs" --> entry["Workspace servers<br/>workspace_servers"]
+  wa -- "per agent: servers<br/>turned off" --> off["workspace_agent_disabled_servers"]
+  off -. "left out of<br/>that agent's runs" .-> entry
 
   agent["Agent<br/>live revision: model, prompt"] --> wa
-  server["Server<br/>base settings"] --> grant
-  server --> entry
+  server["Server<br/>base settings"] --> entry
 
   entry -- "overrides env, args,<br/>headers or URL" --> wsinst["Workspace instance<br/>its own uid and HOME"]
   entry -- "overrides nothing,<br/>or no entry" --> base["Base instance"]
   entry -- "for ai-router only" --> roles["Roles"]
 ```
 
-- **A grant reaches, an entry configures.** A run reaches exactly the servers its workspace granted its
-  agent, and none without a grant. An entry never grants a server; it only decides which instance a granted
-  one is called on.
+- **Every agent reaches every server, unless turned off.** A run reaches the workspace's servers, less
+  those turned off for its agent. A server added reaches every agent there at once, and an agent added
+  reaches every server. Taking a server out forgets its switches, so adding it back reaches every agent.
+- **The entry also configures.** It decides which instance the server is called on: its own, for an entry
+  that overrides something, or the base instance.
 - **The agent's document decides its models.** Its own `tools.servers` is ignored (a save warns).
-- **Only a person grants.** `setWorkspaceAgentServers` is people-only, and no admin-server role reaches it,
-  so a run can never widen its own reach.
-- **Roles live on the entry for `ai-router`** and nowhere else. They decide which management tools a
-  granted run is listed, and the schema's permissions guard each call.
+- **Only a person adds a server or turns one on.** `createWorkspaceServer`, `deleteWorkspaceServer` and
+  `setWorkspaceAgentServerEnabled` are people-only, and no admin-server role reaches them, so a run can
+  never widen its own reach.
+- **Roles live on the entry for `ai-router`** and nowhere else. The admin server is a workspace server like
+  any other; the roles decide which management tools a run is listed, and the schema's permissions guard
+  each call.
+- **A new workspace may start as a copy of another** (`copyWorkspace`, people-only): the same agents,
+  servers and per-agent switches, so each agent reaches what it does there, with instances of its
+  own. Keys and secrets are never copied.
 
 ## From a request to a resolved run
 
@@ -127,11 +135,11 @@ flowchart TB
   end
   subgraph L2["2 · agent layer: the live revision"]
     a1["model, prompt parts, side tasks"]
-    a2["tools.servers: replaced by the workspace's grant"]
+    a2["tools.servers: replaced by the workspace's servers on for it"]
   end
   subgraph L3["3 · request layer: only if the request sets something"]
     q1["temperature, max_tokens, extraBody"]
-    q2["agent_core.servers: intersected with the grant"]
+    q2["agent_core.servers: intersected with those"]
   end
   subgraph AP["App parts, after resolving"]
     p1["agent_core.prompt, each named app_…"]
@@ -182,7 +190,7 @@ flowchart TB
   key -- "yes" --> idem{"Idempotency-Key<br/>already used?"}
   idem -- "same body" --> repeat["answer that run again<br/>waiting for it if it's still going"]
   idem -- "other body" --> r422["422"]
-  idem -- "no" --> agent{"runnableAgent:<br/>granted, with a live revision?"}
+  idem -- "no" --> agent{"runnableAgent:<br/>the workspace's, with a live revision?"}
   agent -- "no" --> r404["404 model_not_found"]
   agent -- "yes" --> read["readRunRequest"]
   read -- "refused" --> r400["400, naming the field"]
@@ -230,8 +238,9 @@ sequenceDiagram
 
   Route->>Svc: begin(input)
   Svc->>Svc: conversation busy? 409
-  Svc->>Inst: reachedTools: listTools per granted server
+  Svc->>Inst: reachedTools: listTools per server it reaches
   Inst-->>Svc: tools, or a notice for each server that failed
+  Svc->>Svc: leave out the tools turned off for the agent here
   Svc->>Svc: runToolNames, pruneAppTools
   Svc->>DB: insert running row (or find the Idempotency-Key's run)
   Svc->>Bus: open
@@ -272,6 +281,10 @@ sequenceDiagram
 
 - **The run keeps the revision it started with.** A revision promoted while it runs applies to the next one.
 - **A server that won't start or list** is left out with a notice; it never fails the run.
+- **A tool turned off for the agent in its workspace** (`SnapshotAgent.disabledTools`, by server name and the
+  tool's own name) is left out as its server lists, before any tool is named, so it takes no name, no slot in the
+  catalogue, and no app tool is pruned for it. The model can't call it: a call to a name the run doesn't have is
+  answered with an error, never forwarded.
 - **Each tool gets a model name** by `agents/tool-names` `runToolNames`: `<server>__<tool>`, with any character
   outside `[a-zA-Z0-9_-]` made `_`, and a name over 64 characters or shared by two tools cut and hashed. The
   map back to the server and tool lives for this run only.
@@ -347,7 +360,7 @@ flowchart TB
 - **The admin server's tools are listed as far as the roles reach** (`canReachField`), and every call is
   checked by the same permissions `/graphql` has. The run is named in `_meta` by the router's dispatch,
   never by the model.
-- **A run never changes or restarts `ai-router`**, never grants a server, and never promotes: its saves are
+- **A run never changes or restarts `ai-router`**, never adds a server to a workspace or turns one on, and never promotes: its saves are
   drafts, unless a user turned on auto-promote for that agent.
 - **A tool's error reaches the model as an error,** and the loop goes on.
 
@@ -487,8 +500,8 @@ also follow `/runs/<id>/events` with the same key.
 
 ### An agent calling an agent
 
-Add a router's `/mcp` as a streamable-HTTP server, with a workspace key in its headers, and grant it to an agent.
-Each agent behind it is then a tool for that agent, called as a task.
+Add a router's `/mcp` as a streamable-HTTP server, with a workspace key in its headers, and add it to a workspace.
+Each agent behind it is then a tool for the agents there that have it on, called as a task.
 
 ```mermaid
 sequenceDiagram
@@ -570,15 +583,15 @@ flowchart TB
 
 ## The snapshot
 
-Requests never read routing from the database. `db/snapshot` holds keys, workspaces and their grants and
-entries, agents and their live documents, providers, pools, servers and settings in memory.
+Requests never read routing from the database. `db/snapshot` holds keys, workspaces and their servers and
+switches, agents and their live documents, providers, pools, servers and settings in memory.
 
 ```mermaid
 flowchart LR
   write["a GraphQL mutation,<br/>a server login, an install"] --> tx["its transaction commits"]
   tx --> rebuild["snapshot.rebuild:<br/>loadSnapshot"]
   rebuild --> snap[("Snapshot")]
-  snap --> v1["/v1, /mcp, /runs:<br/>keys, agents, grants"]
+  snap --> v1["/v1, /mcp, /runs:<br/>keys, agents, their servers"]
   snap --> fwd["forwarder: providers, pools"]
   snap --> inst["instances: servers, entries, secrets"]
 ```

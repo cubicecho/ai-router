@@ -24,8 +24,9 @@ export interface WorkspaceAgentsSectionProps {
 }
 
 /**
- * The agents a workspace offers: the only ones an app calling with its keys may list and run, each with the MCP servers
- * it may use here. Untitled: its tab names it.
+ * The agents a workspace offers: the only ones an app calling with its keys may list and run, each with the
+ * workspace's MCP servers it reaches here, every one unless turned off for it, and every tool of those unless turned
+ * off. Untitled: its tab names it.
  */
 export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionProps) {
   const queryClient = useQueryClient();
@@ -47,11 +48,29 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
   const rows = entries.data?.workspaceAgents ?? [];
   const taken = new Set(rows.map((row) => row.agentId));
   const choosingEntry = rows.find((row) => row.id === choosingFor);
-  const serverChoices = entries.data?.serverChoices ?? [];
-  const serverNames = new Map(serverChoices.map((server) => [server.id, server.displayName ?? server.name]));
-  /** The ids of the servers one entry's agent may use here. */
-  const grantedTo = (entryId: string): string[] =>
-    (entries.data?.grants ?? []).flatMap((grant) => (grant.workspaceAgentId === entryId ? [grant.serverId] : []));
+  const workspaceServers = (entries.data?.workspaceServers ?? [])
+    .flatMap((row) => (row.server === null || row.server === undefined ? [] : [row.server]))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  /** The ids of the workspace's servers turned off for one entry's agent. */
+  const disabledFor = (entryId: string): Set<string> =>
+    new Set(
+      (entries.data?.disabledServers ?? []).flatMap((row) => (row.workspaceAgentId === entryId ? [row.serverId] : [])),
+    );
+  /** The tools turned off for one entry's agent, by server id. */
+  const disabledToolsFor = (entryId: string): Map<string, Set<string>> => {
+    const byServer = new Map<string, Set<string>>();
+    for (const row of entries.data?.disabledTools ?? []) {
+      if (row.workspaceAgentId === entryId) {
+        byServer.set(row.serverId, (byServer.get(row.serverId) ?? new Set()).add(row.tool));
+      }
+    }
+    return byServer;
+  };
+  /** What one entry's agent reaches here, by name. */
+  const reachedBy = (entryId: string): string[] => {
+    const disabled = disabledFor(entryId);
+    return workspaceServers.flatMap((server) => (disabled.has(server.id) ? [] : [server.displayName ?? server.name]));
+  };
   const choices = (entries.data?.agents ?? []).filter((agent) => taken.has(agent.id) === false);
   const add = (
     <Button
@@ -93,12 +112,12 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
             label="Agents"
             contentSlot={rows.map((entry) => {
               const name = entry.agent === null ? 'A deleted agent' : displayNameOf(entry.agent);
-              const granted = grantedTo(entry.id).flatMap((serverId) => serverNames.get(serverId) ?? []);
+              const reached = reachedBy(entry.id);
               return (
                 <ListItem
                   key={entry.id}
                   title={name}
-                  description={granted.length === 0 ? 'No MCP servers' : joinStats(...granted)}
+                  description={reached.length === 0 ? 'No MCP servers' : joinStats(...reached)}
                   meta={
                     <RowMeta
                       facts={[entry.agent === null ? null : rowNameFact(name, entry.agent.name)]}
@@ -143,8 +162,9 @@ export function WorkspaceAgentsSection({ workspaceId }: WorkspaceAgentsSectionPr
               workspaceId={workspaceId}
               workspaceAgentId={choosingEntry.id}
               agentName={choosingEntry.agent === null ? 'a deleted agent' : displayNameOf(choosingEntry.agent)}
-              granted={grantedTo(choosingEntry.id)}
-              choices={serverChoices}
+              servers={workspaceServers}
+              disabled={disabledFor(choosingEntry.id)}
+              disabledTools={disabledToolsFor(choosingEntry.id)}
             />
           )}
           {isAdding ? (

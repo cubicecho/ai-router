@@ -8,7 +8,7 @@ import type { Idempotency, RepeatedRun, RunService, StartedRun } from './run.ts'
 /** An agent a workspace may run: one with a live revision, whose document the snapshot holds. */
 export type RunnableAgent = SnapshotAgent & {
   document: Readonly<Record<string, unknown>>;
-  /** The servers the workspace granted it, by name: its runs there reach exactly these. */
+  /** The workspace's servers it has on there, by name: its runs there reach exactly these. */
   servers: readonly string[];
 };
 

@@ -57,18 +57,18 @@ Dependencies point one way:
 - **`workspaces`** knows all of the above.
 - **Assembly:** only `graphql/` and `http/` put the areas together.
 - **Reach and configuration:** a run's models come from the agent's document, its servers from
-  what the calling workspace granted that agent (`agents/reach`, read from the snapshot), and
-  each server's configuration from the calling workspace's entry for it
+  the calling workspace's servers, less those turned off for that agent (`agents/reach`, read
+  from the snapshot), and each server's configuration from the calling workspace's entry for it
   (`workspaces/`), so `agents` never imports `workspaces`.
 
 ## Actors
 
 | Actor | Is | Reaches the system through | May change |
 |---|---|---|---|
-| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, grants each agent its servers in a workspace, and promotes revisions |
+| User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, adds servers to a workspace and turns them off for its agents, and promotes revisions. Makes a workspace as a copy of another (`copyWorkspace`) |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
-| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client, any MCP client | `/v1`, `/runs` and `/mcp`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run the agents its workspace grants, set their model's request fields and narrow their servers |
-| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the agent's models and the servers its workspace granted the agent. When granted the admin server, it may read and write what its workspace's roles allow, never the admin server itself, and never a grant |
+| App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client, any MCP client | `/v1`, `/runs` and `/mcp`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run its workspace's agents, set their model's request fields and narrow their servers |
+| Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the agent's models and its workspace's servers that are on for the agent. When it reaches the admin server, it may read and write what its workspace's roles allow, never the admin server itself, and never a workspace's servers or their switches |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, the state of server instances, and which pool targets its health checks found down (in memory only). Never config, so a config change by anything other than a user is a bug |
 
@@ -231,6 +231,7 @@ created (shown once) --> in use --revoke--> deleted
 | The first user to sign in becomes admin, and the last admin can be neither demoted nor deleted | `auth/admin` |
 | The router's settings are router-wide, one set for every app. Only an admin changes them, each within its range, and a change applies from the next request on. Every user reads them; a workspace key or an agent run reaches neither the read nor the change. A setting nobody set, or a saved value that no longer passes its rules, follows its default | `graphql/permissions` (`updateRouterSettings`: admin; not in `FIELD_GRANTS`), `core/settings`, `settings/resolvers` (rebuilds the snapshot before answering) |
 | None of the router's stored secrets appear in any answer: provider keys, secret server env, server headers, server login tokens or keys. What a tool itself returns is that server's business | `exclude.columns` in `graphql/schema`, write-only mutations, plus a test that plants each secret and scans every answer |
+| A copy of a workspace never carries its keys or secrets: it has the same agents, servers with their env, arguments, address and roles, and servers and tools turned off per agent, so each agent reaches what it does in the original, but no key until one is made and no secret override until one is set. Each of its server entries gets a child user id of its own, so its workspace instances are its own. Only a person copies, since a copy widens what the new workspace's runs reach | `workspaces/resolvers` `copyWorkspace`; `graphql/permissions` (`isUser`; not in `FIELD_GRANTS`) |
 | An MCP child process cannot read the database, its files, the router's environment, or another server's install folder or environment. Each server runs as its own user id from the child range, never root or the router's, with no capabilities and no way to gain any. Its install scripts run as that user too | `tools/instance` and `tools/installer`, through the `run-as-child` helper; checked at boot by preflight |
 | Each workspace instance runs as a user id of its own, never handed out twice, with its server's group, so it can read its server's install folder but not write it, and no other instance of that server, base or workspace, can read its environment, HOME or signal it | `workspace_servers.child_uid` from `child_uid_seq`; `tools/resolve`, `tools/install-folder`; `scripts/check-children.sh` |
 | A child's groups are exactly its primary group, from the child range, and its server's extra groups. No extra group is a system group (below 100, so never root or shadow), a child id (another server's group), or one the router holds, and a server holds at most 8. The helper itself refuses anything else | `docker/run-as-child.c`; `tools/input` `extraGroupsInput` and `ck_servers_extra_groups` say so first |
@@ -254,7 +255,8 @@ created (shown once) --> in use --revoke--> deleted
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
 | A server's user id, folder, source and login, and a server entry's user id and folder, are kept by the router. No API write sets them | `tools/input` `serverUpdateInput` and `workspaceServerInput`, strict; servers are created and removed only by hand-written mutations |
 | A workspace owns nothing. An agent or server may be in any number of workspaces, and leaving one changes nothing else | `db/schema` join tables |
-| A workspace decides which agents an app may run and, per agent, which servers its runs there reach: exactly those granted, and none without a grant. The agent decides its models; its document's `tools.servers` is ignored. Only a person grants a server: no admin-server role reaches `setWorkspaceAgentServers`, so a run never widens its own reach. A server entry configures a server for the workspace's runs and never grants one; without an entry, a run uses the base instance | `workspaces/resolvers` `setWorkspaceAgentServers`, `graphql/permissions`, `agents/layers` `resolveRun`, `agents/reach` |
+| A workspace decides which agents an app may run and which servers they reach: every agent there reaches every server the workspace has, less those turned off for it, and none while the workspace has none. A server added reaches every agent at once, and so does an agent added. The agent decides its models; its document's `tools.servers` is ignored. Only a person adds or removes a workspace's servers or turns one off: no admin-server role reaches `createWorkspaceServer`, `deleteWorkspaceServer` or `setWorkspaceAgentServerEnabled`, so a run never widens its own reach. A workspace server's entry also configures it for the workspace's runs; one that overrides nothing uses the base instance | `workspaces/resolvers` `setWorkspaceAgentServerEnabled`, `graphql/permissions`, `db/snapshot`, `agents/layers` `resolveRun`, `agents/reach` |
+| A server taken out of a workspace forgets what was turned off on it there, so added back it reaches every agent again. The move from grants kept every agent's reach exactly: each workspace got every server one of its agents was granted, and each agent had the ones it wasn't granted turned off | `tools/hooks` `forgetSwitches`; migration `20261122185732_workspace_servers` |
 | An app's layers add to an agent and never widen it. `endpoint` and the model never change for a request. `servers` (`agent_core.servers`) is intersected with the agent's list. Every request field the router doesn't read goes to the agent's model, and never reaches its side tasks, unless the agent locks it (`model.lockedFields`, held by agent-core's `checkLockedFields`; `max_completion_tokens` counts as `max_tokens`). A locked field, and a `stream_options` key other than `include_usage`, refuse the request, naming each; with the unlisted-fields setting at `ignore` they are dropped instead and named in the answer's `X-AI-Router-Ignored` header (a stream option as `stream_options.<key>`), streamed or not. Ignoring never reaches the messages, the tools, `tool_choice`, `functions`, `n`, `include_usage`, `agent_core` (an app part agent-core's `parseAppParts` can't read included), `ai_router` (its old name, refused with a pointer to the new one), or a bad value of a field the router reads: those refuse whatever the setting | `agents/request` (`holdLockedFields`), `agents/layers` (`resolveAgent`) |
 | An app's parts and its system messages are stacked on the agent's by agent-core's `stackAppParts`, never by rules of the router's own. Every app name gets `app_`, and no agent's part name has `app` as its first word (agent-core refuses such a document), so an app never overwrites or deletes an agent's part. It extends or replaces one only where the part's `allowedModes` lets it. A part that breaks that, or is named `system`, is dropped, never refused: a notice event and the answer's `agent_core.warnings` say so. Nothing switches app parts or system messages off | `agents/layers` `resolveRun`, agent-core `stackAppParts` |
 | `app_system` comes only from a request's leading `system` or `developer` messages, and is written last in the system prompt, after the loop's server instructions and catalogue. Later system messages stay in the transcript where they are | `agents/request`, agent-core `writeSystemPrompt` |
@@ -281,8 +283,9 @@ created (shown once) --> in use --revoke--> deleted
 | An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client, and names the agent's parts with the `allowedModes` its document states, never their text | `agents/routes`; `agent_core.kind`, `agent_core.prompt`, `agents/layers` `agentPartRules` |
 | What the router keeps is in agent-core 7's words: every revision holds a version 2 document, and a waiting run keeps its system messages and app parts. A version 1 document sent to be saved is upgraded first, with a warning; stored ones were upgraded once at boot | `agents/document` `checkDocument`, `agents/upgrade` `upgradeStored`, the `agent_core_7` migration |
-| A run's servers are an exact list, the grant as the request narrowed it. There is no "every server": no grant, a list naming only unknown servers, or a narrowing to nothing means none, never all | `agents/layers` `withGrantedServers`, `agents/reach` |
-| The admin server is reached only when the workspace grants it to the agent, and lists only what that workspace's roles reach | `agents/reach`, `admin/server` |
+| A run's servers are an exact list: the workspace's servers that are on for the agent, as the request narrowed them. A workspace with none, a list naming only unknown servers, or a narrowing to nothing means none, never all | `agents/layers` `withWorkspaceServers`, `agents/reach` |
+| The admin server is a workspace server like any other: every agent of a workspace that has it reaches it, unless it is turned off for one, and it lists only what that workspace's roles reach | `agents/reach`, `admin/server` |
+| A tool a person turned off for an agent in a workspace is left out of that agent's runs there as each server lists its tools, before the run names them: it takes no name and no slot in the catalogue, a call to it is refused as one the run doesn't have, and an app tool that duplicates it is handed to the app, not pruned. Every other tool of a server that is on is reached, a new one too. A server turned off turns off all its tools and keeps their choices for when it is on again; taking it out of the workspace forgets them. On the admin server it only narrows what the roles reach. Only a person turns a tool off or on: no admin-server role reaches `setWorkspaceAgentToolEnabled` | `workspaces/resolvers` `setWorkspaceAgentToolEnabled`, `graphql/permissions`, `db/snapshot` (`SnapshotAgent.disabledTools`), `agents/run` `reachedTools`, `tools/hooks` `forgetSwitches` |
 | An explicit `endpoint.baseUrl` in an agent is called directly with no key. Keys go only to the providers they were registered for | `agents/reach`, via `agent-core` `NO_KEY` |
 | A request resumes a waiting run only if its trailing tool messages answer every call that run handed back, and nothing else, within the key's workspace and the agent it names. A partial answer is refused. A waiting run survives a restart | `agents/run` `waitingFor`, `runs.pending_call_ids`, `runs.resume` |
 | A key reads only the runs and run events of its own workspace. Another workspace's run answers the same 404 as one that doesn't exist. `runEvents` and `Run.events` are for people; a key is refused | `agents/run-records`; `graphql/permissions` |
@@ -358,7 +361,7 @@ Everything about the code comes after `Owner:`.
   `RUN_DEFAULTS.taskPollIntervalMs` is the poll interval a task names.
 - **Agent call:** an agent's run calling another agent. A workspace adds a router's `/mcp` (this
   one or another) as a streamable-HTTP server, with a workspace key in its headers, and each agent
-  behind it is a tool for the agents granted that server. The call runs as a task, and the called
+  behind it is a tool for the agents of that workspace that have it on. The call runs as a task, and the called
   agent's run is a run of its own, under the key's workspace. Its steps show in the caller's run
   as notices with the call's id, and a last notice links to its run (`/runs/<id>`), read from the
   answer's `_meta.runId`. Each run is one agent deeper than its caller, and `/mcp` refuses a call
@@ -375,18 +378,25 @@ Everything about the code comes after `Owner:`.
 
 ### Workspaces
 
-- **Workspace:** what one app may run: chosen agents, the servers each may use there, and how
-  those servers are configured for its runs. Owner: `workspaces/`; the `workspaces` table and its
-  join tables.
-- **Server grant:** a server one agent may use in one workspace. A run reaches exactly its
-  workspace's grants for its agent, and none without one. Only a person grants, replacing the
-  agent's whole list at once. Removing the agent from the workspace, or the server, removes the
-  grant. Owner: `workspaces/resolvers` `setWorkspaceAgentServers`; the `workspace_agent_servers`
-  table, read into the snapshot as `SnapshotAgent.workspaces`.
-- **Server entry:** a server's configuration for the agent runs one workspace starts, such as an
-  account's credentials. A workspace's entry for the admin server holds roles instead. Owner:
-  `workspace_servers`, with its overrides and `roles`; its secret overrides are `server_secrets` rows that
-  name the workspace. `tools/resolve` merges them over the server's.
+- **Workspace:** the entry point to the router, where agents and MCP servers are put together
+  for one app: its agents, its servers, which every agent there reaches unless one is turned off
+  for it, and how those servers are configured for its runs. An agent is never run but through a
+  workspace, so it has no server list of its own. Owner: `workspaces/`; the `workspaces` table and
+  its join tables.
+- **Workspace server (server entry):** a server in one workspace. Every agent there reaches it,
+  unless it is turned off for that agent. Its entry also holds the server's configuration for the
+  workspace's runs, such as an account's credentials; one that overrides nothing uses the base
+  instance. A workspace's entry for the admin server holds roles instead. Only a person adds or
+  removes one. Owner: `workspace_servers`, with its overrides and `roles`; its secret overrides are
+  `server_secrets` rows that name the workspace. `tools/resolve` merges them over the server's.
+- **Turned-off server:** a workspace server one agent there doesn't reach. Only a person turns one
+  off or on again. Removing the agent from the workspace, the server, or the server from the
+  workspace forgets it. Owner: `workspaces/resolvers` `setWorkspaceAgentServerEnabled`; the
+  `workspace_agent_disabled_servers` table. The snapshot reads the workspace's servers less these
+  into `SnapshotAgent.workspaces`.
+- **Workspace copy:** a new workspace that starts like an existing one: its agents, its server
+  entries without their secrets, and what is turned off for each agent there. Never its keys or
+  secret overrides. Owner: `workspaces/resolvers` `copyWorkspace`.
 - **Workspace key (key):** a secret an app sends with every request, and the only kind of key. It
   belongs to one workspace, is shown once when created, can be given an expiry, and can be
   revoked. Owner: `auth/keys`; a row in `workspace_keys`, which keeps only the key's SHA-256 and
@@ -449,6 +459,13 @@ Everything about the code comes after `Owner:`.
 - **Tool:** one action a server offers. A run sees each tool named after its server and itself, so
   two servers' tools never clash. Owner: `tools/naming`; `<server>__<tool>`, split at the first
   `__`, so a server's name may hold no `__` and may not end in `_`.
+- **Turned-off tool:** one tool of a workspace's server that a person turned off for one agent
+  there, such as a GitHub server's `merge_pull_request` for a triage agent. Its runs in that
+  workspace don't see it; every other tool of the server, and any it adds later, stays on. It is
+  kept by the tool's own name on its server, so a tool the server renames is on again under its
+  new name, and one it stops offering is shown as gone. Owner: `workspace_agent_disabled_tools`,
+  set by `workspaces/resolvers` `setWorkspaceAgentToolEnabled`; read into the snapshot as
+  `SnapshotAgent.disabledTools` and left out by `agents/run` `reachedTools`.
 - **Tool's model name:** the name a run's model calls a tool by. Models accept only letters,
   digits, `_` and `-`, up to 64 characters, so a name that breaks that is changed in a way that is
   the same every time, and the run remembers which tool each name stands for. Owner:
@@ -545,7 +562,8 @@ Everything about the code comes after `Owner:`.
   `endpoint` to the router's internal model address, which the run's `fetch` hands to
   `models/forward`.
 - **Reach:** the models and servers a run may use: the models from the agent's document, the
-  servers from the calling workspace's grant for that agent, as the request narrowed them.
+  servers the calling workspace has, less those turned off for that agent, as the request narrowed
+  them.
   Owner: `agents/reach`, `agents/layers`.
 - **Run:** one agent answering one request through the router, recorded with the revision it
   ran, how it ended (completed, failed, cancelled or expired), its token counts, counted as it
@@ -623,8 +641,8 @@ Everything about the code comes after `Owner:`.
 ### Administration
 
 - **Admin server:** the router's own management, offered as tools on a built-in server, `ai-router`.
-  An agent reaches it only by naming it, and its run may use what its workspace's entry for it
-  grants. That is the only way in. Owner: `admin/server` `createAdminServer`; `@cubicecho/graphql-mcp`
+  Every agent of a workspace that has it reaches it, unless turned off for one, and its run may use
+  what its workspace's entry for it grants. That is the only way in. Owner: `admin/server` `createAdminServer`; `@cubicecho/graphql-mcp`
   over the permissioned GraphQL schema, connected in process with the MCP SDK's in-memory
   transport, its limits in `MCP_DEFAULTS`.
 - **Role:** what a workspace lets its agent runs do through the admin server, such as reading agents

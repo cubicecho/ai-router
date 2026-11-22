@@ -60,6 +60,12 @@ mutation CreateWorkspace($slug: String!, $name: String!, $description: String!) 
   }
 }
 
+mutation CopyWorkspace($fromWorkspaceId: UUID!, $slug: String!, $name: String!, $description: String!) {
+  copyWorkspace(fromWorkspaceId: $fromWorkspaceId, slug: $slug, name: $name, description: $description) {
+    ...WorkspaceFields
+  }
+}
+
 mutation UpdateWorkspace($id: UUID!, $slug: String!, $name: String!, $description: String!) {
   updateWorkspace(where: { id: { eq: $id } }, set: { slug: $slug, name: $name, description: $description }) {
     ...WorkspaceFields
