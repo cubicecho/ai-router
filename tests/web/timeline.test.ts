@@ -124,6 +124,25 @@ describe('timelineOf', () => {
     ]);
   });
 
+  it("shows a server's question and its answer under the call, or as notes when no call is named", () => {
+    const entries = timelineOf([
+      event(1, { kind: 'tool-call', name: 'fs__ask', id: 'a', text: '{}' }),
+      event(2, { kind: 'elicit', name: 'fs__ask', id: 'a', text: 'What is the code?' }),
+      event(3, { kind: 'elicit-answer', name: 'fs__ask', id: 'a', text: 'accept', fields: ['code', 'note'] }),
+      event(4, { kind: 'tool-result', name: 'fs__ask', id: 'a', ok: true, text: 'got it' }),
+      event(5, { kind: 'elicit', text: 'Which one?' }),
+      event(6, { kind: 'elicit-answer', text: 'decline', fields: [] }),
+    ]);
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toMatchObject({
+      type: 'tool',
+      result: 'got it',
+      progress: ['Asked: What is the code?', 'Answered: accept (code, note)'],
+    });
+    expect(entries[1]).toMatchObject({ type: 'note', kind: 'elicit', text: 'Asked: Which one?' });
+    expect(entries[2]).toMatchObject({ type: 'note', kind: 'elicit-answer', text: 'Answered: decline' });
+  });
+
   it('draws a kind it does not know as a note rather than dropping it', () => {
     const [entry] = timelineOf([event(1, { kind: 'compaction', text: 'folded 12 messages' })]);
     expect(entry).toMatchObject({ type: 'note', kind: 'compaction', text: 'folded 12 messages' });

@@ -1,6 +1,7 @@
 /** The HTTP statuses this server sends by hand. */
 export const HttpStatus = {
   Ok: 200,
+  Accepted: 202,
   Found: 302,
   BadRequest: 400,
   Unauthorized: 401,
@@ -39,3 +40,9 @@ export const AGENT_DEPTH_META_KEY = 'cubicecho.com/agent-depth';
 
 /** The `_meta` key a task's progress notification carries the run's `RunEvent` under. */
 export const RUN_EVENT_META_KEY = 'cubicecho.com/run-event';
+
+/**
+ * The `_meta` key a tool call says its caller can answer a server's questions under. `/mcp` is stateless, so it can't
+ * read that from the caller's `initialize`.
+ */
+export const CAN_ELICIT_META_KEY = 'cubicecho.com/can-elicit';

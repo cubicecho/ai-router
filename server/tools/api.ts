@@ -1,5 +1,5 @@
 import type { RunEvent } from '@cubicecho/agent-core';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, ElicitRequest, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ServerRow } from '../db/tables/servers.ts';
 import type { ServerLoginService } from './oauth/service.ts';
 
@@ -42,6 +42,15 @@ export type ToolProgress =
   /** A step of the agent run the call is, from a router's `/mcp`. */
   | { event: RunEvent; message?: undefined };
 
+/**
+ * Answers a question a server asks during a call.
+ *
+ * @param params - The question, as MCP's `elicitation/create` sends it.
+ * @param options - `signal` aborts when the answer is no longer wanted.
+ * @returns The answer. Rejecting is read as a decline.
+ */
+export type ToolElicit = (params: ElicitRequest['params'], options: { signal: AbortSignal }) => Promise<ElicitResult>;
+
 /** The agent run a tool call is made for, which its activity is recorded under. */
 export interface RunToolCall {
   agentId: string;
@@ -55,6 +64,8 @@ export interface RunToolCall {
   depth: number;
   /** Hears what the server says while the call runs. */
   onProgress?: (progress: ToolProgress) => void;
+  /** Answers the server's questions. Absent, each is declined. */
+  onElicit?: ToolElicit;
 }
 
 /** One running or stopped connection to a server. */

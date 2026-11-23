@@ -121,6 +121,8 @@ received --resolve--> running --model answers--> completed
                       waiting --no answer before the wait timeout--> expired
                       waiting --cancel (the app's key, or a user)--> cancelled
                       waiting --the router stops or restarts--> waiting
+                      waiting --the router stops or restarts, parked on a server's question--> failed
+                      waiting --a server's question is answered, or lapses and is declined--> running
 ```
 
 - **Resolving:** the router stacks the request's layer (its model settings and narrowed servers)
@@ -134,6 +136,8 @@ received --resolve--> running --model answers--> completed
 - **Revision:** a run keeps the revision it started with. A revision promoted mid-run applies
   to the next run.
 - **Waiting:** handing calls back to the app pauses the run. It does not end it.
+  A server's question pauses it the same way, but its loop and tool call stay open in memory (parked), so only
+  this process can carry it on.
   - **Handing back:** the agent's own calls in the same step run first, and the app's calls go
     back as an ordinary OpenAI answer with `finish_reason: "tool_calls"`, streamed or not.
   - **The same run resumes:** a later request whose trailing `tool` messages answer the waiting
@@ -280,7 +284,9 @@ created (shown once) --> in use --revoke--> deleted
 | An MCP task is a run: its id is the run's, its status is read from the run's, and a key reaches only its own workspace's tasks, another workspace's answering as missing. Cancelling a task cancels the run, and an ended task can't be cancelled. A waiter on `tasks/result` gets each of the run's events, agent-core's `RunEvent` unchanged, as it happens | `agents/mcp-tasks` `serveTasks`, over the runs table and `agents/run-bus` |
 | A run's tools are those of the servers its agent reaches, each named for the model by a rule that is the same every time, and mapped back to its server and tool for that run alone | `agents/tool-names`, `agents/run` |
 | A server that fails to start or list its tools is left out of the run, which a notice event says; it never fails the run | `agents/run` |
-| An MCP server asking for input during a run is declined: the router's client offers no elicitation, so such a request is answered as one it doesn't support | `tools/instance` (`capabilities: {}`) |
+| An MCP server's question reaches only the caller of the call it belongs to: the task it names, else the only call in flight on that connection. Anything else, a `url` question, or a caller that can't answer is declined | `tools/instance` |
+| What a person answers a server is never stored: not in `runs.input`, a transcript or an event. Events hold the question, the action and the answered field names | `agents/run`, `agents/elicit` |
+| A run parked on a question is `waiting` with its loop and tool call held in memory, so it is answered once, in the request that resumes it. A restart fails it, and a timeout declines it. The tool is never called twice | `agents/run` |
 | Every entry on the agents endpoint's model list says it is an agent, so an app's loop knows to run as a thin client, and names the agent's parts with the `allowedModes` its document states, never their text | `agents/routes`; `agent_core.kind`, `agent_core.prompt`, `agents/layers` `agentPartRules` |
 | What the router keeps is in agent-core 7's words: every revision holds a version 2 document, and a waiting run keeps its system messages and app parts. A version 1 document sent to be saved is upgraded first, with a warning; stored ones were upgraded once at boot | `agents/document` `checkDocument`, `agents/upgrade` `upgradeStored`, the `agent_core_7` migration |
 | A run's servers are an exact list: the workspace's servers that are on for the agent, as the request narrowed them. A workspace with none, a list naming only unknown servers, or a narrowing to nothing means none, never all | `agents/layers` `withWorkspaceServers`, `agents/reach` |

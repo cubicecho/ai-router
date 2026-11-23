@@ -14,19 +14,24 @@ import {
   CallToolResultSchema,
   CancelTaskResultSchema,
   CreateTaskResultSchema,
+  type ElicitRequest,
+  ElicitRequestSchema,
+  type ElicitResult,
   GetTaskResultSchema,
   type JSONRPCMessage,
   McpError,
   ErrorCode as McpErrorCode,
   type Progress,
+  RELATED_TASK_META_KEY,
   type Tool,
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { version } from '../core/config.ts';
 import { INSTANCE_DEFAULTS, type InstanceSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
-import { HttpStatus, RUN_EVENT_META_KEY } from '../core/wire.ts';
-import type { ToolProgress } from './api.ts';
+import { isRecord } from '../core/is-record.ts';
+import { CAN_ELICIT_META_KEY, HttpStatus, RUN_EVENT_META_KEY } from '../core/wire.ts';
+import type { ToolElicit, ToolProgress } from './api.ts';
 import type { BuiltinConnector } from './builtin.ts';
 import { type ChildIsolation, ChildMode, type ChildUser } from './child-users.ts';
 import { type ChildExec, childCommand, childEnv, execChild } from './install-folder.ts';
@@ -162,11 +167,32 @@ export interface CallOptions {
   meta?: Record<string, unknown>;
   /** Hears what the server says while the call runs. */
   onProgress?: (progress: ToolProgress) => void;
+  /** Answers the server's questions during the call. Absent, each is declined. */
+  onElicit?: ToolElicit;
 }
+
+/** One tool call in flight, which a server's question may belong to. */
+interface CallInFlight {
+  onElicit: ToolElicit | undefined;
+  signal: AbortSignal | undefined;
+  /** The task it runs as, once the server has said. */
+  taskId: string | undefined;
+  /** When a question on a plain call must be answered by, in ms since the epoch. */
+  answerBy: number;
+  /** How long a question on a task may wait: its timeout covers each quiet stretch. */
+  taskWaitMs: number;
+  /** The questions being answered, by request id, since asking again on a new `tasks/result` repeats one. */
+  asked: Map<string | number, Promise<ElicitResult>>;
+}
+
+/** What the router tells a server it can do: answer form questions. A `url` question is never declared. */
+const CLIENT_CAPABILITIES = { elicitation: { form: {} } };
+/** The answer to a question nobody can answer. */
+const DECLINED: ElicitResult = { action: 'decline' };
 
 /** A task's statuses that the server is still working through. */
 const TASK_WORKING = 'working';
-/** A task that waits for its caller to answer the server, which a run's call never can. */
+/** A task that waits for its caller to answer the server. */
 const TASK_INPUT_REQUIRED = 'input_required';
 /** How a tool says it may run as a task, in its listing. */
 const TASK_SUPPORT: ReadonlySet<string> = new Set(['optional', 'required']);
@@ -432,6 +458,8 @@ export class Instance {
   private starting: Promise<Connection> | undefined;
   private tools: Promise<Tool[]> | undefined;
   private inFlight = 0;
+  /** The tool calls going, which a server's question is matched to. */
+  private readonly calls = new Set<CallInFlight>();
   private idleTimer: NodeJS.Timeout | undefined;
   private failures = 0;
   private retryAt = 0;
@@ -530,17 +558,27 @@ export class Instance {
     const startedAt = Date.now();
     const { callTimeoutMs } = this.server;
     const timeout = Math.min(options.timeoutMs ?? callTimeoutMs, callTimeoutMs);
+    const meta = options.onElicit === undefined ? options.meta : { ...options.meta, [CAN_ELICIT_META_KEY]: true };
     const params: CallToolRequest['params'] = {
       name: tool,
       arguments: args,
-      ...(options.meta === undefined ? {} : { _meta: options.meta }),
+      ...(meta === undefined ? {} : { _meta: meta }),
+    };
+    const call: CallInFlight = {
+      onElicit: options.onElicit,
+      signal: options.signal,
+      taskId: undefined,
+      answerBy: startedAt + timeout - this.settings.elicitMarginMs,
+      taskWaitMs: timeout - this.settings.elicitMarginMs,
+      asked: new Map(),
     };
     const onprogress = options.onProgress === undefined ? undefined : progressListener(options.onProgress);
     this.begin();
+    this.calls.add(call);
     try {
       const isTask = await this.runsAsTask(tool);
       const result = isTask
-        ? await this.callAsTask(params, timeout, options.signal ?? AbortSignal.timeout(timeout), onprogress)
+        ? await this.callAsTask(params, call, timeout, options.signal ?? AbortSignal.timeout(timeout), onprogress)
         : await this.withConnection(({ client }) =>
             client.request({ method: 'tools/call', params }, CallToolResultSchema, {
               signal: options.signal,
@@ -555,6 +593,7 @@ export class Instance {
       this.report(tool, startedAt, errorMessage(failure));
       throw failure;
     } finally {
+      this.calls.delete(call);
       this.end();
     }
   }
@@ -615,6 +654,7 @@ export class Instance {
    * Calls a tool as a task, and waits for its result.
    *
    * @param params - The call.
+   * @param call - The call in flight, told its task's id.
    * @param timeout - How long starting it, and each quiet stretch after, may take.
    * @param signal - Ends the wait. When it aborts, the server is asked to cancel the task.
    * @param [onprogress] - Hears the task's progress.
@@ -622,6 +662,7 @@ export class Instance {
    */
   private async callAsTask(
     params: CallToolRequest['params'],
+    call: CallInFlight,
     timeout: number,
     signal: AbortSignal,
     onprogress?: (progress: Progress) => void,
@@ -630,8 +671,9 @@ export class Instance {
       client.request({ method: 'tools/call', params }, CreateTaskResultSchema, { signal, timeout, task: {} }),
     );
     const { taskId } = created.task;
+    call.taskId = taskId;
     try {
-      return await this.taskResult(taskId, timeout, signal, onprogress);
+      return await this.taskResult(taskId, call, timeout, signal, onprogress);
     } catch (error) {
       if (signal.aborted) {
         await this.withConnection(({ client }) =>
@@ -649,14 +691,16 @@ export class Instance {
    * passes without a word.
    *
    * @param taskId - The task.
+   * @param call - The call in flight, which says whether anyone can answer the task's questions.
    * @param timeout - How long a quiet stretch may last before the task is checked.
    * @param signal - Ends the wait.
    * @param [onprogress] - Hears the task's progress.
    * @returns What the tool answered.
-   * @throws {@link InstanceError} When the task asks for input, which a run's call has no way to give.
+   * @throws {@link InstanceError} When the task asks for input and the call has nobody to answer it.
    */
   private async taskResult(
     taskId: string,
+    call: CallInFlight,
     timeout: number,
     signal: AbortSignal,
     onprogress?: (progress: Progress) => void,
@@ -681,14 +725,16 @@ export class Instance {
       const task = await this.withConnection(({ client }) =>
         client.request({ method: 'tasks/get', params: { taskId } }, GetTaskResultSchema, { signal, timeout }),
       );
-      if (task.status === TASK_INPUT_REQUIRED) {
+      const isUnanswerable = task.status === TASK_INPUT_REQUIRED && call.onElicit === undefined;
+      if (isUnanswerable) {
         throw new InstanceError(
           InstanceErrorCode.Misbehaved,
           this.server.name,
           `asked for input during task ${taskId}, which a run's tool call can't give`,
         );
       }
-      if (task.status === TASK_WORKING) {
+      // Its questions come on `tasks/result`, so a task waiting for an answer is asked again too.
+      if (task.status === TASK_WORKING || task.status === TASK_INPUT_REQUIRED) {
         await delay(task.pollInterval ?? this.settings.taskPollIntervalMs, undefined, { signal });
       }
     }
@@ -789,12 +835,15 @@ export class Instance {
     const transport = await this.transport();
     this.status = InstanceState.Starting;
     this.stderrTail = '';
-    const client = new Client({ name: CLIENT_NAME, version: version() }, { capabilities: {} });
+    const client = new Client({ name: CLIENT_NAME, version: version() }, { capabilities: CLIENT_CAPABILITIES });
     const connection: Connection = { client, transport };
     client.onclose = () => this.closed(connection);
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       this.tools = undefined;
     });
+    client.setRequestHandler(ElicitRequestSchema, (request, extra) =>
+      this.answerQuestion(request.params, extra.requestId, extra.signal),
+    );
     try {
       await client.connect(transport, { timeout: this.settings.startTimeoutMs });
     } catch (error) {
@@ -813,6 +862,80 @@ export class Instance {
     this.lastFailure = '';
     this.scheduleIdleStop();
     return connection;
+  }
+
+  /**
+   * Finds the call a server's question belongs to.
+   *
+   * @param params - The question.
+   * @returns The call its related task names, else the only call in flight. Undefined when it can't be told, since a
+   * question must never reach a run it isn't about.
+   */
+  private callAsking(params: ElicitRequest['params']): CallInFlight | undefined {
+    const related: unknown = params._meta?.[RELATED_TASK_META_KEY];
+    const taskId = isRecord(related) && typeof related.taskId === 'string' ? related.taskId : undefined;
+    const calls = [...this.calls];
+    const own = taskId === undefined ? undefined : calls.find((call) => call.taskId === taskId);
+    if (own !== undefined) {
+      return own;
+    }
+    const [sole, other] = calls;
+    const isSole = other === undefined && (taskId === undefined || sole?.taskId === undefined);
+    return isSole ? sole : undefined;
+  }
+
+  /**
+   * Answers a server's question, through the call it belongs to.
+   *
+   * @param params - The question.
+   * @param requestId - Its id: a repeat of one being answered shares that answer, so nobody is asked twice.
+   * @param serverSignal - Aborted when the server withdraws it.
+   * @returns The answer. A decline when nobody can answer.
+   */
+  private answerQuestion(
+    params: ElicitRequest['params'],
+    requestId: string | number,
+    serverSignal: AbortSignal,
+  ): Promise<ElicitResult> {
+    const call = this.callAsking(params);
+    if (call?.onElicit === undefined) {
+      return Promise.resolve(DECLINED);
+    }
+    const known = call.asked.get(requestId);
+    if (known !== undefined) {
+      return known;
+    }
+    const asked = this.askCaller(call, call.onElicit, params, serverSignal);
+    call.asked.set(requestId, asked);
+    return asked;
+  }
+
+  /**
+   * Puts a question to whoever the call is for, for as long as the call's timeout leaves.
+   *
+   * @param call - The call.
+   * @param onElicit - Who answers.
+   * @param params - The question.
+   * @param serverSignal - Aborted when the server withdraws it.
+   * @returns The answer. A decline when time runs out or the answer can't be had.
+   */
+  private async askCaller(
+    call: CallInFlight,
+    onElicit: ToolElicit,
+    params: ElicitRequest['params'],
+    serverSignal: AbortSignal,
+  ): Promise<ElicitResult> {
+    const waitMs = call.taskId === undefined ? call.answerBy - Date.now() : call.taskWaitMs;
+    if (waitMs <= 0) {
+      return DECLINED;
+    }
+    const signals = [serverSignal, AbortSignal.timeout(waitMs), ...(call.signal === undefined ? [] : [call.signal])];
+    try {
+      return await onElicit(params, { signal: AbortSignal.any(signals) });
+    } catch (error) {
+      console.warn(`[tools] a question from ${this.server.name} went unanswered: ${errorMessage(error)}`);
+      return DECLINED;
+    }
   }
 
   /**

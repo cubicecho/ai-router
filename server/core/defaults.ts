@@ -348,6 +348,8 @@ export interface InstanceSettings {
   signalTimeoutMs: number;
   /** How often a tool call's task is checked when its server names no interval and has gone quiet. */
   taskPollIntervalMs: number;
+  /** How long before a call's timeout a question still unanswered is declined, so the tool can use the answer. */
+  elicitMarginMs: number;
 }
 
 export const INSTANCE_DEFAULTS: Readonly<InstanceSettings> = Object.freeze({
@@ -363,6 +365,7 @@ export const INSTANCE_DEFAULTS: Readonly<InstanceSettings> = Object.freeze({
   closeGraceMs: 2_000,
   signalTimeoutMs: 5_000,
   taskPollIntervalMs: 2_000,
+  elicitMarginMs: 5_000,
 });
 
 /** Reading MCP registries. */

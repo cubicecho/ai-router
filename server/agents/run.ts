@@ -3,6 +3,7 @@ import {
   type CatalogServer,
   callIdsIn,
   createRuntime,
+  ELICIT_TOOL,
   failedRun,
   freshCallId,
   nestEvent,
@@ -16,8 +17,8 @@ import {
   ToolDiscovery,
   type ToolDispatch,
 } from '@cubicecho/agent-core';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { and, arrayOverlaps, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
+import type { CallToolResult, ElicitRequest, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
+import { and, arrayOverlaps, eq, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
@@ -36,7 +37,7 @@ import {
   runs,
 } from '../db/tables/runs.ts';
 import { ModelFailure } from '../models/openai-error.ts';
-import type { ToolServices } from '../tools/api.ts';
+import type { ToolElicit, ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
 import { type PrunedAppTool, pruneAppTools } from './app-tools.ts';
 import {
@@ -47,6 +48,7 @@ import {
   saveConversation,
   touchConversation,
 } from './conversation.ts';
+import { answeredFields, answerOf, DECLINED } from './elicit.ts';
 import type { RunConfig } from './layers.ts';
 import { reachOf } from './reach.ts';
 import { type AppTool, type ChatMessage, RequestRefusal, type RunRequest, type ToolAnswer } from './request.ts';
@@ -168,6 +170,11 @@ export interface RunListener {
    * @param event - The event.
    */
   onEvent(event: RunEvent): void;
+  /**
+   * Answers a server's question, for a caller that can. Absent, an app that follows the run's progress is asked by
+   * ending its response with the reserved `agent_core_elicit` call, and any other client's run declines.
+   */
+  onElicit?: ToolElicit;
 }
 
 /** A run this request started or resumed. */
@@ -309,6 +316,44 @@ interface LiveRun {
   finished: Promise<FinishedRun>;
   /** Cancels it, with the reason as the abort's. */
   cancel: AbortController;
+  /** The request following it now. */
+  hearing: Hearing;
+}
+
+/** A question a run is parked on: its loop is held, with the tool call open, until the app answers. */
+interface ParkedQuestion {
+  /** The reserved call's id, which the app answers. */
+  callId: string;
+  /** Hands the loop the app's answer. */
+  answer: (content: string) => void;
+}
+
+/** Who a run is talking to. A run parked on a question outlives one request and carries on in the next. */
+interface Hearing {
+  listener: RunListener;
+  /** Aborted when the request following the run leaves. */
+  connection: AbortController;
+  parked: ParkedQuestion | null;
+  /**
+   * Makes a request the one following the run.
+   *
+   * @param listener - Hears the run.
+   * @param signal - The request's connection.
+   * @returns How this stretch ends: the run's end, or its next wait.
+   */
+  attach(listener: RunListener, signal: AbortSignal): Promise<FinishedRun>;
+  /**
+   * Ends the stretch a request is following, and lets the request go.
+   *
+   * @param finished - How it ended.
+   */
+  endStretch(finished: FinishedRun): void;
+  /**
+   * Fails the stretch a request is following.
+   *
+   * @param error - What went wrong.
+   */
+  failStretch(error: unknown): void;
 }
 
 /** A tool the run reaches, with what the model is told about it. */
@@ -372,6 +417,50 @@ function nestedEvent(event: RunEvent, callId: string, heard: Map<string, number>
   }
   heard.set(event.runId, event.seq);
   return nestEvent(event, { runId: event.runId, callId });
+}
+
+/**
+ * Builds a run's hearing, with nobody following it yet.
+ *
+ * @returns The hearing.
+ */
+function createHearing(): Hearing {
+  const silent: RunListener = { onText: () => {}, onEvent: () => {} };
+  const connection = new AbortController();
+  let unlink = () => {};
+  let settle: (finished: FinishedRun) => void = () => {};
+  let reject: (error: unknown) => void = () => {};
+  const hearing: Hearing = {
+    listener: silent,
+    connection,
+    parked: null,
+    attach(listener, signal) {
+      unlink();
+      hearing.listener = listener;
+      const onLeft = () => connection.abort();
+      if (signal.aborted) {
+        onLeft();
+      } else {
+        signal.addEventListener('abort', onLeft, { once: true });
+        unlink = () => signal.removeEventListener('abort', onLeft);
+      }
+      return new Promise((resolve, fail) => {
+        settle = resolve;
+        reject = fail;
+      });
+    },
+    endStretch(finished) {
+      unlink();
+      unlink = () => {};
+      hearing.listener = silent;
+      settle(finished);
+    },
+    failStretch(error) {
+      unlink();
+      reject(error);
+    },
+  };
+  return hearing;
 }
 
 /**
@@ -487,7 +576,8 @@ export function createRunService({
       matches: row.requestHash === hash,
       finished: async () => {
         const going = live.get(runId);
-        if (going !== undefined) {
+        // A run parked on a question has answered this key's request with that question, which is stored.
+        if (going !== undefined && going.hearing.parked === null) {
           return going.finished;
         }
         const stored = await readRun(runId);
@@ -648,24 +738,18 @@ export function createRunService({
    * Runs one stretch of a run: to its answer, or until the model calls an app tool and the run waits.
    *
    * @param segment - The stretch.
-   * @param listener - Hears the answer's text and the run's events.
-   * @param signal - The app's connection.
+   * @param hearing - Who hears the answer's text and the run's events, and whose leaving cancels it.
    * @param cancelled - Aborted, with the reason, when the run is cancelled.
    * @returns How it ended, or that it waits.
    */
-  const run = async (
-    segment: Segment,
-    listener: RunListener,
-    signal: AbortSignal,
-    cancelled: AbortSignal,
-  ): Promise<FinishedRun> => {
+  const run = async (segment: Segment, hearing: Hearing, cancelled: AbortSignal): Promise<FinishedRun> => {
     const { input, runId, spent } = segment;
     const { appTools } = segment.tools;
     const { workspace, agent, config } = input;
     const deadline = AbortSignal.timeout(settings.timeoutMinutes * MS_PER_MINUTE);
-    const runSignal = AbortSignal.any([signal, cancelled, deadline, stopping.signal]);
+    const runSignal = AbortSignal.any([hearing.connection.signal, cancelled, deadline, stopping.signal]);
     const say = (event: RunEventInput): void => {
-      listener.onEvent(bus.publish(runId, event));
+      hearing.listener.onEvent(bus.publish(runId, event));
     };
     for (const text of [...segment.tools.notices, ...input.prompt.warnings.map((warning) => warning.message)]) {
       say({ kind: RunEventKind.Notice, text });
@@ -694,6 +778,7 @@ export function createRunService({
     let answer = '';
     let isNewTurn = false;
     let counted = Promise.resolve();
+    let usedSoFar: { promptTokens: number; completionTokens: number } | undefined;
     const onEvent = (event: RunEventInput): void => {
       const isAppCall =
         (event.kind === RunEventKind.ToolCall || event.kind === RunEventKind.ToolResult) &&
@@ -714,6 +799,7 @@ export function createRunService({
       }
       const { usage } = event;
       if (event.kind === RunEventKind.Usage && usage !== undefined && usage !== null) {
+        usedSoFar = usage;
         // So a run's record shows what it has spent while it runs.
         const totals = {
           inputTokens: spent.input + usage.promptTokens,
@@ -736,7 +822,7 @@ export function createRunService({
         const delta = isNewTurn ? `${TURN_JOIN}${text}` : text;
         isNewTurn = false;
         answer += delta;
-        listener.onText(delta);
+        hearing.listener.onText(delta);
       }
     };
     const ended = (status: RunStatus, usage: { promptTokens: number; completionTokens: number } | undefined) => ({
@@ -747,6 +833,84 @@ export function createRunService({
       inputTokens: spent.input + (usage?.promptTokens ?? 0),
       outputTokens: spent.output + (usage?.completionTokens ?? 0),
     });
+    let unparked = Promise.resolve();
+    /**
+     * Takes the run off a question that will get no answer, so it can carry on or end.
+     *
+     * @returns Resolves once the run is recorded as running again.
+     */
+    const unpark = (): Promise<void> => {
+      if (hearing.parked === null) {
+        return unparked;
+      }
+      hearing.parked = null;
+      unparked = db
+        .update(runs)
+        .set({ status: RunStatus.Running, pendingCallIds: [], resume: null })
+        .where(and(eq(runs.id, runId), eq(runs.status, RunStatus.Waiting)))
+        .then(
+          () => {},
+          (error) => console.error(`[runs] could not take run ${runId} off its question: ${errorMessage(error)}`),
+        );
+      return unparked;
+    };
+    /**
+     * Ends the app's response with the reserved call and holds the tool call open until the next request answers it.
+     *
+     * @param params - The server's question.
+     * @param questionSignal - Aborted when the answer is no longer wanted.
+     * @returns The app's answer, or a decline.
+     */
+    const parkOn = async (params: ElicitRequest['params'], questionSignal: AbortSignal): Promise<ElicitResult> => {
+      if (questionSignal.aborted) {
+        return DECLINED;
+      }
+      const call: HandedBackCall = {
+        id: freshCallId(taken),
+        type: 'function',
+        function: { name: ELICIT_TOOL, arguments: JSON.stringify(params) },
+      };
+      const answered = new Promise<string>((resolve) => {
+        hearing.parked = { callId: call.id, answer: resolve };
+      });
+      const waiting: FinishedRun = {
+        ...ended(RunStatus.Waiting, usedSoFar),
+        answer: { content: answer, finishReason: FINISH_TOOL_CALLS, toolCalls: [call] },
+        error: null,
+      };
+      await counted;
+      await recordWait(waiting, {
+        messages: [],
+        handedBack: [call],
+        appTools: segment.appTools,
+        loaded: segment.loaded,
+        ...segment.layers,
+        parked: true,
+      });
+      answer = '';
+      isNewTurn = false;
+      hearing.endStretch(waiting);
+      const withdrawn = new Promise<null>((resolve) => {
+        if (questionSignal.aborted) {
+          resolve(null);
+        }
+        questionSignal.addEventListener('abort', () => resolve(null), { once: true });
+      });
+      const content = await Promise.race([answered, withdrawn]);
+      if (content === null) {
+        await unpark();
+        return DECLINED;
+      }
+      return answerOf(content);
+    };
+    let parkTurn: Promise<unknown> = Promise.resolve();
+    // An app answers one question per response, so a second call's question waits for the first's answer.
+    const parkInTurn: ToolElicit = (params, { signal: questionSignal }) => {
+      const turn = parkTurn.then(() => parkOn(params, questionSignal));
+      parkTurn = turn.catch(() => {});
+      return turn;
+    };
+    const asks = hearing.listener.onElicit ?? (input.request.progress ? parkInTurn : undefined);
     let finished: FinishedRun;
     try {
       const reached = segment.tools;
@@ -761,6 +925,21 @@ export function createRunService({
           throw new Error(`This run has no tool named "${call.name}".`);
         }
         const heard = new Map<string, number>();
+        const onElicit: ToolElicit | undefined =
+          asks &&
+          (async (params, options) => {
+            say({ kind: RunEventKind.Elicit, id: call.id, name: call.name, text: params.message });
+            const said = await asks(params, options);
+            const fields = answeredFields(params, said);
+            say({
+              kind: RunEventKind.ElicitAnswer,
+              id: call.id,
+              name: call.name,
+              text: said.action,
+              ...(fields.length > 0 ? { fields } : {}),
+            });
+            return said;
+          });
         const result = await tools.callTool(target.serverId, workspace.id, target.tool, call.args, {
           agentId: agent.id,
           agentName: agent.name,
@@ -768,6 +947,7 @@ export function createRunService({
           workspaceId: workspace.id,
           signal: callSignal ?? runSignal,
           depth: input.depth + 1,
+          ...(onElicit === undefined ? {} : { onElicit }),
           onProgress: (progress) => {
             if (progress.event === undefined) {
               say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text: progress.message });
@@ -812,6 +992,7 @@ export function createRunService({
       });
       // A cancel that came as the loop ended still cancels: the run hasn't answered yet.
       cancelled.throwIfAborted();
+      await unpark();
       const transcript = withCallIds(result.messages, minted);
       if (handed.length > 0) {
         const handedBack = handedBackCalls(
@@ -848,7 +1029,7 @@ export function createRunService({
       const usage = failedRun(error)?.usage;
       if (cancelled.aborted) {
         finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: String(cancelled.reason) };
-      } else if (signal.aborted) {
+      } else if (hearing.connection.signal.aborted) {
         finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: 'The app disconnected.' };
       } else if (deadline.aborted) {
         const error = `The run took longer than ${settings.timeoutMinutes} minutes.`;
@@ -859,6 +1040,7 @@ export function createRunService({
         finished = { ...ended(RunStatus.Failed, usage), answer: null, error: errorMessage(error) };
       }
     }
+    await unpark();
     const isCompleted = finished.status === RunStatus.Completed;
     if (isCompleted === false) {
       // A failed run adds nothing, so a retry of the same new message isn't in the history twice.
@@ -883,18 +1065,25 @@ export function createRunService({
     const ending = new Promise<FinishedRun>((resolve) => {
       settle = resolve;
     });
-    live.set(segment.runId, { finished: ending, cancel });
+    const hearing = createHearing();
+    live.set(segment.runId, { finished: ending, cancel, hearing });
     return {
       kind: 'started',
       runId: segment.runId,
       startedAt: segment.startedAt,
       prunedTools: segment.tools.pruned.map((tool) => tool.name),
       warnings: segment.input.prompt.warnings,
-      execute: async (listener, signal) => {
-        const finished = await run(segment, listener, signal, cancel.signal);
-        settle(finished);
-        live.delete(segment.runId);
-        return finished;
+      execute: (listener, signal) => {
+        const stretch = hearing.attach(listener, signal);
+        run(segment, hearing, cancel.signal).then(
+          (finished) => {
+            settle(finished);
+            live.delete(segment.runId);
+            hearing.endStretch(finished);
+          },
+          (error: unknown) => hearing.failStretch(error),
+        );
+        return stretch;
       },
     };
   };
@@ -1069,7 +1258,54 @@ export function createRunService({
     return { runId: match.id, conversationId: row.conversationId, resume: row.resume, document: row.document };
   };
 
+  /**
+   * Hands an app's answer to the run parked on its question, which carries on in this request.
+   *
+   * @param input - The request that answers it.
+   * @param waiting - The run.
+   * @returns The run, to follow. Its answer is never recorded: it can hold what a person typed.
+   * @throws {@link RunConflict} When the question has lapsed, or another request answered it first.
+   */
+  const resumeParked = async ({ request, idempotency }: RunInput, waiting: WaitingRun): Promise<StartedRun> => {
+    const going = live.get(waiting.runId);
+    const parked = going?.hearing.parked ?? null;
+    const [reply] = request.answers;
+    if (going === undefined || parked === null || reply === undefined || reply.callId !== parked.callId) {
+      throw new RunConflict(ModelFailure.RunInProgress, `Run ${waiting.runId} isn't waiting for this answer any more.`);
+    }
+    const [row] = await db
+      .update(runs)
+      .set({
+        status: RunStatus.Running,
+        pendingCallIds: [],
+        resume: null,
+        idempotencyKey: idempotency?.key ?? null,
+        requestHash: idempotency?.hash ?? null,
+      })
+      .where(and(eq(runs.id, waiting.runId), eq(runs.status, RunStatus.Waiting)))
+      .returning();
+    if (row === undefined) {
+      throw new RunConflict(ModelFailure.RunInProgress, `Run ${waiting.runId} has already been resumed.`);
+    }
+    going.hearing.parked = null;
+    return {
+      kind: 'started',
+      runId: row.id,
+      startedAt: row.startedAt,
+      prunedTools: [],
+      warnings: [],
+      execute: (listener, signal) => {
+        const stretch = going.hearing.attach(listener, signal);
+        parked.answer(reply.content);
+        return stretch;
+      },
+    };
+  };
+
   const resume = async (input: RunInput, waiting: WaitingRun): Promise<StartedRun> => {
+    if (waiting.resume.parked === true) {
+      return resumeParked(input, waiting);
+    }
     const { request, idempotency } = input;
     const state = waiting.resume;
     // The app sends its tools again with every request, as any OpenAI client does. One that doesn't keeps them.
@@ -1170,7 +1406,13 @@ export function createRunService({
     const left = await db
       .update(runs)
       .set({ status: RunStatus.Failed, finishedAt: now(), error: RESTARTED, resume: null })
-      .where(eq(runs.status, RunStatus.Running))
+      // A run parked on a question had its loop and its tool call in the process that stopped.
+      .where(
+        or(
+          eq(runs.status, RunStatus.Running),
+          and(eq(runs.status, RunStatus.Waiting), sql`${runs.resume}->>'parked' = 'true'`),
+        ),
+      )
       .returning({ id: runs.id });
     for (const { id } of left) {
       await bus.open(id);

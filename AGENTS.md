@@ -128,7 +128,7 @@ non-negotiables apply on top of these.
 - **An agent calls an agent through a router's `/mcp`, added as a server.** A run calls any tool
   that supports tasks as a task (`tools/instance`), and each call names its depth in
   `_meta["cubicecho.com/agent-depth"]`: `/mcp` refuses one past `RUN_DEFAULTS.maxAgentDepth`.
-  Never send a run's id to another server; the number is all that leaves. The called run's events
+  Never send a run's id to another server; the number, and whether the caller can answer questions, is all that leaves. The called run's events
   come back in `_meta["cubicecho.com/run-event"]` and are filed under the call with `nestEvent`.
   Anything that acts on an event (ending a follower, reasoning text, counting) skips `isNested` ones.
 - **A model id splits at its first `/`, and a name with no `/` is a pool.** That's how an agent's
@@ -238,6 +238,14 @@ non-negotiables apply on top of these.
   is a column on `agents`, set only by a user, never a field in the document, so no draft can
   switch it on. A run keeps the revision it started with.
 - **Run records are append-only.** Once a run ends, only retention deletes it or its events.
+- **A server's question goes to whoever called the agent, and its answer is stored nowhere.** The router's
+  MCP client declares form elicitation (`tools/instance`), and matches a question to its call by related
+  task, else as the only call in flight; otherwise, and for a client that can't answer, it declines. On
+  `/mcp` a caller says it can answer with `_meta["cubicecho.com/can-elicit"]`, and answers by POSTing the
+  JSON-RPC response (`agents/mcp-questions`). On `/v1`, only a request with `agent_core.progress` is asked:
+  the response ends with the reserved `agent_core_elicit` call, the run is `waiting` with its loop held in
+  memory, and the next request's tool message carries the same run on. That answer never enters
+  `runs.input`, a transcript or an event. A restart fails a parked run. Never retry the tool instead.
 - **A cancel ends only a run that is going.** `POST /runs/<id>/cancel` (the run's own workspace
   key; any other run is 404) and the people-only `cancelRun` abort a running run's loop, model and
   tool calls, or stop a waiting one waiting. It ends `cancelled` with the reason and one last

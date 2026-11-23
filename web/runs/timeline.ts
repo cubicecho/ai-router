@@ -17,6 +17,8 @@ export interface TimelineEvent {
   link?: unknown;
   /** Where it came from, when a run this one called said it: each run and call, outermost first. */
   via?: unknown;
+  /** The form fields an answer filled in, on `elicit-answer`. */
+  fields?: readonly string[] | null | undefined;
 }
 
 /** agent-core's `RunEventKind`, the kinds the timeline draws. Any other kind is drawn as a note. */
@@ -32,6 +34,8 @@ export const EventKind = {
   Input: 'input',
   Artifact: 'artifact',
   ServerLog: 'server-log',
+  Elicit: 'elicit',
+  ElicitAnswer: 'elicit-answer',
   Usage: 'usage',
   Done: 'done',
 } as const;
@@ -276,6 +280,18 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
           call.calledRunId = uri.slice(RUN_RECORD_PATH.length);
         } else {
           call.progress.push(event.text);
+        }
+        break;
+      }
+      case EventKind.Elicit:
+      case EventKind.ElicitAnswer: {
+        const filled = event.fields?.length ? ` (${event.fields.join(', ')})` : '';
+        const line = event.kind === EventKind.Elicit ? `Asked: ${event.text}` : `Answered: ${event.text}${filled}`;
+        const call = event.id === null || event.id === undefined ? undefined : callFor(calls, event, false);
+        if (call === undefined) {
+          entries.push({ ...base, type: 'note', kind: event.kind, text: line });
+        } else {
+          call.progress.push(line);
         }
         break;
       }

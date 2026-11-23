@@ -1,5 +1,6 @@
 import type { RunEvent } from '@cubicecho/agent-core';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   type CallToolResult,
   CancelTaskRequestSchema,
@@ -20,6 +21,7 @@ import { errorMessage } from '../core/errors.ts';
 import { MS_PER_DAY, RUN_EVENT_META_KEY } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { type RunRow, RunStatus, runs } from '../db/tables/runs.ts';
+import type { McpQuestions } from './mcp-questions.ts';
 import type { RunService } from './run.ts';
 import { APP_CANCELLED } from './run-records.ts';
 
@@ -38,6 +40,9 @@ const TASK_STATUS: Readonly<Record<RunStatus, Task['status']>> = {
 
 /** Why a waiting run's task is waiting. */
 const WAITING_MESSAGE = 'The run waits for the app to answer the tool calls it handed back on /v1.';
+
+/** Why a task whose run has asked a question is waiting. */
+const ASKING_MESSAGE = 'A server asks for input: read tasks/result to answer it.';
 
 /** A task id, before it is looked up: a run's. */
 const taskIdSchema = z.uuid();
@@ -110,6 +115,10 @@ export interface TaskHandlerDeps {
   tokens: ReadonlyMap<string, ProgressToken>;
   /** Says what a run's event is, as a progress message, or null for one that isn't a step. */
   describe: (event: RunEvent) => string | null;
+  /** The questions runs are waiting on. */
+  questions: McpQuestions;
+  /** The request's transport, which a task's questions go out on. */
+  transport: Transport;
 }
 
 /**
@@ -124,7 +133,10 @@ export interface TaskHandlerDeps {
  * `/mcp` has no session, and a run already has a durable record and a live event stream, so these read those instead:
  * `tasks/result` follows the run's events as they happen.
  */
-export function serveTasks(server: Server, { db, runs: runService, caller, left, tokens, describe }: TaskHandlerDeps) {
+export function serveTasks(
+  server: Server,
+  { db, runs: runService, caller, left, tokens, describe, questions, transport }: TaskHandlerDeps,
+) {
   /**
    * Finds a run of the caller's workspace.
    *
@@ -147,13 +159,30 @@ export function serveTasks(server: Server, { db, runs: runService, caller, left,
     return row;
   };
 
-  server.setRequestHandler(GetTaskRequestSchema, async (request) => taskOf(await ownRun(request.params.taskId)));
+  server.setRequestHandler(GetTaskRequestSchema, async (request) => {
+    const task = taskOf(await ownRun(request.params.taskId));
+    const isAsking = task.status === 'working' && questions.isAsking(task.taskId);
+    return isAsking ? { ...task, status: 'input_required' as const, statusMessage: ASKING_MESSAGE } : task;
+  });
 
   server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
     const { taskId } = request.params;
     const run = await ownRun(taskId);
     const progressToken = request.params._meta?.progressToken ?? tokens.get(run.id);
     const signal = AbortSignal.any([extra.signal, left]);
+    questions.follow(
+      run.id,
+      (id, params) => {
+        const related = { ...params._meta, [RELATED_TASK_META_KEY]: { taskId } };
+        transport
+          .send(
+            { jsonrpc: '2.0', id, method: 'elicitation/create', params: { ...params, _meta: related } },
+            { relatedRequestId: extra.requestId },
+          )
+          .catch((error: unknown) => console.warn(`[mcp] could not put a task's question: ${errorMessage(error)}`));
+      },
+      signal,
+    );
     for await (const event of runService.bus.watch(run.id, { signal })) {
       if (progressToken === undefined) {
         continue;

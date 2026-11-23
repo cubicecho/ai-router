@@ -57,6 +57,8 @@ const EVENT_TYPE_SDL = `
     loads: JSON
     "Where it came from when a run this one called said it: each run and call, outermost first. Absent on the run's own."
     via: JSON
+    "The names of the form fields an answer filled in, on elicit-answer. Never what was typed."
+    fields: [String!]
   }
 `;
 

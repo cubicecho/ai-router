@@ -114,6 +114,7 @@ subscription RunEvents($runId: UUID!) {
     link
     loads
     via
+    fields
   }
 }
 
