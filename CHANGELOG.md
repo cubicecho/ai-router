@@ -1,3 +1,10 @@
+# [0.18.0](https://github.com/cubicecho/ai-router/compare/v0.17.0...v0.18.0) (2026-11-24)
+
+### Features
+
+* **agents:** file a called agent's events under the call that ran it ([4dcf857](https://github.com/cubicecho/ai-router/commit/4dcf8570d57c90ab3a8ef1f3712c32792727fe27))
+* **agents:** forward a server's question to whoever called the agent ([5b63184](https://github.com/cubicecho/ai-router/commit/5b631848ffa85555f10d5c9e5f72be4219ba86f3)), closes [#34](https://github.com/cubicecho/ai-router/issues/34)
+
 # [0.17.0](https://github.com/cubicecho/ai-router/compare/v0.16.0...v0.17.0) (2026-11-22)
 
 ### Features
