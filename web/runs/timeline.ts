@@ -15,6 +15,10 @@ export interface TimelineEvent {
   usage?: unknown;
   level?: string | null | undefined;
   link?: unknown;
+  /** Where it came from, when a run this one called said it: each run and call, outermost first. */
+  via?: unknown;
+  /** The form fields an answer filled in, on `elicit-answer`. */
+  fields?: readonly string[] | null | undefined;
 }
 
 /** agent-core's `RunEventKind`, the kinds the timeline draws. Any other kind is drawn as a note. */
@@ -30,6 +34,8 @@ export const EventKind = {
   Input: 'input',
   Artifact: 'artifact',
   ServerLog: 'server-log',
+  Elicit: 'elicit',
+  ElicitAnswer: 'elicit-answer',
   Usage: 'usage',
   Done: 'done',
 } as const;
@@ -78,6 +84,8 @@ export type TimelineEntry =
       progress: string[];
       /** The run a called agent ran the call as, or null for any other tool. */
       calledRunId: string | null;
+      /** What the agent this call ran did, as its own timeline's events. */
+      nested: TimelineEvent[];
     })
   | (EntryBase & { type: 'note'; kind: string; text: string })
   | (EntryBase & { type: 'input'; text: string })
@@ -139,6 +147,23 @@ function uriOf(link: unknown): string | null {
 }
 
 /**
+ * Reads the call a nested event is filed under, and the event as that call's own timeline sees it.
+ *
+ * @param event - An event.
+ * @returns The outermost hop's call, and the event with that hop taken off; null for the run's own event.
+ */
+function nestedHop(event: TimelineEvent): { callId: string; inner: TimelineEvent } | null {
+  if (Array.isArray(event.via) === false) {
+    return null;
+  }
+  const [hop, ...rest] = event.via as unknown[];
+  if (isRecord(hop) === false || typeof hop.callId !== 'string') {
+    return null;
+  }
+  return { callId: hop.callId, inner: { ...event, via: rest } };
+}
+
+/**
  * Puts events in order and drops repeats, as a client that reconnects or reads stored events after live ones may
  * receive them twice.
  *
@@ -177,8 +202,8 @@ function callFor(calls: readonly ToolEntry[], event: TimelineEvent, isOpenOnly: 
 
 /**
  * Builds the timeline from a run's events: streamed text gathered into one entry per run of it, each tool call
- * joined to its result, its server's log lines and progress, and the run of an agent it called, and the rest one
- * entry each.
+ * joined to its result, its server's log lines and progress, and the run of an agent it called with that run's
+ * events, and the rest one entry each.
  *
  * @param events - The run's events, in any order, perhaps repeated.
  * @returns The entries, oldest first.
@@ -187,6 +212,13 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   const calls: ToolEntry[] = [];
   for (const event of orderedEvents(events)) {
+    const hop = nestedHop(event);
+    if (hop !== null) {
+      const caller = calls.findLast((call) => call.callId === hop.callId);
+      // A called run's event never lands in the caller's own entries, whatever its kind.
+      caller?.nested.push(hop.inner);
+      continue;
+    }
     const base = { key: event.seq, at: event.at, exchange: event.exchange };
     const last = entries.at(-1);
     switch (event.kind) {
@@ -212,6 +244,7 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
           logs: [],
           progress: [],
           calledRunId: null,
+          nested: [],
         };
         calls.push(call);
         entries.push(call);
@@ -247,6 +280,18 @@ export function timelineOf(events: readonly TimelineEvent[]): TimelineEntry[] {
           call.calledRunId = uri.slice(RUN_RECORD_PATH.length);
         } else {
           call.progress.push(event.text);
+        }
+        break;
+      }
+      case EventKind.Elicit:
+      case EventKind.ElicitAnswer: {
+        const filled = event.fields?.length ? ` (${event.fields.join(', ')})` : '';
+        const line = event.kind === EventKind.Elicit ? `Asked: ${event.text}` : `Answered: ${event.text}${filled}`;
+        const call = event.id === null || event.id === undefined ? undefined : callFor(calls, event, false);
+        if (call === undefined) {
+          entries.push({ ...base, type: 'note', kind: event.kind, text: line });
+        } else {
+          call.progress.push(line);
         }
         break;
       }

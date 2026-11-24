@@ -490,7 +490,7 @@ sequenceDiagram
 
 | Task method | Does |
 | --- | --- |
-| `tasks/get` | The run as a task: running is `working`, waiting is `input_required`, completed `completed`, failed and expired `failed`, cancelled `cancelled` |
+| `tasks/get` | The run as a task: running is `working` (`input_required` while a server's question is open), waiting is `input_required`, completed `completed`, failed and expired `failed`, cancelled `cancelled` |
 | `tasks/result` | Waits for the run's end, sending each of its events on the way, then answers as the call would have |
 | `tasks/list` | The workspace's runs, newest first |
 | `tasks/cancel` | Cancels the run, as `POST /runs/<id>/cancel` does. An ended task can't be cancelled |
@@ -518,8 +518,8 @@ sequenceDiagram
   Door-->>Inst: the task: B's run id
   Inst->>Door: tasks/result (with a progress token)
   loop each step of B
-    Door-->>Inst: progress
-    Inst-->>A: a notice under the call
+    Door-->>Inst: progress, with B's RunEvent in _meta
+    Inst-->>A: the event, nested under the call (via)
   end
   Door-->>Inst: B's answer, _meta.runId
   Inst-->>A: the tool's result, and a notice linking B's run
@@ -528,8 +528,38 @@ sequenceDiagram
 - **B's run is a run of its own**, under the key's workspace, and the run page shows it under A's call.
 - **A quiet stretch longer than the server's call timeout** ends the wait on `tasks/result`: the instance asks
   `tasks/get`, and waits on again while the task is working.
-- **Until agent-core nests one run's events in another's** ([agent-core#247](https://github.com/cubicecho/agent-core/issues/247)),
-  each of B's steps is a line.
+- **B's events are filed in A's run with agent-core's `nestEvent`,** numbered in A's sequence, and `via` says
+  which run and call each came from. They are shown and never acted on: B's `done` doesn't end a follower of A,
+  its text never joins A's, and a client without progress doesn't see it as A's reasoning. Another server's
+  progress messages stay plain lines under the call.
+
+
+### When a server asks for input
+
+A tool's server can ask a question mid-call (MCP elicitation). The router finds the call it belongs to, by its related
+task or as the only call in flight, and puts it to whoever called the agent. If it can't tell, or nobody can answer, the
+server is told `decline` and the tool carries on.
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Router
+    participant Server as MCP server
+    App->>Router: POST /v1/chat/completions (agent_core.progress)
+    Router->>Server: tools/call
+    Server-->>Router: elicitation/create
+    Router-->>App: finish tool_calls, agent_core_elicit
+    Note over Router: Run is waiting, loop and tool call held in memory
+    App->>Router: Same conversation + tool message with the answer
+    Router-->>Server: The answer
+    Server-->>Router: Tool result
+    Router-->>App: The rest of the run
+```
+
+On `/mcp`, a caller that sends `_meta["cubicecho.com/can-elicit"]` gets the question as an ordinary
+`elicitation/create` on its open call or `tasks/result` stream, so a question climbs through agents calling agents.
+The answer is never stored. Events keep the question, the action and the names of the fields filled in. A restart fails
+a run held this way, and a question still open shortly before the call's timeout is declined.
 
 ## Run events
 

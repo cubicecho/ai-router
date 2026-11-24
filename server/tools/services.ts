@@ -455,6 +455,7 @@ export function createToolServices({
       const result = await instances.callTool(resolved, tool, args, {
         ...(run?.signal === undefined ? {} : { signal: run.signal }),
         ...(run?.onProgress === undefined ? {} : { onProgress: run.onProgress }),
+        ...(run?.onElicit === undefined ? {} : { onElicit: run.onElicit }),
         ...(run === undefined ? {} : { meta: callMeta(resolved, run) }),
       });
       record(result.isError !== true, result.isError === true ? 'The tool answered an error.' : null);

@@ -82,6 +82,11 @@ export interface RunResume {
   appParts: AppPart[] | null;
   servers: string[] | null;
   sampling: { temperature?: number; maxTokens?: number; reasoningEffort?: string; extraBody: Record<string, unknown> };
+  /**
+   * Set when the run waits on a server's question: its loop is held in this process with the tool call open, so
+   * `messages` is empty, and a restart can't carry it on.
+   */
+  parked?: true;
 }
 
 /**

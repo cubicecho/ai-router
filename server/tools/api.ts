@@ -1,4 +1,5 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { RunEvent } from '@cubicecho/agent-core';
+import type { CallToolResult, ElicitRequest, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ServerRow } from '../db/tables/servers.ts';
 import type { ServerLoginService } from './oauth/service.ts';
 
@@ -34,6 +35,22 @@ export interface ServedTool {
   inputSchema: unknown;
 }
 
+/** One thing a server said while a call ran. */
+export type ToolProgress =
+  /** A line of progress, from any server. */
+  | { message: string; event?: undefined }
+  /** A step of the agent run the call is, from a router's `/mcp`. */
+  | { event: RunEvent; message?: undefined };
+
+/**
+ * Answers a question a server asks during a call.
+ *
+ * @param params - The question, as MCP's `elicitation/create` sends it.
+ * @param options - `signal` aborts when the answer is no longer wanted.
+ * @returns The answer. Rejecting is read as a decline.
+ */
+export type ToolElicit = (params: ElicitRequest['params'], options: { signal: AbortSignal }) => Promise<ElicitResult>;
+
 /** The agent run a tool call is made for, which its activity is recorded under. */
 export interface RunToolCall {
   agentId: string;
@@ -45,8 +62,10 @@ export interface RunToolCall {
   signal?: AbortSignal;
   /** How many agents deep an agent the call starts would be: the run's own depth, plus one. */
   depth: number;
-  /** Hears each progress message the server sends while the call runs, a called agent's steps included. */
-  onProgress?: (message: string) => void;
+  /** Hears what the server says while the call runs. */
+  onProgress?: (progress: ToolProgress) => void;
+  /** Answers the server's questions. Absent, each is declined. */
+  onElicit?: ToolElicit;
 }
 
 /** One running or stopped connection to a server. */

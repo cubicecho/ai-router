@@ -390,7 +390,7 @@ The acceptance check for the first release.
      is answered again with its error (500, or 409 for cancelled), never run again. Keys are freed
      after 24 hours. A disconnect cancels a run without a key. A run with one goes on to its timeout,
      so the retry the key is for gets the answer.
-   - **Elicitation** is declined: the router's MCP client offers no elicitation capability.
+   - **Elicitation** was declined at first. Issue #34 forwards it to whoever called the agent.
    - **Model calls** go through agent-core's `Endpoint.fetch` (#224, 4.26.0). Only endpoints at the
      router's model address get it, so an agent's own `endpoint.baseUrl` is still called directly.
      The forwarder keeps one `fetch` per workspace and agent, so agent-core's client pool and probe
@@ -535,13 +535,8 @@ agent. If agents matter sooner than the tools port, phases 5 and 6 can come befo
   user with `setModelPrice`) or per pool (its own price columns, which win for calls through
   it), in one currency of the user's choosing, and usage's cost worked out at today's prices.
   Still open: prices kept as they were when the calls were made.
-- **An MCP server that asks for input during a run** (elicitation). mcp-router forwards it to the
-  app's MCP client, but an agent run has no MCP client to forward to. Phases 6 and 7 decline it.
-  Phase 7's waiting runs make the later option cheap: hand the request back like an app tool
-  call (an `ai_router` elicitation tool the app answers), and resume as the same run. It needs a
-  way for the router's MCP client to hold the request open across the wait, or to answer it
-  declined and retry the tool call once the app answers. Worth doing when `min-agent` has a
-  server that asks.
+- **An MCP server that asks for input during a run** (elicitation) is built (#34). The question goes to
+  whoever called the agent, and the tool call is held open across the wait, never retried.
 
 - **Long, unattended runs.** A run is one streamed response, and a client disconnecting cancels
   it, unless the request sent an `Idempotency-Key` (phase 6), so a job that retries with one

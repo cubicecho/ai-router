@@ -52,6 +52,20 @@ server.registerTool('crash', { description: 'Exits without answering.' }, () => 
   process.stderr.write(`${CRASH_LINE}\n`, () => process.exit(1));
   return new Promise<never>(() => undefined);
 });
+server.registerTool(
+  'ask',
+  { description: 'Asks its caller for a code, and says what it got.', inputSchema: { quiet: z.boolean().optional() } },
+  async (args) => {
+    const answer = await server.server.elicitInput({
+      message: 'What is the code?',
+      requestedSchema: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] },
+    });
+    if (args.quiet === true) {
+      return text(answer.action);
+    }
+    return text(answer.action === 'accept' ? `got ${String(answer.content?.code)}` : answer.action);
+  },
+);
 server.registerTool('grow', { description: 'Adds the `extra` tool.' }, () => {
   server.registerTool('extra', { description: 'Added by `grow`.' }, () => text('extra'));
   return text('grown');

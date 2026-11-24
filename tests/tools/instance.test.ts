@@ -307,6 +307,40 @@ describe('a stdio instance', () => {
   });
 });
 
+describe("a server's question during a call", () => {
+  const answerCode = () => Promise.resolve({ action: 'accept' as const, content: { code: '5' } });
+
+  it('reaches the only call in flight', async () => {
+    const instance = track(stdioServer());
+    const result = await instance.callTool('ask', {}, { onElicit: answerCode });
+    expect(textOf(result)).toBe('got 5');
+  });
+
+  it('is declined for a call with nobody to answer', async () => {
+    const instance = track(stdioServer());
+    expect(textOf(await instance.callTool('ask', {}))).toBe('decline');
+  });
+
+  it("is declined when two calls are in flight, so it never reaches a run it isn't about", async () => {
+    const instance = track(stdioServer());
+    const onElicit = vi.fn(answerCode);
+    const sleeping = instance.callTool('sleep', { ms: 400 }, { onElicit });
+    const asking = instance.callTool('ask', {}, { onElicit });
+    expect(textOf(await asking)).toBe('decline');
+    await sleeping;
+    expect(onElicit).not.toHaveBeenCalled();
+  });
+
+  it('is declined before the call times out, so the tool can still answer', async () => {
+    const instance = track(stdioServer({ callTimeoutMs: 1_000 }), undefined, { elicitMarginMs: 700 });
+    const onElicit = (_params: unknown, { signal }: { signal: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('gave up')), { once: true });
+      });
+    expect(textOf(await instance.callTool('ask', {}, { onElicit }))).toBe('decline');
+  });
+});
+
 describe('stopping a stdio program', () => {
   it('signals a shared program that outlives its stdin', async () => {
     const instance = track(stdioServer({}, ['--linger']), undefined, { closeGraceMs: 100 });
