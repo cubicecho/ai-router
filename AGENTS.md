@@ -62,9 +62,8 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
 | `runner/` | the agent loop of one stretch of a run, from a JSON assignment, with the router reached only through its ports: what a worker executes | `core` (a test keeps it so) |
-| `workers/` | where a run's loop executes: the built-in `local` worker, in process | `core`, `runner` |
+| `workers/` | where a run's loop executes: the built-in `local` worker, in process, and remote workers: who is online, the runs on them, the worker doors, and workers' and their keys' mutations | `core`, `db`, `auth`, `runner`, `graphql/object-type`, `graphql/selected-id`, `agents/routes` (for express's body error words) |
 | `agents/` | revisions, layers, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
-| `workers/` | workers and their keys' mutations; later the worker doors | `core`, `db`, `auth`, `graphql/object-type` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, their worker, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
@@ -125,9 +124,28 @@ non-negotiables apply on top of these.
 ### Workers
 
 - **A worker is where a workspace's agent loops run.** `local` is the router process itself;
-  any other is a process elsewhere that dials in with its worker key. Today every run is
-  still `local`: the worker doors and the runner that sends a run to a worker come later, with
-  `WORKER_DEFAULTS`.
+  any other is a process elsewhere that dials in with its worker key. A run goes to its
+  workspace's worker when it starts (`runs.worker_id`, null for `local`), and a resume carries on
+  there. An offline remote worker refuses it with 503 `worker_offline`, and one at
+  `WORKER_DEFAULTS.maxRunsAtOnce` with 503 `worker_busy`, before anything is recorded.
+- **The wire protocol is `runner/protocol.ts`, shared with the worker program.** Implement it
+  exactly; a change there changes both ends. The worker holds one SSE channel (`assign`,
+  `cancel`, `ping`), and says everything else as requests: its hello, then each run's model,
+  tools, events and finish doors.
+- **The doors are scoped to the worker the run executes on.** `workers/routes` reads only
+  `readWorkerCaller` (401 for a workspace key or a session), and a run door answers 404
+  `run_not_found` (`RUN_NOT_FOUND`, which the worker reads as "dropped") unless
+  `workers/remote` holds that run for that worker now, read from memory, never the database.
+  The model door passes on only the body, content type and `accept`, never the worker's key.
+  The tools door calls only the router tools the run's assignment names.
+- **A worker's local servers are its machine owner's trust, not `run-as-child`'s.** The router
+  never starts or isolates them: it names their tools beside the workspace's, leaves out one
+  whose name breaks the name rule or is one of the run's router servers, and narrows them by
+  `agent_core.servers`. The per-agent switches don't reach them. They reach only runs on that
+  worker.
+- **A worker that goes away gets `reconnectGraceMs`,** then its runs fail ("the worker went
+  away"). A reconnecting worker is sent nothing again. A cancel goes down the channel, and the
+  router stops waiting after `cancelGraceMs`.
 - **`local` is a row the migration adds, with no key.** `ck_workers_local_keyless` makes it the
   one keyless worker; `workers` has no generated writes, and `deleteWorker` and
   `rotateWorkerKey` refuse it, so nothing renames, deletes or keys it.
@@ -316,7 +334,7 @@ non-negotiables apply on top of these.
 
 - GraphQL: `extensions.code` from `ErrorCode`.
 - `/v1`, auth refusals included: OpenAI's `{ error: { message, type, code } }`.
-- `/runs`: `{ error, code }`.
+- `/runs` and the worker doors `/workers`: `{ error, code }`.
 
 Don't leak one surface's format into another.
 

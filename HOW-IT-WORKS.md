@@ -364,6 +364,71 @@ flowchart TB
   drafts, unless a user turned on auto-promote for that agent.
 - **A tool's error reaches the model as an error,** and the loop goes on.
 
+## A run on a worker
+
+A workspace names the worker its runs go to (`workspaces.worker_id`, null for `local`). On `local`, the loop
+runs in the router with the router's ports as they are. On a remote worker, `workers/remote` sends the
+stretch down the worker's channel, and the worker's ports are requests to the run's doors under `/workers`
+(`runner/protocol.ts`). The run service does everything else as it does on `local`.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as Worker program
+  participant Doors as /workers doors
+  participant Reg as Registry
+  participant Rem as Remote workers
+  participant Svc as Run service
+  participant Fwd as Forwarder
+  participant Inst as Instances
+  participant Bus as Run bus
+
+  W->>Doors: GET /channel (worker key)
+  Doors->>Reg: connect: online, an older channel closed
+  W->>Doors: POST /hello: host, version, local servers
+  Doors->>Reg: keep it; last_seen_at, host, version on the row
+  Note over Svc: an app's request on /v1 or /mcp
+  Svc->>Reg: online? (503 worker_offline)
+  Svc->>Rem: runs on it below maxRunsAtOnce? (503 worker_busy)
+  Svc->>Svc: reachedTools: the workspace's servers plus the worker's local servers
+  Svc->>Svc: insert running row with worker_id
+  Svc->>Bus: notice: Running on worker name (host)
+  Svc->>Rem: execute(assignment, ports)
+  Rem->>W: channel: assign
+  loop the worker's loop
+    W->>Doors: /runs/id/model/chat/completions
+    Doors->>Fwd: ports.modelFetch: body and content type only
+    Fwd-->>W: the model's answer, streamed through
+    opt a router tool
+      W->>Doors: POST /runs/id/tools/call
+      Doors->>Inst: ports.callRouterTool, if the assignment names it
+      Inst-->>W: { ok, text } or { ok: false, error }
+    end
+    opt a local tool
+      W->>W: calls its own server
+    end
+    W->>Doors: POST /runs/id/events
+    Doors->>Bus: ports.publish each, numbered by the router
+  end
+  W->>Doors: POST /runs/id/finish: the outcome
+  Doors->>Rem: finish
+  Rem-->>Svc: RunOutcome, recorded as on local
+```
+
+- **The run doors answer only the worker the run is executing on, now.** `workers/remote` holds each stretch
+  in memory by run id and worker; anything else is 404, as a run that never was. The channel and the hello take
+  only a worker key.
+- **The model door passes on the body, content type and `accept`,** with the run's id as `X-Session-Id`, and
+  never the worker's key. The provider's key is added where the forwarder sends the call, so an assignment
+  carries no key or secret.
+- **Local servers are named like the router's** (`runToolNames`), with targets of origin `local`. One whose
+  name breaks the router's name rule, or is one of the run's router servers, is left out with a notice;
+  `agent_core.servers` narrows them, and the per-agent switches don't reach them.
+- **A cancel goes down the channel.** The worker still posts `finish`; if it doesn't within `cancelGraceMs`, the
+  router ends the stretch itself.
+- **A channel that drops gives the worker `reconnectGraceMs`** to dial in again; then its runs fail, "the worker
+  went away". A worker that comes back is sent nothing again: it keeps the runs the router still names.
+
 ## Waiting for the app
 
 An app tool call pauses the run. The app answers it with an ordinary OpenAI tool round trip, and the same

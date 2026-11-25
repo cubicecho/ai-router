@@ -12,9 +12,9 @@ agents endpoint `/v1` (layers, reach, tool names, dispatch, model calls in proce
 table, `Idempotency-Key`, `X-Run-Id` and the `runEvents` subscription). **So is phase 7:** app tools and waiting
 runs, progress events, stored run events and the run records at `/runs`, and conversations. **Of phase 9:** the
 roles a run calls the admin server with, drafts, discarding a draft, auto-promote and who saved a revision, though
-the admin server itself is not built yet. **Of the workers plan, its data:** workers, worker keys,
-the `local` worker and a workspace's worker are stored and served, though every run still runs on
-`local`. Every other entry
+the admin server itself is not built yet. **Of the workers plan, its data and the router's side:** workers,
+worker keys, the `local` worker and a workspace's worker are stored and served, and a workspace's runs go to its
+worker: `local`, or a remote worker through the worker doors. Every other entry
 is the agreed design, and its `Owner:` is where that concept will live. From
 the commit that builds a concept, its entry describes the code, and a proposed change becomes an
 `M` item in `.agents/coding-standards-todos.md` before it is written in here.
@@ -70,7 +70,7 @@ Dependencies point one way:
 | User | a person who signs in through OIDC, or is signed in automatically as the admin on a trusted network. Every user sees the same router | a session, in the UI or its calls; never a key | everything except secrets, settings and roles. Creates and revokes workspace keys, adds servers to a workspace and turns them off for its agents, and promotes revisions. Makes a workspace as a copy of another (`copyWorkspace`). Makes and deletes workers, rotates their keys, and sets a workspace's worker |
 | Admin | a user with the admin role. The first user to sign in becomes one | as a user | everything |
 | App | a program using the router: `min-agent`, `task_server`, telos, any OpenAI-compatible client, any MCP client | `/v1`, `/runs` and `/mcp`, with a workspace key | nothing stored but its own conversations' history, through its runs, and cancelling its own workspace's runs. It may run its workspace's agents, set their model's request fields and narrow their servers |
-| Worker | a process on another machine that runs a workspace's agent loops, away from the router | the worker doors (a later phase), with its worker key | nothing yet. Its key is refused on every door for apps and people |
+| Worker | a process on another machine that runs a workspace's agent loops, away from the router | the worker doors under `/workers`, with its worker key: its channel, its hello, and the doors of each run executing on it | nothing stored but when it was last seen and the host and version its hello names. For a run the router assigned it, only while it executes there: that run's model calls, the router tools the run's assignment names, its events and its outcome. Its key is refused on every door for apps and people, and on every other worker's runs |
 | Run | one agent answering one request | calls the router makes on its behalf | nothing directly. It may call only the agent's models and its workspace's servers that are on for the agent. When it reaches the admin server, it may read and write what its workspace's roles allow, never the admin server itself, and never a workspace's servers or their switches |
 | MCP server | a program the router starts or connects to: untrusted code | stdio, streamable HTTP or SSE, from the router's side only | nothing in the router. A child process may read its server's install folder, write its own HOME, read the env it is given, and reach the folders of its server's extra groups |
 | Router | the router's own background work | timers inside the router | only expired records (runs, run events, activity and conversations past their retention or TTL), folding old usage days into the totals, the state of server instances, and which pool targets its health checks found down (in memory only). Never config, so a config change by anything other than a user is a bug |
@@ -114,13 +114,16 @@ saved --auto-promote on--> live
 
 ```
 received --resolve--> refused (4xx, not recorded)
+received --its workspace's worker is offline or busy--> refused (503, not recorded)
 received --resolve--> running --model answers--> completed
+                      running --its remote worker stays away past the grace--> failed
                       running --error, or past the run timeout--> failed
                       running --the router stops or restarts--> failed
                       running --app without a key disconnects--> cancelled  (not a run started as an MCP task)
                       running --cancel (the app's key, or a user)--> cancelled
                       running --model calls an app tool--> waiting (finish_reason: tool_calls)
                       waiting --app answers every handed-back call--> running
+                      waiting --app answers, while the worker it ran on is offline or busy--> waiting (503)
                       waiting --no answer before the wait timeout--> expired
                       waiting --cancel (the app's key, or a user)--> cancelled
                       waiting --the router stops or restarts--> waiting
@@ -229,10 +232,13 @@ created (shown once) --> in use --revoke--> deleted
 local: added by a migration, keyless --> always there
 created with its key (shown once) --> in use --rotate (the new key shown once)--> in use, the old key refused
                                       in use --delete, while no workspace names it--> gone, its runs naming none
+in use: offline --opens its channel--> online --its channel closes, or a newer one replaces it--> offline
 ```
 
 - **Who manages workers:** any user makes, rotates and deletes them, from a session, never with a
   key. `local` has no key to rotate and is never deleted.
+- **Online:** a remote worker is online while its channel is open, and takes runs only then; `local` always is.
+  Which workers are online, and what each said in its hello, is kept in memory only, beside the snapshot.
 
 ## Invariants
 
@@ -270,6 +276,12 @@ created with its key (shown once) --> in use --rotate (the new key shown once)--
 | `ai-router` is the admin server, the one server with the built-in transport and source. A migration adds it, and nobody adds another, renames or deletes it, or gives it a transport, env, arguments, secrets or a login. Only whether it is on, its display name and its description change | `tools/shapes` `serverNameSchema` and `installSourceSchema`, the checks `ck_servers_name_reserved` and `ck_servers_builtin_source`; `tools/builtin` `refuseIfBuiltin`, from `tools/hooks`, `tools/services` and `tools/resolvers` |
 | `local` is the built-in worker, the router process itself, and the one worker with no key. A migration adds it, and nobody renames or deletes it or gives it a key | `ck_workers_local_keyless`, `ck_workers_key_prefix`; no generated writes on `workers`; `workers/input` `workerInput`, `workers/resolvers` `remoteWorker` |
 | A workspace's runs belong on one worker, and none named is `local`: naming `local` stores none, so it has one spelling. Only a person sets it, with `setWorkspaceWorker`; a generated workspace write that names a worker is refused. A worker a workspace names can't be deleted. No admin-server role reaches a worker, its key or a workspace's worker, so a run never moves its own workspace. A copy of a workspace runs on the same worker | `workspaces/resolvers` (`setWorkspaceWorker`, `copyWorkspace`), `workspaces/hooks` `checkWorkspace`, `workers/resolvers` `deleteWorker`, the restricting foreign key `workspaces.worker_id`; `graphql/permissions` (`isUser`; not in `FIELD_GRANTS`) |
+| A run door answers only the worker its run is executing on, and only while it executes there, as the router's memory says, never the database. Any other run is a 404 with code `run_not_found`, the same as one that never was. The channel and the hello take only a worker key, refusing anything else with 401 | `workers/routes`, `workers/remote` `running` |
+| The worker key is never forwarded. The model door passes on a model call's body, content type and `accept` only, with the run's id as its session; the provider's key is added where the router forwards it. An assignment carries no provider key, server secret or key of any kind | `workers/routes`, `models/forward`; a test scans an assignment |
+| A worker calls only the router tools its run's assignment names, through the run's workspace instances, as a run on `local` does; any other is answered as a tool error | `workers/routes` (the tools door) |
+| A run goes to the worker its workspace names when it starts, and that worker is recorded on it (null for `local`); a resume carries on on the worker the run ran on. A run whose remote worker is offline, or already running `WORKER_DEFAULTS.maxRunsAtOnce`, is refused with 503 (`worker_offline`, `worker_busy`) before anything is recorded, and a resume is refused the same way and stays waiting | `agents/run` `checkWorker`, `begin`, `resume` |
+| A worker's local servers reach only runs placed on it, beside the workspace's servers, named by the same rule. One whose name breaks the router's name rule, or is one of the run's router servers, is left out with a notice, and `agent_core.servers` narrows them too. The per-agent switches don't reach them: the router knows them only by what the worker says | `agents/run` `localTools`, `reachedTools` |
+| A run whose remote worker's channel drops gets `reconnectGraceMs` for the worker to dial in again, and then fails, "the worker went away". A worker that comes back is sent nothing again. A cancel is sent down the channel, and a worker that doesn't finish the run within `cancelGraceMs` is no longer waited for | `workers/remote` |
 | Roles are held only by a workspace's entry for the admin server: each one from the role vocabulary, none twice. That entry takes no env, arguments, address or secrets, and every other entry's roles stay empty | `tools/input` `rolesInput`, `ck_workspace_servers_roles`; `tools/hooks` `afterEntryWrite` |
 | A server's tokens are only ever sent to the origin they were issued for. Moving its address to another origin drops its login | `tools/oauth/provider`, the server update hook in `tools/hooks` |
 | The router never signals or enters a child's folder itself: it has no capability to. It stops a child by closing its stdin, then through the helper as the child's own user, and a child changes into its server's folder after the helper switches users. A folder is made and removed only by the uid that owns it | `tools/instance`, `tools/install-folder` |
@@ -429,11 +441,21 @@ Everything about the code comes after `Owner:`.
 
 - **Worker:** where a workspace's agent loops run: `local`, inside the router, or a process on
   another machine that dials in with its worker key and takes runs. It says, when it dials in,
-  the machine it runs on and its version. Today every run runs on `local`: the doors workers dial
-  in to, and sending a run to one, come later. Owner: `workers/`; the `workers` table
-  (`last_seen_at`, `host`, `version`, unwritten until workers dial in), `Snapshot.workers`;
-  `workers/resolvers` (`createWorker`, `rotateWorkerKey`, `deleteWorker`); `WORKER_DEFAULTS` for
-  the later doors.
+  the machine it runs on, its version and its local servers. A run on a remote worker starts with a
+  notice naming it and its machine. Owner: `workers/`; the `workers` table (`last_seen_at`, `host`,
+  `version`, written on its hello), `Snapshot.workers`; `workers/registry` (who is online),
+  `workers/remote` (the runs on them), `workers/resolvers` (`createWorker`, `rotateWorkerKey`,
+  `deleteWorker`, `Worker.online`, `Worker.localServers`); `WORKER_DEFAULTS`.
+- **Worker channel:** the one stream a remote worker holds open to the router, which carries what the
+  router asks of it: a stretch of a run to execute (an assignment), a run to cancel, and a ping now and then.
+  A new channel replaces the old one, which is closed. Owner: `workers/routes` `GET /workers/channel`,
+  `workers/registry`; `runner/protocol` `ChannelMessage`.
+- **Worker doors (run doors):** the requests a remote worker makes for a run it was assigned: its model calls,
+  its calls to the router's tools, its events and its outcome. Each answers only the worker the run is executing
+  on. Owner: `workers/routes`, under `WORKERS_PATH`; `runner/protocol` `WorkerDoor`, `runDoorPath`.
+- **Local server:** a server a remote worker runs on its own machine and offers the runs placed on it, beside the
+  workspace's servers. It is trusted by the machine's owner, not isolated by the router. Owner: `runner/protocol`
+  `WorkerHello.servers`; `workers/registry` `localServers`; a run's tool target with origin `local`.
 - **Local worker (`local`):** the built-in worker, the router process itself. It has no key, since
   nothing dials in as it, and is never renamed or deleted. Owner: the row the `workers` migration
   adds; `LOCAL_WORKER_NAME`.
@@ -443,9 +465,11 @@ Everything about the code comes after `Owner:`.
   `readWorkerCaller`; `workers.key_hash` (SHA-256 only) and `key_prefix`, served as `keyPrefix`
   and `keySet`; `Snapshot.workerKeys`.
 - **A workspace's worker (placement):** the worker a workspace's runs go to, set by a person; none
-  set is `local`. A run will record the worker that ran it. Owner: `workspaces.worker_id`, null for
-  `local`, set by `workspaces/resolvers` `setWorkspaceWorker`; `SnapshotWorkspace.workerId`;
-  `runs.worker_id`, set null when its worker is deleted, served as `Run.worker`.
+  set is `local`. A run records the worker it started on and carries on there when it resumes. A
+  remote worker that is offline refuses the run as `worker_offline`, and one running as many runs as
+  it may as `worker_busy`, both 503. Owner: `workspaces.worker_id`, null for `local`, set by
+  `workspaces/resolvers` `setWorkspaceWorker`; `SnapshotWorkspace.workerId`; `runs.worker_id`, null for
+  `local` and once its worker is deleted, served as `Run.worker`; `agents/run` `checkWorker`.
 
 ### Models
 

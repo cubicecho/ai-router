@@ -42,6 +42,12 @@ export function runDoorPath(runId: string, door: WorkerDoor): string {
   return `/runs/${encodeURIComponent(runId)}${door}`;
 }
 
+/**
+ * The `code` of a run door's 404 for a run that is not executing on the calling worker: the router dropped it, or
+ * never assigned it there. Distinct from the models area's own 404s, which the model door passes through.
+ */
+export const RUN_NOT_FOUND = 'run_not_found';
+
 /** What the channel carries, by its server-sent event name. */
 export const ChannelMessageType = {
   /** A stretch of a run to execute: a {@link RunAssignment}. */
@@ -134,7 +140,8 @@ export const runOutcomeSchema = z.discriminatedUnion('ok', [
     finishReason: z.unknown(),
     handedBack: z.array(z.string()),
   }),
-  z.object({ ok: z.literal(false), error: z.string(), usage: z.unknown() }),
+  // A failure's usage may be unknown, and JSON leaves an undefined one out.
+  z.object({ ok: z.literal(false), error: z.string(), usage: z.unknown().optional() }),
 ]);
 
 /** Re-exported so both ends name the same shapes. */

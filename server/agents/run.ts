@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
+import { nameSchema } from '../core/names.ts';
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { violatedUniqueIndex } from '../db/errors.ts';
@@ -39,12 +40,16 @@ import {
   type LoopUsage,
   type RunAssignment,
   type RunPorts,
+  TOOL_ORIGIN_LOCAL,
   TOOL_ORIGIN_ROUTER,
   type ToolDefinition,
+  type ToolOrigin,
 } from '../runner/assignment.ts';
 import type { ToolElicit, ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
 import { createLocalWorker } from '../workers/local.ts';
+import { createWorkerRegistry } from '../workers/registry.ts';
+import { createRemoteWorkers, type RemoteWorkers } from '../workers/remote.ts';
 import type { RunWorker } from '../workers/worker.ts';
 import { type PrunedAppTool, pruneAppTools } from './app-tools.ts';
 import {
@@ -84,6 +89,8 @@ const CANCEL_ATTEMPTS = 3;
 const RUN_RECORD_PATH = '/runs/';
 /** A run's id, as a called agent's answer names it. */
 const runIdSchema = z.uuid();
+/** The rule a worker's local server name must pass to reach a run, the same as the router's own servers'. */
+const localServerName = nameSchema('A local server name');
 
 /** A request's `Idempotency-Key`, and the hash of the body it came with. */
 export interface Idempotency {
@@ -121,6 +128,8 @@ export interface WaitingRun {
   resume: RunResume;
   /** The document of the revision it started with, which it keeps. */
   document: Record<string, unknown>;
+  /** The remote worker it ran on, which it carries on on. Null for `local`. */
+  workerId: string | null;
 }
 
 /** A request the run service refuses because of where a run is, in OpenAI's words. */
@@ -213,6 +222,8 @@ export interface RepeatedRun {
 export interface RunService {
   /** A run's events, stored and live. */
   bus: RunBus;
+  /** The remote workers runs are sent to, and their doors' view of the runs on them. */
+  workers: RemoteWorkers;
   /**
    * Finds the run a workspace's `Idempotency-Key` belongs to.
    *
@@ -226,7 +237,8 @@ export interface RunService {
    *
    * @param input - The run.
    * @returns The new run, to execute at once, or the one the key started.
-   * @throws {@link RunConflict} When the conversation has a run going or waiting.
+   * @throws {@link RunConflict} When the conversation has a run going or waiting, or the workspace's worker is offline
+   * or busy. Nothing is recorded then.
    */
   begin(input: RunInput): Promise<StartedRun | RepeatedRun>;
   /**
@@ -246,7 +258,7 @@ export interface RunService {
    * @param input - The request that answers it, and the config resolved from the run's own layers.
    * @param waiting - The run, from `waitingFor`.
    * @returns The run, to execute at once.
-   * @throws {@link RunConflict} When another request resumed it first.
+   * @throws {@link RunConflict} When another request resumed it first, or the worker it ran on is offline or busy.
    */
   resume(input: RunInput, waiting: WaitingRun): Promise<StartedRun>;
   /**
@@ -304,10 +316,15 @@ export interface RunServiceDeps {
    */
   runtime?: Runtime;
   /**
-   * Where the runs' loops execute.
+   * Where the loops of runs on `local` execute.
    * @defaultValue the `local` worker, in this process, with `runtime`
    */
   worker?: RunWorker;
+  /**
+   * The remote workers, for the runs of a workspace that names one.
+   * @defaultValue none online, over a registry of this database's workers
+   */
+  workers?: RemoteWorkers;
   /** Settings that differ from `RUN_DEFAULTS`. */
   overrides?: Partial<RunSettings>;
   /** The clock retention and waiting are judged by. */
@@ -362,8 +379,18 @@ interface Hearing {
 
 /** A tool the run reaches, with what the model is told about it. */
 interface ReachedTool extends RunTool {
+  /** Who answers it. For a local tool, `serverId` is the local server's name. */
+  origin: ToolOrigin;
   description: string;
   parameters: Record<string, unknown>;
+}
+
+/** Where a run's stretch executes, and what narrows the worker's own servers. */
+interface Placement {
+  /** The remote worker. Null for `local`. */
+  workerId: string | null;
+  /** The servers the app narrowed the run to, or null for no narrowing. */
+  servers: readonly string[] | null;
 }
 
 /** The tools a run reaches, named for its model, and what was left out. */
@@ -399,6 +426,8 @@ interface Segment {
   spent: { input: number; output: number };
   /** The layers the run started with, kept for its next wait. */
   layers: Pick<RunResume, 'systemText' | 'appParts' | 'servers' | 'sampling'>;
+  /** The remote worker it runs on. Null for `local`. */
+  workerId: string | null;
 }
 
 /**
@@ -550,6 +579,7 @@ export function createRunService({
   tools,
   runtime = createRuntime(),
   worker = createLocalWorker(runtime),
+  workers = createRemoteWorkers(createWorkerRegistry(db)),
   overrides = {},
   now = () => new Date(),
 }: RunServiceDeps): RunService {
@@ -595,18 +625,90 @@ export function createRunService({
   };
 
   /**
+   * Reads the tools of a remote worker's own servers, as its last hello said them.
+   *
+   * @param placement - The worker, and the servers the app narrowed the run to.
+   * @param routerServers - The names of the router's servers the run reaches, which win over a local one's.
+   * @param notices - What the run's first events say was left out. Added to.
+   * @returns The local tools the run reaches: none on `local`.
+   */
+  const localTools = (
+    { workerId, servers: narrowed }: Placement,
+    routerServers: ReadonlySet<string>,
+    notices: string[],
+  ): ReachedTool[] => {
+    const offered = workerId === null ? [] : workers.registry.localServers(workerId);
+    return offered.flatMap((server): ReachedTool[] => {
+      const isNarrowedAway = narrowed !== null && narrowed.includes(server.name) === false;
+      if (isNarrowedAway) {
+        return [];
+      }
+      const named = localServerName.safeParse(server.name);
+      if (named.success === false || named.data !== server.name) {
+        notices.push(`the worker's server "${server.name}" is left out: its name breaks the router's name rule.`);
+        return [];
+      }
+      if (routerServers.has(server.name)) {
+        notices.push(`the worker's server "${server.name}" is left out: the router's server of that name is used.`);
+        return [];
+      }
+      return server.tools.map((tool) => ({
+        origin: TOOL_ORIGIN_LOCAL,
+        serverId: server.name,
+        serverName: server.name,
+        tool: tool.name,
+        description: tool.description ?? '',
+        parameters: tool.inputSchema,
+      }));
+    });
+  };
+
+  /**
+   * Refuses a run whose worker can't take it: a remote worker that is offline, or running as many runs as it may.
+   *
+   * @param workerId - The remote worker, or null for `local`, which always can.
+   * @throws {@link RunConflict} When it is offline or busy.
+   */
+  const checkWorker = (workerId: string | null): void => {
+    if (workerId === null) {
+      return;
+    }
+    const name = snapshot.current().workers.get(workerId)?.name ?? workerId;
+    if (workers.registry.isOnline(workerId) === false) {
+      throw new RunConflict(
+        ModelFailure.WorkerOffline,
+        `Worker ${name}, where this workspace's runs go, is offline. Start it, or try again once it has dialled in.`,
+      );
+    }
+    const { maxRunsAtOnce } = workers.settings;
+    if (workers.runsOn(workerId) >= maxRunsAtOnce) {
+      throw new RunConflict(
+        ModelFailure.WorkerBusy,
+        `Worker ${name} is running ${maxRunsAtOnce} runs, as many as it may at once. Try again when one ends.`,
+      );
+    }
+  };
+
+  /**
    * Lists the tools of every server the run reaches, as its workspace's instances, and names them for the model.
    *
    * @param input - The run: its resolved agent, for its servers, and its workspace, whose instances to use.
    * @param sent - The app's own tools, as the request sent them.
+   * @param placement - The remote worker the run is on, whose local servers it reaches too, and the servers the app
+   * narrowed it to (null for no narrowing), which narrow those as well.
    * @returns The tools, with the app's that duplicate one of them left out. A server that can't start or list is left
    * out and said so, never failing the run.
    *
    * @remarks
    * A tool turned off for the agent in its workspace is left out as each server is listed, before the tools are named,
-   * so it takes no name and no slot in the catalogue, and an app tool that duplicates it is kept.
+   * so it takes no name and no slot in the catalogue, and an app tool that duplicates it is kept. Those switches don't
+   * reach a worker's local servers, which the router knows only by what the worker says.
    */
-  const reachedTools = async ({ config, workspace, agent }: RunInput, sent: AppTool[]): Promise<RunTools> => {
+  const reachedTools = async (
+    { config, workspace, agent }: RunInput,
+    sent: AppTool[],
+    placement: Placement,
+  ): Promise<RunTools> => {
     const workspaceId = workspace.id;
     const notices: string[] = [];
     const reach = reachOf(config.servers, snapshot.current());
@@ -614,6 +716,7 @@ export function createRunService({
     for (const name of reach.missing) {
       notices.push(`server "${name}" is not on this router or is turned off; it is left out.`);
     }
+    const local = localTools(placement, new Set(reach.servers.map((server) => server.name)), notices);
     const listed = await Promise.all(
       reach.servers.map(async (server): Promise<ReachedTool[]> => {
         try {
@@ -621,6 +724,7 @@ export function createRunService({
           const off = disabledTools?.get(server.name);
           const kept = off === undefined ? served : served.filter((tool) => off.has(tool.name) === false);
           return kept.map((tool) => ({
+            origin: TOOL_ORIGIN_ROUTER,
             serverId: server.id,
             serverName: server.name,
             tool: tool.name,
@@ -636,7 +740,7 @@ export function createRunService({
         }
       }),
     );
-    const { names, dropped } = runToolNames(listed.flat());
+    const { names, dropped } = runToolNames([...listed.flat(), ...local]);
     for (const tool of dropped) {
       notices.push(`tool "${tool.tool}" of server "${tool.serverName}" is left out: its name clashes with another.`);
     }
@@ -758,6 +862,11 @@ export function createRunService({
       hearing.listener.onEvent(published);
       return published;
     };
+    if (segment.workerId !== null) {
+      const name = snapshot.current().workers.get(segment.workerId)?.name ?? segment.workerId;
+      const host = workers.registry.host(segment.workerId);
+      say({ kind: RunEventKind.Notice, text: `Running on worker ${name}${host === null ? '' : ` (${host})`}` });
+    }
     for (const text of [...segment.tools.notices, ...input.prompt.warnings.map((warning) => warning.message)]) {
       say({ kind: RunEventKind.Notice, text });
     }
@@ -998,14 +1107,15 @@ export function createRunService({
       targets: Object.fromEntries(
         [...reached.names].map(([name, tool]) => [
           name,
-          { origin: TOOL_ORIGIN_ROUTER, server: tool.serverId, tool: tool.tool },
+          { origin: tool.origin, server: tool.serverId, tool: tool.tool },
         ]),
       ),
       appTools,
     };
     let finished: FinishedRun;
     try {
-      const outcome = await worker.execute(assignment, {
+      const runsOn = segment.workerId === null ? worker : workers.worker(segment.workerId);
+      const outcome = await runsOn.execute(assignment, {
         modelFetch: input.modelFetch,
         callRouterTool,
         publish: heard,
@@ -1121,7 +1231,9 @@ export function createRunService({
     if (isBusy) {
       await conversationBusy(conversation);
     }
-    const reached = await reachedTools(input, request.appTools);
+    const { workerId } = workspace;
+    checkWorker(workerId);
+    const reached = await reachedTools(input, request.appTools, { workerId, servers: request.servers });
     let inserted: RunRow[];
     try {
       inserted = await db
@@ -1134,6 +1246,8 @@ export function createRunService({
           revisionId: agent.liveRevisionId,
           conversationId: conversation?.id ?? null,
           sessionKey: input.sessionKey,
+          // Null for `local`, as a workspace names it.
+          workerId,
           input: request.input,
           user: request.user,
           stream: request.stream,
@@ -1172,6 +1286,7 @@ export function createRunService({
       answered: [],
       spent: { input: 0, output: 0 },
       layers: { systemText, appParts, servers, sampling },
+      workerId,
     });
     await bus.open(row.id);
     return handle;
@@ -1256,7 +1371,12 @@ export function createRunService({
       );
     }
     const [row] = await db
-      .select({ resume: runs.resume, conversationId: runs.conversationId, document: agentRevisions.document })
+      .select({
+        resume: runs.resume,
+        conversationId: runs.conversationId,
+        workerId: runs.workerId,
+        document: agentRevisions.document,
+      })
       .from(runs)
       .leftJoin(agentRevisions, eq(agentRevisions.id, runs.revisionId))
       .where(eq(runs.id, match.id));
@@ -1266,7 +1386,13 @@ export function createRunService({
     if (row.document === null) {
       throw new RunConflict(ModelFailure.RunFailed, `Run ${match.id} can't carry on: the revision it ran is gone.`);
     }
-    return { runId: match.id, conversationId: row.conversationId, resume: row.resume, document: row.document };
+    return {
+      runId: match.id,
+      conversationId: row.conversationId,
+      resume: row.resume,
+      document: row.document,
+      workerId: row.workerId,
+    };
   };
 
   /**
@@ -1322,7 +1448,10 @@ export function createRunService({
     // The app sends its tools again with every request, as any OpenAI client does. One that doesn't keeps them.
     // They are pruned again, by the same rules, against the agent's tools as they are now.
     const appTools = request.appTools.length > 0 ? request.appTools : state.appTools;
-    const reached = await reachedTools(input, appTools);
+    // It carries on where it ran, not where its workspace's runs go now.
+    const { workerId } = waiting;
+    checkWorker(workerId);
+    const reached = await reachedTools(input, appTools, { workerId, servers: state.servers });
     const [row] = await db
       .update(runs)
       .set({
@@ -1363,6 +1492,7 @@ export function createRunService({
         servers: state.servers,
         sampling: state.sampling,
       },
+      workerId,
     });
     await bus.open(row.id);
     return handle;
@@ -1462,6 +1592,7 @@ export function createRunService({
 
   return {
     bus,
+    workers,
     repeatOf,
     begin,
     waitingFor,

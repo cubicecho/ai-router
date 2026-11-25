@@ -555,8 +555,12 @@ export interface WorkerSettings {
   eventBatchSize: number;
   /** How long a worker holds run events before it sends them together. */
   eventFlushMs: number;
-  /** The most runs one worker takes at once. A run past it waits for a slot. */
+  /** The most runs one remote worker runs at once. A run past it is refused as `worker_busy`. */
   maxRunsAtOnce: number;
+  /** How long a worker told to cancel a run may take to finish it before the router ends it itself. */
+  cancelGraceMs: number;
+  /** Largest JSON body the worker doors accept, as `express.json` reads it: a model call carries the transcript. */
+  bodyLimit: string;
 }
 
 export const WORKER_DEFAULTS: Readonly<WorkerSettings> = Object.freeze({
@@ -565,6 +569,8 @@ export const WORKER_DEFAULTS: Readonly<WorkerSettings> = Object.freeze({
   eventBatchSize: 100,
   eventFlushMs: 250,
   maxRunsAtOnce: 8,
+  cancelGraceMs: 10_000,
+  bodyLimit: '8mb',
 });
 
 /**

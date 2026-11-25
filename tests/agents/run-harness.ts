@@ -20,6 +20,7 @@ import type { UpstreamFetch, UpstreamResponse } from '../../server/models/outbou
 import { createModelServices, type ModelServices } from '../../server/models/services.ts';
 import { ChildMode } from '../../server/tools/child-users.ts';
 import { createToolServices, type ToolServiceParts } from '../../server/tools/services.ts';
+import type { RemoteWorkers } from '../../server/workers/remote.ts';
 import {
   closeTestDb,
   createClient,
@@ -222,6 +223,8 @@ export class RunHarness {
   revisionId!: string;
   /** The bodies the fake provider was sent, chat completions only. */
   received: Record<string, unknown>[] = [];
+  /** The headers of those requests, in the same order. */
+  receivedHeaders: Record<string, string>[] = [];
   /** Decides each answer of the fake model. */
   script: (body: Record<string, unknown>) => Reply = ECHO_SCRIPT;
   /** The routers started in this test, which the harness stops after it. */
@@ -252,6 +255,7 @@ export class RunHarness {
     }
     const body: Record<string, unknown> = JSON.parse(request.body ?? '{}');
     this.received.push(body);
+    this.receivedHeaders.push(request.headers);
     return answer(HttpStatus.Ok, sse(this.script(body)), true);
   };
 
@@ -303,14 +307,19 @@ export class RunHarness {
    * Starts the router on a real socket.
    *
    * @param [overrides] - Run settings that differ.
+   * @param [workers] - The remote workers, for a test that dials one in.
    * @returns Its address and run service.
    */
-  async startRouter(overrides: Partial<RunSettings> = {}): Promise<{ base: string; runs: RunService }> {
+  async startRouter(
+    overrides: Partial<RunSettings> = {},
+    workers?: RemoteWorkers,
+  ): Promise<{ base: string; runs: RunService }> {
     const runService = createRunService({
       db: this.db,
       snapshot: this.snapshot,
       tools: this.tools,
       runtime: createRuntime(),
+      ...(workers === undefined ? {} : { workers }),
       overrides,
     });
     const { app } = await createApp({
@@ -399,6 +408,7 @@ export function useRunHarness(): RunHarness {
   beforeEach(async () => {
     await resetTestDb(h.db);
     h.received = [];
+    h.receivedHeaders = [];
     h.script = ECHO_SCRIPT;
     h.user = await createUser(h.db, 'user@example.com', Role.User);
     h.snapshot = await createSnapshotHost(h.db);
