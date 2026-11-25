@@ -453,9 +453,25 @@ Everything about the code comes after `Owner:`.
 - **Worker doors (run doors):** the requests a remote worker makes for a run it was assigned: its model calls,
   its calls to the router's tools, its events and its outcome. Each answers only the worker the run is executing
   on. Owner: `workers/routes`, under `WORKERS_PATH`; `runner/protocol` `WorkerDoor`, `runDoorPath`.
+- **Worker program:** the process a remote worker is, run with `npm run worker` on its owner's machine. It reads
+  the router's address, its worker key, its work root and its local servers' config from the environment, holds
+  the channel open (dialling again with a doubling wait), and says hello each time the channel opens and whenever a
+  local server's tools change. It runs each assignment's loop with `executeRun`, sends its events in order and then
+  its finish, and stops a run on its cancel (finished failed, with the reason) or when a run door answers
+  `run_not_found` (sending nothing more). Past `maxRunsAtOnce`, or while stopping, it finishes an assignment at once
+  as failed. Owner: `worker/` (`config`, `channel`, `run`, `servers`, `worker`; `index.ts` boots it);
+  `WORKER_DEFAULTS`, `WORKER_PROGRAM_DEFAULTS`.
 - **Local server:** a server a remote worker runs on its own machine and offers the runs placed on it, beside the
-  workspace's servers. It is trusted by the machine's owner, not isolated by the router. Owner: `runner/protocol`
-  `WorkerHello.servers`; `workers/registry` `localServers`; a run's tool target with origin `local`.
+  workspace's servers: the built-in `workdir`, and each server its config names, by a command or an address. It
+  runs as the worker's user, on the machine owner's trust, not in the router's sandbox. A command server gets only
+  `PATH`, `HOME`, `LANG`, `TERM` and `USER` from the worker's environment, plus its own `env`. One whose name
+  breaks the router's name rule, or is `workdir`, and one that fails to start, are left out. Owner:
+  `runner/protocol` `WorkerHello.servers`; `worker/servers`, through `tools/child-transport`; `workers/registry`
+  `localServers`; a run's tool target with origin `local`.
+- **Work root:** the folder on a worker's machine that `workdir` works under (`WORKER_ROOT`, by default
+  `~/ai-router-work`). `open_repo` keeps one checkout per repo at `<root>/<host>/<owner>/<name>`, reusing it or
+  cloning it, and `workdir` reads nothing outside the root, symlinks included. Owner: `worker/config`,
+  `worker/workdir`.
 - **Local worker (`local`):** the built-in worker, the router process itself. It has no key, since
   nothing dials in as it, and is never renamed or deleted. Owner: the row the `workers` migration
   adds; `LOCAL_WORKER_NAME`.
