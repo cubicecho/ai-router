@@ -60,6 +60,8 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `settings/` | the router's settings: reading and changing them over GraphQL | `core`, `db`, `graphql/object-type` |
 | `models/` | providers, pools, the balancer, forwarding a run's model calls, usage (phase 2) | `core`, `db`, `auth` |
 | `tools/` | the child-user check; later registries, the installer, servers, instances, activity | `core`, `db`, `auth` |
+| `runner/` | the agent loop of one stretch of a run, from a JSON assignment, with the router reached only through its ports: what a worker executes | `core` (a test keeps it so) |
+| `workers/` | where a run's loop executes: the built-in `local` worker, in process | `core`, `runner` |
 | `agents/` | revisions, layers, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |

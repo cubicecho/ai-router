@@ -1,7 +1,7 @@
 import type { Snapshot, SnapshotAgent, SnapshotWorkspace } from '../db/snapshot.ts';
 import type { Forwarder } from '../models/forward.ts';
 import { type Conversation, withHistory } from './conversation.ts';
-import { agentLayer, resolveRun, withRouterFetch } from './layers.ts';
+import { agentLayer, resolveRun } from './layers.ts';
 import type { RunRequest } from './request.ts';
 import type { Idempotency, RepeatedRun, RunService, StartedRun } from './run.ts';
 
@@ -95,13 +95,13 @@ export function beginRun(
     agentId: agent.id,
     agentName: agent.name,
   });
-  const config = withRouterFetch(resolved, fetch);
   const input = {
     workspace,
     agent,
     request: withConversation,
-    config,
+    config: resolved,
     prompt,
+    modelFetch: fetch,
     idempotency,
     conversation,
     sessionKey,

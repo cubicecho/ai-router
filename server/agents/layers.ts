@@ -9,8 +9,9 @@ import {
   type StackedPrompt,
   stackAppParts,
 } from '@cubicecho/agent-core/spec';
+import { MODELS_BASE_URL } from '../core/wire.ts';
 import type { Snapshot } from '../db/snapshot.ts';
-import { MODELS_BASE_URL } from '../models/forward.ts';
+import { withRouterFetch } from '../runner/model-fetch.ts';
 import { narrowedServers } from './reach.ts';
 import type { RunRequest } from './request.ts';
 
@@ -22,9 +23,6 @@ export const ROUTER_LAYER: AgentSpec = Object.freeze({
   spec: AGENT_SPEC,
   endpoint: Object.freeze({ baseUrl: MODELS_BASE_URL }),
 });
-
-/** A resolved agent whose router-bound endpoints, its own and its side tasks', carry the run's `fetch`. */
-export type RunConfig = ResolvedAgent;
 
 /** A run's layers resolved: the agent as the request may change it, and its prompt with the app's parts. */
 export interface ResolvedRun {
@@ -169,20 +167,5 @@ export function resolveRun(
   return { agent: resolved, prompt };
 }
 
-/**
- * Gives every endpoint of a resolved agent that points at the router's models the run's `fetch`.
- *
- * @param resolved - The resolved agent.
- * @param fetch - The run's `fetch`, from `Forwarder.fetchFor`.
- * @returns The config the loop runs with. An endpoint of the agent's own is left as it is, and called directly.
- */
-export function withRouterFetch(resolved: ResolvedAgent, fetch: typeof globalThis.fetch): RunConfig {
-  const isRouter = (baseUrl: string): boolean => baseUrl === MODELS_BASE_URL;
-  const tasks = Object.fromEntries(
-    Object.entries(resolved.tasks).map(([name, task]) => [
-      name,
-      isRouter(task.endpoint.baseUrl) ? { ...task, endpoint: { ...task.endpoint, fetch } } : task,
-    ]),
-  );
-  return { ...resolved, ...(isRouter(resolved.baseUrl) ? { fetch } : {}), tasks };
-}
+/** Gives a resolved agent's router-bound endpoints the run's `fetch`: the runner does it, where the loop runs. */
+export { withRouterFetch };

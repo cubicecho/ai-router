@@ -19,6 +19,12 @@ export const HttpStatus = {
 } as const;
 export type HttpStatus = (typeof HttpStatus)[keyof typeof HttpStatus];
 
+/**
+ * The address a run's endpoint points at when it uses the router's models. No server answers it: the run's model
+ * `fetch` hands every call to the models area. `.invalid` is reserved, so a call that escaped would go nowhere.
+ */
+export const MODELS_BASE_URL = 'http://models.ai-router.invalid/v1';
+
 /** Milliseconds in one second. */
 export const MS_PER_SECOND = 1000;
 /** Milliseconds in one minute. */
