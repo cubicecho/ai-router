@@ -22,7 +22,7 @@ export type LoopUsage = AgentLoopResult['usage'];
 /** What answers a call to one of the run's tools, by the name the model calls it. */
 export interface ToolTarget {
   origin: ToolOrigin;
-  /** The server's id, for a router tool. */
+  /** The server's id, for a router tool; the server's name on the worker, for a local one. */
   server: string;
   /** The tool's own name on its server. */
   tool: string;
@@ -87,12 +87,18 @@ export interface RunPorts {
   /**
    * Calls one of the worker's own tools. Absent where the worker has none.
    *
-   * @param tool - The tool's name.
+   * @param server - The local server's name, as the worker said it in its hello.
+   * @param tool - The tool's own name on that server.
    * @param args - What the model called it with.
    * @param options - The call, and its signal.
    * @returns What the tool said, as the model reads it.
    */
-  callLocalTool?(tool: string, args: Record<string, unknown>, options: ToolCallOptions): Promise<string>;
+  callLocalTool?(
+    server: string,
+    tool: string,
+    args: Record<string, unknown>,
+    options: ToolCallOptions,
+  ): Promise<string>;
   /**
    * Tells the router one of the loop's events.
    *

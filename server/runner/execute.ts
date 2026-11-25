@@ -81,7 +81,7 @@ export async function executeRun(
       if (ports.callLocalTool === undefined) {
         throw new Error(`This worker has no tool named "${target.tool}".`);
       }
-      return ports.callLocalTool(target.tool, call.args, options);
+      return ports.callLocalTool(target.server, target.tool, call.args, options);
     }
     return ports.callRouterTool(target.server, target.tool, call.args, options);
   };
