@@ -18,6 +18,8 @@ export const CALLER_USER = 'user' as const;
 export const CALLER_WORKSPACE = 'workspace' as const;
 /** An agent run, calling the admin server `ai-router` on its workspace's behalf. */
 export const CALLER_RUN = 'run' as const;
+/** A remote worker, on a worker key. */
+export const CALLER_WORKER = 'worker' as const;
 
 /** A person signed in to the UI. Sees everything enabled; only an admin sees secrets, settings and roles. */
 export interface UserCaller {
@@ -51,6 +53,17 @@ export interface RunCaller {
 
 /** Who a request is from, read once from its credential, or handed over by a run. */
 export type Caller = UserCaller | WorkspaceCaller | RunCaller;
+
+/**
+ * A remote worker calling with its worker key. Read only by the worker doors, so it is never a {@link Caller}: no
+ * door for apps or people accepts one.
+ */
+export interface WorkerCaller {
+  kind: typeof CALLER_WORKER;
+  workerId: string;
+  /** The worker's name, for logs. */
+  name: string;
+}
 
 /** What every request's context carries, whoever the caller is. */
 export interface ContextDeps {

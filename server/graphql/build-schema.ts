@@ -17,6 +17,7 @@ import { applySettingsExtension } from '../settings/resolvers.ts';
 import { applySsoExtension } from '../sso/resolvers.ts';
 import { toolWriteHooks } from '../tools/hooks.ts';
 import { applyToolsExtension } from '../tools/resolvers.ts';
+import { applyWorkersExtension } from '../workers/resolvers.ts';
 import { workspaceWriteHooks } from '../workspaces/hooks.ts';
 import { applyWorkspacesExtension } from '../workspaces/resolvers.ts';
 import { mapDatabaseError } from './database-errors.ts';
@@ -32,12 +33,13 @@ const SERVER_TABLES = ['sessions', 'accounts', 'verifications', 'oidcSettings'];
 const HAND_SERVED_TABLES = ['runEvents', 'settings'];
 
 /**
- * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, targets,
+ * Tables whose writes belong to hand-written mutations or to the server: sign-in, roles, keys, workers, targets,
  * usage, model prices, secrets, activity, runs, conversations, and the servers and tools turned off for an agent in a workspace.
  */
 const WRITES_RESERVED = new Set<string>([
   'users',
   'workspaceKeys',
+  'workers',
   'poolTargets',
   'usageCounts',
   'modelPrices',
@@ -106,6 +108,7 @@ export function createSchema(db: DB): GraphQLSchema {
       tables: [...SERVER_TABLES, ...HAND_SERVED_TABLES],
       columns: {
         workspaceKeys: ['hash'],
+        workers: ['keyHash'],
         providers: ['apiKey'],
         servers: ['oauth'],
         serverSecrets: ['value'],
@@ -141,7 +144,9 @@ export function createSchema(db: DB): GraphQLSchema {
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
   const extended = applySettingsExtension(
     applyRunsExtension(
-      applyAgentsExtension(applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(withAuth)))),
+      applyAgentsExtension(
+        applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(applyWorkersExtension(withAuth)))),
+      ),
     ),
   );
   return applyPermissions(extended, permissions, {

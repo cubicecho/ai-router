@@ -7,6 +7,7 @@ import { badInput, notFound } from '../core/errors.ts';
 import { parseOrThrow } from '../core/validation.ts';
 import { MS_PER_DAY } from '../core/wire.ts';
 import type { Transaction } from '../db/client.ts';
+import { LOCAL_WORKER_NAME, workers } from '../db/tables/workers.ts';
 import { workspaceAgentDisabledServers } from '../db/tables/workspace-agent-disabled-servers.ts';
 import { workspaceAgentDisabledTools } from '../db/tables/workspace-agent-disabled-tools.ts';
 import { workspaceAgents } from '../db/tables/workspace-agents.ts';
@@ -74,6 +75,11 @@ const WORKSPACES_SDL = parse(`
       name: String!
       description: String
     ): Workspace!
+    """
+    Sets the worker a workspace's agent loops run on, from its next run. Null, or the local worker, runs them inside
+    the router.
+    """
+    setWorkspaceWorker(workspaceId: UUID!, workerId: UUID): Workspace!
   }
 `);
 
@@ -98,6 +104,12 @@ interface SetAgentServerEnabledArgs {
 /** What `setWorkspaceAgentToolEnabled` is given. */
 interface SetAgentToolEnabledArgs extends SetAgentServerEnabledArgs {
   tool: string;
+}
+
+/** What `setWorkspaceWorker` is given. */
+interface SetWorkspaceWorkerArgs {
+  workspaceId: string;
+  workerId?: string | null;
 }
 
 /** What `createWorkspaceKey` is given. */
@@ -130,8 +142,27 @@ async function requireAgentAndServer(tx: Transaction, workspaceAgentId: string, 
 }
 
 /**
+ * Reads the worker a workspace is set to run on, as `workspaces.worker_id` stores it.
+ *
+ * @param tx - The change's transaction.
+ * @param workerId - The worker asked for, or null for `local`.
+ * @returns The worker's id, or null for `local`, which is stored as none.
+ * @throws NOT_FOUND for a worker that doesn't exist.
+ */
+async function storedWorkerId(tx: Transaction, workerId: string | null): Promise<string | null> {
+  if (workerId === null) {
+    return null;
+  }
+  const [worker] = await tx.select({ name: workers.name }).from(workers).where(eq(workers.id, workerId));
+  if (worker === undefined) {
+    throw notFound('Worker not found.');
+  }
+  return worker.name === LOCAL_WORKER_NAME ? null : workerId;
+}
+
+/**
  * Adds the workspace fields CRUD can't express: making and revoking keys, turning a workspace's servers, or single
- * tools of them, off for one of its agents, and copying a workspace into a new one.
+ * tools of them, off for one of its agents, copying a workspace into a new one, and setting its worker.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -226,7 +257,7 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
     const values = parseOrThrow(newWorkspaceInput, { ...args, description: args.description ?? '' });
     const workspace = await ctx.db.transaction(async (tx) => {
       const [source] = await tx
-        .select({ id: workspaces.id })
+        .select({ id: workspaces.id, workerId: workspaces.workerId })
         .from(workspaces)
         .where(eq(workspaces.id, args.fromWorkspaceId));
       if (source === undefined) {
@@ -236,7 +267,11 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
       if (taken !== undefined) {
         throw badInput('A workspace with that slug already exists.');
       }
-      const [created] = await tx.insert(workspaces).values(values).returning();
+      // The worker is placement, not a secret: the copy's runs go where the original's do.
+      const [created] = await tx
+        .insert(workspaces)
+        .values({ ...values, workerId: source.workerId })
+        .returning();
       if (created === undefined) {
         throw new Error('The workspace insert returned no row.');
       }
@@ -315,6 +350,25 @@ export function applyWorkspacesExtension(schema: GraphQLSchema): GraphQLSchema {
       return created;
     });
     // Before answering, so the new workspace's agents reach their servers at once.
+    await ctx.snapshot.rebuild();
+    return workspace;
+  };
+
+  mutations.setWorkspaceWorker.resolve = async (_parent: unknown, args: SetWorkspaceWorkerArgs, ctx: Context) => {
+    requireUser(ctx.caller);
+    const workspace = await ctx.db.transaction(async (tx) => {
+      const workerId = await storedWorkerId(tx, args.workerId ?? null);
+      const [updated] = await tx
+        .update(workspaces)
+        .set({ workerId })
+        .where(eq(workspaces.id, args.workspaceId))
+        .returning();
+      if (updated === undefined) {
+        throw notFound('Workspace not found.');
+      }
+      return updated;
+    });
+    // Before answering, so the workspace's next run goes to the worker set.
     await ctx.snapshot.rebuild();
     return workspace;
   };

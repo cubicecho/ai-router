@@ -7,7 +7,7 @@ import { inject } from 'vitest';
 import { createRunService, type RunService } from '../server/agents/run.ts';
 import { type AuthHost, fixedAuthHost } from '../server/auth/auth-host.ts';
 import { type Auth, createAuth } from '../server/auth/better-auth.ts';
-import { hashKey, mintKey } from '../server/auth/keys.ts';
+import { hashKey, mintKey, WORKER_KEY_PREFIX } from '../server/auth/keys.ts';
 import { createRateLimiter, type RateLimiter } from '../server/auth/rate-limit.ts';
 import type { OidcConfig } from '../server/core/config.ts';
 import { CALLER_USER, CALLER_WORKSPACE, type Caller, type Context, type UserCaller } from '../server/core/context.ts';
@@ -17,6 +17,7 @@ import * as dbSchema from '../server/db/schema.ts';
 import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '../server/db/snapshot.ts';
 import { servers } from '../server/db/tables/servers.ts';
 import { Role } from '../server/db/tables/users.ts';
+import { LOCAL_WORKER_NAME, workers } from '../server/db/tables/workers.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
 import type { UpstreamFetch } from '../server/models/outbound.ts';
 import { createModelServices, type ModelServices } from '../server/models/services.ts';
@@ -75,17 +76,18 @@ export async function createTestDb(): Promise<TestDb> {
 }
 
 /**
- * Adds what the migrations seed and the code counts on: the admin server.
+ * Adds what the migrations seed and the code counts on: the admin server and the local worker.
  *
  * @param db - A database with the tables and no rows.
  */
 async function seedTestDb(db: TestDb): Promise<void> {
   await db.insert(servers).values(ADMIN_SERVER_ROW);
+  await db.insert(workers).values({ name: LOCAL_WORKER_NAME });
 }
 
 /**
  * Empties every table, so the next test starts from the database `createTestDb` returned, with the admin server
- * the migrations seed.
+ * and the local worker the migrations seed.
  *
  * @param db - A database from `createTestDb`.
  */
@@ -169,6 +171,22 @@ export async function createWorkspaceWithKey(
     throw new Error('The key was not inserted.');
   }
   return { workspaceId: workspace.id, keyId: key.id, secret };
+}
+
+/**
+ * Inserts a remote worker and its key, straight through Drizzle.
+ *
+ * @param db - A database from `createTestDb`.
+ * @param name - The worker's name.
+ * @returns The worker's id and its key.
+ */
+export async function createWorkerWithKey(db: TestDb, name: string): Promise<{ workerId: string; secret: string }> {
+  const { secret, hash, start } = mintKey(WORKER_KEY_PREFIX);
+  const [worker] = await db.insert(workers).values({ name, keyHash: hash, keyPrefix: start }).returning();
+  if (worker === undefined) {
+    throw new Error('The worker was not inserted.');
+  }
+  return { workerId: worker.id, secret };
 }
 
 /**

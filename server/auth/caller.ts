@@ -1,8 +1,16 @@
-import { CALLER_USER, CALLER_WORKSPACE, type Caller, type UserCaller, type WorkspaceCaller } from '../core/context.ts';
+import {
+  CALLER_USER,
+  CALLER_WORKER,
+  CALLER_WORKSPACE,
+  type Caller,
+  type UserCaller,
+  type WorkerCaller,
+  type WorkspaceCaller,
+} from '../core/context.ts';
 import { forbidden, unauthenticated } from '../core/errors.ts';
 import type { Snapshot } from '../db/snapshot.ts';
 import { type Auth, sessionUser } from './better-auth.ts';
-import { findKey } from './keys.ts';
+import { findKey, findWorkerKey, isWorkerKey } from './keys.ts';
 
 /** The header an app may send its key in, beside or instead of `Authorization: Bearer`. */
 export const API_KEY_HEADER = 'x-api-key';
@@ -20,9 +28,9 @@ export class ConflictingKeysError extends Error {
 
 /** The credentials a request presents. */
 interface Presented {
-  /** From `Authorization: Bearer`: a workspace key, or a person's session token. */
+  /** From `Authorization: Bearer`: a workspace or worker key, or a person's session token. */
   bearer: string | null;
-  /** From `x-api-key`: only ever a workspace key. */
+  /** From `x-api-key`: only ever a workspace or worker key. */
   apiKey: string | null;
 }
 
@@ -65,7 +73,7 @@ export interface CallerSources {
  *
  * @remarks
  * `x-api-key` is only ever a key, and one that does not hold is nobody, never a fall through to a session.
- * A bearer is tried as a key first, then as a session token.
+ * A bearer is tried as a workspace key first, then as a session token. A worker key is nobody here.
  */
 export async function readCaller({ auth, snapshot, now }: CallerSources, headers: Headers): Promise<Caller | null> {
   const workspace = readWorkspaceCaller(snapshot, headers, now);
@@ -73,7 +81,7 @@ export async function readCaller({ auth, snapshot, now }: CallerSources, headers
     return workspace;
   }
   const { bearer, apiKey } = presented(headers);
-  if (apiKey !== null || bearer === null) {
+  if (apiKey !== null || bearer === null || isWorkerKey(bearer)) {
     return null;
   }
   const user = await sessionUser(auth, headers);
@@ -87,7 +95,7 @@ export async function readCaller({ auth, snapshot, now }: CallerSources, headers
  * @param snapshot - What keys are checked against.
  * @param headers - The request's headers.
  * @param now - The time to judge a key's expiry by.
- * @returns The workspace for a live key, or null.
+ * @returns The workspace for a live key, or null, for a worker key too.
  * @throws {@link ConflictingKeysError} When the request sends two different keys.
  */
 export function readWorkspaceCaller(snapshot: Snapshot, headers: Headers, now: Date): WorkspaceCaller | null {
@@ -95,6 +103,22 @@ export function readWorkspaceCaller(snapshot: Snapshot, headers: Headers, now: D
   const candidate = apiKey ?? bearer;
   const key = candidate === null ? null : findKey(snapshot, candidate, now);
   return key === null ? null : { kind: CALLER_WORKSPACE, workspaceId: key.workspaceId, keyId: key.keyId };
+}
+
+/**
+ * Reads the remote worker a request is from, by its worker key alone. For the worker doors only, where a workspace
+ * key or a session is never read.
+ *
+ * @param snapshot - What worker keys are checked against.
+ * @param headers - The request's headers.
+ * @returns The worker for a live worker key, or null, for a workspace key or a session too.
+ * @throws {@link ConflictingKeysError} When the request sends two different keys.
+ */
+export function readWorkerCaller(snapshot: Snapshot, headers: Headers): WorkerCaller | null {
+  const { bearer, apiKey } = presented(headers);
+  const candidate = apiKey ?? bearer;
+  const worker = candidate === null ? null : findWorkerKey(snapshot, candidate);
+  return worker === null ? null : { kind: CALLER_WORKER, workerId: worker.id, name: worker.name };
 }
 
 /**
