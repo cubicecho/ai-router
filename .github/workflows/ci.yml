@@ -1,7 +1,9 @@
 name: CI
 on:
-  push: { branches: [main, feat/workers] }
+  push: { branches: [main] }
   pull_request:
+  # preview.yml runs these checks before it builds a branch's image.
+  workflow_call:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
