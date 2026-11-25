@@ -32,10 +32,11 @@ describe("the UI's workers", () => {
     expect(workerLabelOf({ name: 'build-box', host: null })).toBe('build-box');
   });
 
-  it('read a status from whether the worker has ever connected', () => {
-    expect(workerStatusOf({ name: 'local', lastSeenAt: null })).toBe(WorkerStatus.BuiltIn);
-    expect(workerStatusOf({ name: 'build-box', lastSeenAt: null })).toBe(WorkerStatus.NeverSeen);
-    expect(workerStatusOf({ name: 'build-box', lastSeenAt: SEEN })).toBe(WorkerStatus.Seen);
+  it('read a status from whether the worker is connected, and whether it ever has been', () => {
+    expect(workerStatusOf({ name: 'local', lastSeenAt: null, online: true })).toBe(WorkerStatus.BuiltIn);
+    expect(workerStatusOf({ name: 'build-box', lastSeenAt: null, online: false })).toBe(WorkerStatus.NeverSeen);
+    expect(workerStatusOf({ name: 'build-box', lastSeenAt: SEEN, online: false })).toBe(WorkerStatus.Offline);
+    expect(workerStatusOf({ name: 'build-box', lastSeenAt: SEEN, online: true })).toBe(WorkerStatus.Online);
   });
 
   it('refuse the names the server refuses, and accept the ones it accepts', () => {

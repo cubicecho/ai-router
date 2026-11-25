@@ -53,8 +53,10 @@ export function workerLabelOf(worker: Pick<WorkerFieldsFragment, 'name' | 'host'
 export const WorkerStatus = {
   /** The router itself: always there. */
   BuiltIn: 'built-in',
-  /** It dialled in, and when it last did is known. */
-  Seen: 'seen',
+  /** Its channel is open: it takes runs now. */
+  Online: 'online',
+  /** It has dialled in before, but its channel is closed: its workspaces' runs are refused. */
+  Offline: 'offline',
   /** It has never dialled in. */
   NeverSeen: 'never-seen',
 } as const;
@@ -63,17 +65,19 @@ export const WorkerStatus = {
 export type WorkerStatus = (typeof WorkerStatus)[keyof typeof WorkerStatus];
 
 /**
- * Reads where a worker stands. Today that is only whether it has ever dialled in; when the server says whether it is
- * connected, this is the one place that reads it.
+ * Reads where a worker stands: connected now, or not, and whether it ever has been.
  *
  * @param worker - The worker.
  * @returns Its status.
  */
-export function workerStatusOf(worker: Pick<WorkerFieldsFragment, 'name' | 'lastSeenAt'>): WorkerStatus {
+export function workerStatusOf(worker: Pick<WorkerFieldsFragment, 'name' | 'lastSeenAt' | 'online'>): WorkerStatus {
   if (isLocalWorker(worker)) {
     return WorkerStatus.BuiltIn;
   }
-  return worker.lastSeenAt === null ? WorkerStatus.NeverSeen : WorkerStatus.Seen;
+  if (worker.online) {
+    return WorkerStatus.Online;
+  }
+  return worker.lastSeenAt === null ? WorkerStatus.NeverSeen : WorkerStatus.Offline;
 }
 
 /**

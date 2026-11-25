@@ -69,6 +69,7 @@ function metaOf(worker: WorkerRow, now: number) {
           </span>
         ),
         formatCount(worker.workspaces.length, 'workspace', 'workspaces'),
+        worker.localServers.length === 0 ? null : `Local servers: ${worker.localServers.join(', ')}`,
       ]}
       badgesSlot={<WorkerStatusBadge worker={worker} />}
     />

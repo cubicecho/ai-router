@@ -6,6 +6,8 @@ fragment WorkerFields on Worker {
   host
   version
   lastSeenAt
+  online
+  localServers
   createdAt
   creator {
     name

@@ -6,7 +6,8 @@ import { WorkerStatus, workerStatusOf } from './shapes';
 const BADGES = {
   [WorkerStatus.BuiltIn]: { variant: 'secondary', label: 'Built in' },
   [WorkerStatus.NeverSeen]: { variant: 'warning-soft', label: 'Never connected' },
-  [WorkerStatus.Seen]: null,
+  [WorkerStatus.Online]: { variant: 'positive-soft', label: 'Online' },
+  [WorkerStatus.Offline]: { variant: 'secondary', label: 'Offline' },
 } as const satisfies Record<
   WorkerStatus,
   { variant: 'secondary' | 'warning-soft' | 'positive-soft'; label: string } | null
@@ -14,7 +15,7 @@ const BADGES = {
 
 /** What the badge is given. */
 export interface WorkerStatusBadgeProps {
-  worker: Pick<WorkerFieldsFragment, 'name' | 'lastSeenAt'>;
+  worker: Pick<WorkerFieldsFragment, 'name' | 'lastSeenAt' | 'online'>;
 }
 
 /** Where a worker stands, as a badge, or nothing when its last-seen time already says it. */
