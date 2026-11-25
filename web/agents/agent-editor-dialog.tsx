@@ -2,7 +2,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { CheckAgentDocument, CreateAgentDocument, SaveAgentDocument } from '@/__generated__/graphql';
-import { CheckboxField, InputField, NumberField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
+import {
+  CheckboxField,
+  ComboboxField,
+  InputField,
+  NumberField,
+  SelectField,
+  TextareaField,
+  useAppForm,
+} from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
@@ -26,6 +34,7 @@ import {
 } from './agent-form';
 import { Findings } from './findings';
 import { documentText, parseDocument, refusalOf, STARTER_DOCUMENT, stringsOf } from './shapes';
+import { useModelOptions } from './use-model-options';
 
 /** How tall the JSON box is, in lines. */
 const DOCUMENT_ROWS = 18;
@@ -118,6 +127,9 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
   const isNew = agent === null;
   const [view, setView] = useState<EditorView>(EditorView.Form);
   const [initial] = useState(() => startingDocument(agent));
+  // Stays true once the Model menu has opened, so its lists are asked for only by someone who looks.
+  const [isModelMenuOpened, setIsModelMenuOpened] = useState(false);
+  const modelOptions = useModelOptions(isModelMenuOpened);
   // What the form doesn't show is kept from here: the document it was last filled from.
   const [base, setBase] = useState<Record<string, unknown>>(initial);
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -276,12 +288,24 @@ export function AgentEditorDialog({ open, onOpenChange, agent }: AgentEditorDial
         title="Model"
         contentSlot={
           <div className="grid gap-4">
-            <InputField
+            <ComboboxField
               form={form}
               name="model"
               label="Model"
-              placeholder="ollama/qwen3:32b"
-              description="A provider's model as <provider>/<model>, or a pool's name."
+              placeholder="Choose a pool or a provider's model"
+              description="A pool's name, or a provider's model as <provider>/<model>. Type one to use a model not listed."
+              searchable
+              freeText
+              searchPlaceholder="Find a model or pool…"
+              searchLabel="Find a model or pool"
+              popoverLabel="Models and pools"
+              emptyMessage="Nothing matches."
+              options={modelOptions}
+              onOpenChange={(isOpen) => {
+                if (isOpen) {
+                  setIsModelMenuOpened(true);
+                }
+              }}
               required
               validators={{ onChange: ({ value }) => (value.trim() === '' ? 'Name a model.' : undefined) }}
             />
