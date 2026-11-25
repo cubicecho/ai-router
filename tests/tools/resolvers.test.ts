@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { hashKey } from '../../server/auth/keys.ts';
 import type { UserCaller } from '../../server/core/context.ts';
 import { CHILD_DEFAULTS } from '../../server/core/defaults.ts';
 import { ErrorCode } from '../../server/core/errors.ts';
@@ -44,6 +45,7 @@ const EVERYTHING = `{
   serverSecrets { id kind name }
   workspaceServers { env args url server { name env } }
   registries { name url }
+  workers { name keyPrefix keySet workspaces { slug } }
 }`;
 
 let db: TestDb;
@@ -238,7 +240,7 @@ describe('server secrets', () => {
     expect(code).toBe(ErrorCode.BadUserInput);
   });
 
-  it('never appear in any answer, and have no field to read them by', async () => {
+  it('never appear in any answer, nor does a worker key, and have no field to read them by', async () => {
     const { id } = await addServer('actual');
     const { id: remote } = await addServer('remote', true);
     const { workspaceId } = await createWorkspaceWithKey(db, 'household-a');
@@ -253,11 +255,15 @@ describe('server secrets', () => {
     });
     await db.update(servers).set({ oauth: { tokens: { access_token: `${SECRET}-token` } } });
     await asUser.expectOk(CREATE_ENTRY, { values: { workspaceId, serverId: id, env: { BUDGET: 'a' } } });
+    const { createWorker } = await asAdmin.expectOk('mutation { createWorker(name: "gpu-box") { secret } }');
     const answers = JSON.stringify([await asAdmin.expectOk(EVERYTHING), await asUser.expectOk(EVERYTHING)]);
     expect(answers).not.toContain(SECRET);
+    expect(answers).not.toContain(createWorker.secret);
+    expect(answers).not.toContain(hashKey(createWorker.secret));
     expect(answers).toContain('"signedIn":true');
     expect((await asAdmin.expectError('{ serverSecrets { value } }')).message).toContain('Cannot query field "value"');
     expect((await asAdmin.expectError('{ servers { oauth } }')).message).toContain('Cannot query field "oauth"');
+    expect((await asAdmin.expectError('{ workers { keyHash } }')).message).toContain('Cannot query field "keyHash"');
   });
 });
 

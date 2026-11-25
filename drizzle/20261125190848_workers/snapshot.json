@@ -1,0 +1,654 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ab4e92d4-595d-4378-b132-450c4150d3ac",
+  "prevIds": [
+    "8bc10409-44c9-4580-90fc-0038238a9aba"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "workers"
+      ],
+      "writes": [
+        "s|tbl|public.workers",
+        "n|tbl|public.workers",
+        "e|tbl|public.workers",
+        "n|rel|public.workers",
+        "n|type|public.workers",
+        "n|rel|public.workers_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "worker_id"
+      ],
+      "writes": [
+        "s|col|public.runs.worker_id",
+        "n|col|public.runs.worker_id",
+        "e|col|public.runs.worker_id"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "workspaces",
+        "worker_id"
+      ],
+      "writes": [
+        "s|col|public.workspaces.worker_id",
+        "n|col|public.workspaces.worker_id",
+        "e|col|public.workspaces.worker_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspaces",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "idx_runs_worker_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_runs_worker_id",
+        "n|idx|public.idx_runs_worker_id",
+        "e|idx|public.idx_runs_worker_id",
+        "n|rel|public.idx_runs_worker_id"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.worker_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workers",
+        "uq_workers_name"
+      ],
+      "writes": [
+        "s|idx|public.uq_workers_name",
+        "n|idx|public.uq_workers_name",
+        "e|idx|public.uq_workers_name",
+        "n|rel|public.uq_workers_name"
+      ],
+      "reads": [
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|col|public.workers.name"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workers",
+        "uq_workers_key_hash"
+      ],
+      "writes": [
+        "s|idx|public.uq_workers_key_hash",
+        "n|idx|public.uq_workers_key_hash",
+        "e|idx|public.uq_workers_key_hash",
+        "n|rel|public.uq_workers_key_hash"
+      ],
+      "reads": [
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|col|public.workers.key_hash"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workers",
+        "idx_workers_created_by"
+      ],
+      "writes": [
+        "s|idx|public.idx_workers_created_by",
+        "n|idx|public.idx_workers_created_by",
+        "e|idx|public.idx_workers_created_by",
+        "n|rel|public.idx_workers_created_by"
+      ],
+      "reads": [
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|col|public.workers.created_by"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspaces",
+        "idx_workspaces_worker_id"
+      ],
+      "writes": [
+        "s|idx|public.idx_workspaces_worker_id",
+        "n|idx|public.idx_workspaces_worker_id",
+        "e|idx|public.idx_workspaces_worker_id",
+        "n|rel|public.idx_workspaces_worker_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspaces",
+        "n|sch|public",
+        "n|col|public.workspaces.worker_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "runs"
+      ],
+      "writes": [
+        "s|fk|public.runs.runs_worker_id_workers_id_fkey",
+        "n|fk|public.runs.runs_worker_id_workers_id_fkey",
+        "e|fk|public.runs.runs_worker_id_workers_id_fkey",
+        "n|con|public.runs.runs_worker_id_workers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|col|public.runs.worker_id",
+        "n|col|public.workers.id",
+        "e|uniqueness|public.workers.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workers"
+      ],
+      "writes": [
+        "s|fk|public.workers.workers_created_by_users_id_fkey",
+        "n|fk|public.workers.workers_created_by_users_id_fkey",
+        "e|fk|public.workers.workers_created_by_users_id_fkey",
+        "n|con|public.workers.workers_created_by_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.workers.created_by",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspaces"
+      ],
+      "writes": [
+        "s|fk|public.workspaces.workspaces_worker_id_workers_id_fkey",
+        "n|fk|public.workspaces.workspaces_worker_id_workers_id_fkey",
+        "e|fk|public.workspaces.workspaces_worker_id_workers_id_fkey",
+        "n|con|public.workspaces.workspaces_worker_id_workers_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspaces",
+        "n|sch|public",
+        "n|tbl|public.workers",
+        "n|sch|public",
+        "n|col|public.workspaces.worker_id",
+        "n|col|public.workers.id",
+        "e|uniqueness|public.workers.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "workers",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "worker_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "key_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "key_prefix",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "key_set",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": {
+          "as": "key_hash is not null",
+          "type": "stored"
+        },
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "created_by",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "last_seen_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "host",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "version",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspaces",
+        "name": "worker_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "idx_runs_worker_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "worker_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "uq_workers_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "name",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "uq_workers_key_hash",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "key_hash",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "idx_workers_created_by",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "created_by",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspaces",
+        "name": "idx_workspaces_worker_id",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "worker_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_worker_id_workers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "worker_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "workers_created_by_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "created_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspaces",
+        "name": "workspaces_worker_id_workers_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "worker_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "workers",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "RESTRICT",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "workers_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "ck_workers_local_keyless",
+        "value": "(\"name\" = 'local') = (\"key_hash\" is null)",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workers",
+        "name": "ck_workers_key_prefix",
+        "value": "(\"key_hash\" is null) = (\"key_prefix\" is null)",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

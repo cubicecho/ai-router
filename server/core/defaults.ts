@@ -114,7 +114,7 @@ export const AUTH_DEFAULTS: Readonly<AuthSettings> = Object.freeze({
   oidcPairingTimeoutMs: 10_000,
 });
 
-/** Workspace keys. */
+/** Workspace keys and worker keys. */
 export interface KeySettings {
   /** Random bytes in a new key, before encoding. */
   secretBytes: number;
@@ -543,6 +543,28 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   expireEveryMinutes: 5,
   taskPollIntervalMs: 2_000,
   maxAgentDepth: 3,
+});
+
+/** Remote workers: the processes that dial in with a worker key and run agent loops away from the router. */
+export interface WorkerSettings {
+  /** How often a worker and the router tell each other they are still there. */
+  heartbeatMs: number;
+  /** How long a worker that stopped answering may take to dial in again before its runs fail. */
+  reconnectGraceMs: number;
+  /** The most run events a worker sends in one message. */
+  eventBatchSize: number;
+  /** How long a worker holds run events before it sends them together. */
+  eventFlushMs: number;
+  /** The most runs one worker takes at once. A run past it waits for a slot. */
+  maxRunsAtOnce: number;
+}
+
+export const WORKER_DEFAULTS: Readonly<WorkerSettings> = Object.freeze({
+  heartbeatMs: 15_000,
+  reconnectGraceMs: 60_000,
+  eventBatchSize: 100,
+  eventFlushMs: 250,
+  maxRunsAtOnce: 8,
 });
 
 /**

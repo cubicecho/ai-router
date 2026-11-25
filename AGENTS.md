@@ -41,8 +41,9 @@ roles:
   `@cubicecho/graphql-better-auth`. Users sign in through OIDC (heautou), with no magic links,
   SMTP or passwords. Under `SECURE_LOCAL_NET`, whoever opens the UI is signed in as the admin
   automatically, and nothing else changes.
-- Workspace keys are the router's own `workspace_keys` table, not better-auth's api-key plugin:
-  only each key's SHA-256 is stored, and keys are checked against the snapshot.
+- Workspace keys are the router's own `workspace_keys` table, and worker keys a column of
+  `workers`, not better-auth's api-key plugin: only each key's SHA-256 is stored, and keys are
+  checked against the snapshot.
 - zod and Vitest.
 - Postgres, always: `DATABASE_URL` is required. PGlite runs only in the tests. `npm run db:up`
   starts a local Postgres for development (`docker-compose.dev.yml`).
@@ -63,7 +64,8 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `runner/` | the agent loop of one stretch of a run, from a JSON assignment, with the router reached only through its ports: what a worker executes | `core` (a test keeps it so) |
 | `workers/` | where a run's loop executes: the built-in `local` worker, in process | `core`, `runner` |
 | `agents/` | revisions, layers, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
-| `workspaces/` | workspaces, their keys' mutations, server entries, and what each request may reach | all of the above |
+| `workers/` | workers and their keys' mutations; later the worker doors | `core`, `db`, `auth`, `graphql/object-type` |
+| `workspaces/` | workspaces, their keys' mutations, server entries, their worker, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
 | `admin/` | the built-in admin server, the only way to the router's management tools | everything |
@@ -91,13 +93,15 @@ non-negotiables apply on top of these.
 
 ### Callers and keys
 
-- **The key decides the scope, never the URL.** A request carries one key, and a key belongs to
-  one workspace. A user's session, as the UI uses it, sees every agent. There are no
+- **The key decides the scope, never the URL.** A request carries one key, and a workspace key
+  belongs to one workspace. A user's session, as the UI uses it, sees every agent. There are no
   `/w/<slug>` routes.
-- **Every key is a workspace key; people never use keys.** Keys come from `Authorization: Bearer`
-  or `x-api-key`, and if both are sent and differ, the request is refused. A Bearer value is
-  tried as a key first, then as a user's session token. Keys are managed only from a session, by
-  any user.
+- **Workspace keys for apps, worker keys for workers; people never use keys.** Keys come from
+  `Authorization: Bearer` or `x-api-key`, and if both are sent and differ, the request is
+  refused. A Bearer value is tried as a workspace key first, then as a user's session token.
+  Keys are managed only from a session, by any user. A workspace key is `air_…`, a worker key
+  `aiw_…`, and each door reads only its own: `/v1`, `/mcp`, `/runs` and `/graphql` refuse a
+  worker key, and only `readWorkerCaller` accepts one.
 - **Sign-in is whoever the OIDC provider allows.** Don't add an allow list here; heautou's groups
   decide.
 - **Admin-only:** secrets, settings and roles. The first user to sign in becomes admin, and the
@@ -110,12 +114,27 @@ non-negotiables apply on top of these.
 - **`SECURE_LOCAL_NET` only signs people in.** Whoever opens the UI becomes the admin without
   OIDC. A request to `/v1` or `/runs` without a workspace key is still refused.
 - **None of the router's stored secrets leave it.** Secret columns are in `exclude.columns`, and
-  each is set by its own write-only mutation. Reads answer `apiKeySet: boolean`. A test plants
-  each secret and scans every answer.
+  each is set by its own write-only mutation. Reads answer `apiKeySet: boolean` (a worker's
+  `keySet` and `keyPrefix`). A test plants each secret and scans every answer.
 - **A copied workspace carries no keys and no secrets.** `copyWorkspace` (people-only) copies the
-  agents, the server entries' env, args, URL and roles, and what is turned off per agent, mapping
-  each old workspace agent to its new one. Each entry gets a fresh `childUid` and no `installDir`,
-  so the copy has instances of its own. `workspace_keys` and `server_secrets` are never read.
+  agents, the server entries' env, args, URL and roles, its worker, and what is turned off per
+  agent, mapping each old workspace agent to its new one. Each entry gets a fresh `childUid` and
+  no `installDir`, so the copy has instances of its own. `workspace_keys` and `server_secrets`
+  are never read.
+
+### Workers
+
+- **A worker is where a workspace's agent loops run.** `local` is the router process itself;
+  any other is a process elsewhere that dials in with its worker key. Today every run is
+  still `local`: the worker doors and the runner that sends a run to a worker come later, with
+  `WORKER_DEFAULTS`.
+- **`local` is a row the migration adds, with no key.** `ck_workers_local_keyless` makes it the
+  one keyless worker; `workers` has no generated writes, and `deleteWorker` and
+  `rotateWorkerKey` refuse it, so nothing renames, deletes or keys it.
+- **A workspace names its worker, and null is `local`.** Only a person sets it, with
+  `setWorkspaceWorker`, which stores `local` as null; a generated workspace write naming one is
+  refused. A worker a workspace names can't be deleted. No admin-server role reaches a worker,
+  its key or a workspace's worker.
 
 ### Endpoints and names
 
@@ -168,7 +187,7 @@ non-negotiables apply on top of these.
   helper itself; node only repeats them for a friendly error. The helper's source is
   `docker/run-as-child.c`, and its checks are `scripts/check-children.sh`, which CI runs against
   the image.
-- **Requests route from the snapshot.** Keys, agents, providers, servers and the router's
+- **Requests route from the snapshot.** Keys, workers, agents, providers, servers and the router's
   settings are read from it, never from the database per request. Every
   mutation that changes routing rebuilds the snapshot after its transaction commits. One process
   owns a database: a Postgres advisory lock taken at boot, so a second

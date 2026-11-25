@@ -15,6 +15,7 @@ import {
 import { agentRevisions } from './agent-revisions.ts';
 import { agents } from './agents.ts';
 import { conversations } from './conversations.ts';
+import { workers } from './workers.ts';
 import { workspaces } from './workspaces.ts';
 
 /** Where a run is in its life. */
@@ -104,6 +105,8 @@ export const runs = pgTable(
     agentName: text('agent_name').notNull(),
     /** The revision it ran. A revision promoted mid-run applies to the next run. */
     revisionId: uuid('revision_id').references(() => agentRevisions.id, { onDelete: 'set null' }),
+    /** The worker that ran it. Null when none was recorded, and once its worker is deleted. */
+    workerId: uuid('worker_id').references(() => workers.id, { onDelete: 'set null' }),
     status: text('status', {
       enum: [
         RunStatus.Running,
@@ -163,6 +166,7 @@ export const runs = pgTable(
     index('idx_runs_agent_id').on(table.agentId),
     index('idx_runs_revision_id').on(table.revisionId),
     index('idx_runs_status').on(table.status),
+    index('idx_runs_worker_id').on(table.workerId),
     index('idx_runs_workspace_id_session_key')
       .on(table.workspaceId, table.sessionKey, table.startedAt)
       .where(sql`${table.sessionKey} is not null`),

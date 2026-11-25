@@ -19,6 +19,7 @@ export * from './tables/settings.ts';
 export * from './tables/usage-counts.ts';
 export * from './tables/users.ts';
 export * from './tables/verifications.ts';
+export * from './tables/workers.ts';
 export * from './tables/workspace-agent-disabled-servers.ts';
 export * from './tables/workspace-agent-disabled-tools.ts';
 export * from './tables/workspace-agents.ts';

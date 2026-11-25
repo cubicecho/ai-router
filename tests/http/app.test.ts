@@ -16,6 +16,7 @@ import {
   createTestAuth,
   createTestDb,
   createUser,
+  createWorkerWithKey,
   createWorkspaceWithKey,
   portOf,
   type TestDb,
@@ -34,6 +35,7 @@ let server: Server;
 let base: string;
 let token: string;
 let keySecret: string;
+let workerSecret: string;
 let db: TestDb;
 
 /** A GraphQL response body, shaped by the caller. */
@@ -72,6 +74,7 @@ beforeAll(async () => {
   const ada = await createUser(db, 'ada@example.com');
   token = await createSessionToken(auth, ada.userId);
   keySecret = (await createWorkspaceWithKey(db, 'min-agent')).secret;
+  workerSecret = (await createWorkerWithKey(db, 'gpu-box')).secret;
   const children = { mode: ChildMode.Isolated, reason: '' };
   const { app } = await createApp({ db, authHost: fixedAuthHost(auth), staticDir, children, trustProxy: false });
   server = app.listen(0);
@@ -129,6 +132,36 @@ describe('app', () => {
       const body = await ask(WORKSPACES, headers);
       expect(body.errors[0].extensions.code).toBe(ErrorCode.Forbidden);
     }
+  });
+
+  describe('a worker key', () => {
+    /** A worker key, sent each way a key can be. */
+    const sentEachWay = (): Record<string, string>[] => [
+      { authorization: `Bearer ${workerSecret}` },
+      { 'x-api-key': workerSecret },
+    ];
+
+    it('is nobody on /graphql, never a key or a session', async () => {
+      for (const headers of sentEachWay()) {
+        const body = await ask(WORKSPACES, headers);
+        expect(body.errors[0].extensions.code).toBe(ErrorCode.Unauthenticated);
+      }
+    });
+
+    it('is refused on /v1, in the OpenAI envelope', async () => {
+      for (const headers of sentEachWay()) {
+        const response = await fetch(`${base}/v1/models`, { headers });
+        expect(response.status).toBe(HttpStatus.Unauthorized);
+        expect(await response.json()).toMatchObject({ error: { code: 'invalid_api_key' } });
+      }
+    });
+
+    it.each(['/mcp', '/runs'])('is refused on %s', async (path) => {
+      for (const headers of sentEachWay()) {
+        const response = await fetch(`${base}${path}`, { headers });
+        expect(response.status).toBe(HttpStatus.Unauthorized);
+      }
+    });
   });
 
   it('refuses a request that sends two different keys', async () => {

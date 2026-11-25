@@ -12,6 +12,7 @@ import { providers } from './tables/providers.ts';
 import { SecretKind, serverSecrets } from './tables/server-secrets.ts';
 import { servers } from './tables/servers.ts';
 import { settings } from './tables/settings.ts';
+import { workers } from './tables/workers.ts';
 import { workspaceAgentDisabledServers } from './tables/workspace-agent-disabled-servers.ts';
 import { workspaceAgentDisabledTools } from './tables/workspace-agent-disabled-tools.ts';
 import { workspaceAgents } from './tables/workspace-agents.ts';
@@ -24,6 +25,19 @@ export interface SnapshotWorkspace {
   id: string;
   slug: string;
   name: string;
+  /** The worker its agent loops run on. null for `local`, inside the router. */
+  workerId: string | null;
+}
+
+/** A worker as the gateways see it. */
+export interface SnapshotWorker {
+  id: string;
+  name: string;
+}
+
+/** A worker key as the worker doors see it, found by its hash. */
+export interface SnapshotWorkerKey {
+  workerId: string;
 }
 
 /** A workspace key as the gateways see it, found by its hash. */
@@ -142,6 +156,10 @@ export interface Snapshot {
   workspaces: ReadonlyMap<string, SnapshotWorkspace>;
   /** By the key's SHA-256, in hex. */
   keys: ReadonlyMap<string, SnapshotKey>;
+  /** By id, `local` included. */
+  workers: ReadonlyMap<string, SnapshotWorker>;
+  /** By the worker key's SHA-256, in hex. `local` has none. */
+  workerKeys: ReadonlyMap<string, SnapshotWorkerKey>;
   /** By name, as a model id names them. */
   providers: ReadonlyMap<string, SnapshotProvider>;
   /** By name, as a model id names them. */
@@ -158,6 +176,8 @@ export interface Snapshot {
 export const EMPTY_SNAPSHOT: Snapshot = Object.freeze({
   workspaces: new Map(),
   keys: new Map(),
+  workers: new Map(),
+  workerKeys: new Map(),
   providers: new Map(),
   pools: new Map(),
   servers: new Map(),
@@ -247,6 +267,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
   const [
     workspaceRows,
     keyRows,
+    workerRows,
     providerRows,
     poolRows,
     targetRows,
@@ -259,7 +280,9 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     disabledToolRows,
     [settingsRow],
   ] = await Promise.all([
-    db.select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name }).from(workspaces),
+    db
+      .select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name, workerId: workspaces.workerId })
+      .from(workspaces),
     db
       .select({
         keyId: workspaceKeys.id,
@@ -268,6 +291,7 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
         expiresAt: workspaceKeys.expiresAt,
       })
       .from(workspaceKeys),
+    db.select({ id: workers.id, name: workers.name, keyHash: workers.keyHash }).from(workers),
     db
       .select({
         id: providers.id,
@@ -360,6 +384,10 @@ export async function loadSnapshot(db: DB): Promise<Snapshot> {
     ),
     workspaces: new Map(workspaceRows.map((row) => [row.id, row])),
     keys: new Map(keyRows.map(({ hash, ...key }) => [hash, key])),
+    workers: new Map(workerRows.map(({ id, name }) => [id, { id, name }])),
+    workerKeys: new Map(
+      workerRows.flatMap(({ id, keyHash }) => (keyHash === null ? [] : [[keyHash, { workerId: id }] as const])),
+    ),
     providers: new Map(providerRows.map((row) => [row.name, row])),
     pools: new Map(
       poolRows.map((row) => [

@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { workers } from './workers.ts';
 
 /**
  * What one app sees: the agents, models and servers it may use. Its keys say which app is calling.
@@ -12,13 +13,18 @@ export const workspaces = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
+    /**
+     * The worker its agent loops run on. Null for `local`, inside the router. A worker a workspace names can't be
+     * deleted. Set only by `setWorkspaceWorker`.
+     */
+    workerId: uuid('worker_id').references(() => workers.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [uniqueIndex('uq_workspaces_slug').on(table.slug)],
+  (table) => [uniqueIndex('uq_workspaces_slug').on(table.slug), index('idx_workspaces_worker_id').on(table.workerId)],
 );
 
 /** A workspace row as read. */

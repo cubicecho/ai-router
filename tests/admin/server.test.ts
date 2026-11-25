@@ -146,13 +146,22 @@ describe('the tools a run is listed', () => {
     expect(managed).not.toContain('promote_revision');
   });
 
-  it("never include a person's own fields: secrets, users, workspaces and keys", async () => {
+  it("never include a person's own fields: secrets, users, workspaces, keys and workers", async () => {
     const every = await toolNames(null);
     const listed = [...Object.keys(FIELD_GRANTS.Query), ...Object.keys(FIELD_GRANTS.Mutation)].filter(
       (field) => UNLISTED.test(field) === false,
     );
     expect(every).toHaveLength(listed.length);
-    for (const name of ['set_server_secret', 'set_provider_api_key', 'users', 'workspaces', 'create_workspace_key']) {
+    const peoples = ['set_server_secret', 'set_provider_api_key', 'users', 'workspaces', 'create_workspace_key'];
+    const workers = [
+      'workers',
+      'worker',
+      'create_worker',
+      'rotate_worker_key',
+      'delete_worker',
+      'set_workspace_worker',
+    ];
+    for (const name of [...peoples, ...workers]) {
       expect(every).not.toContain(name);
     }
   });
