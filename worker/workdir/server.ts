@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { errorMessage } from '../../server/core/errors.ts';
 import { WORKDIR_DEFAULTS, type WorkdirSettings } from '../defaults.ts';
-import { errorMessage } from '../errors.ts';
 import { createGitRunner, type GitRunner } from './git.ts';
 import { listDir } from './list-dir.ts';
 import { type OpenedRepo, openRepo } from './open-repo.ts';

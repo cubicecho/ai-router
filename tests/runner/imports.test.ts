@@ -9,8 +9,8 @@ const SERVER = resolve(dirname(fileURLToPath(import.meta.url)), '../../server');
 const RUNNER = join(SERVER, 'runner');
 /** The server folders the runner may import from. */
 const ALLOWED_FOLDERS = ['core', 'runner'];
-/** The packages the runner may import from. */
-const ALLOWED_PACKAGES = ['@cubicecho/agent-core', '@cubicecho/agent-core/spec'];
+/** The packages the runner may import from: zod, for the worker protocol's shapes. */
+const ALLOWED_PACKAGES = ['@cubicecho/agent-core', '@cubicecho/agent-core/spec', 'zod'];
 /** Every module specifier in a file: `from '…'`, `import '…'` and `import('…')`. */
 const SPECIFIER = /(?:from\s+|import\s*\(?\s*)['"]([^'"]+)['"]/g;
 
@@ -27,7 +27,7 @@ function sourceFiles(folder: string): string[] {
 }
 
 describe('the runner', () => {
-  it('imports only from core and agent-core', () => {
+  it('imports only from core, agent-core and zod', () => {
     const files = sourceFiles(RUNNER);
     expect(files.length).toBeGreaterThan(0);
     const strays = files.flatMap((file) =>

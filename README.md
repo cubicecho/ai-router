@@ -122,6 +122,59 @@ What the router serves:
 
 Every other `/v1` path, `/v1/embeddings` and `/v1/completions` included, answers 404.
 
+## Running a worker
+
+A worker runs a workspace's agent loops on another machine, such as your dev box, so its tools
+can work on files there. It dials the router, says which tools it has, and takes the runs the
+router sends it. Its model calls, and calls to the router's own servers, still go through the
+router.
+
+1. Make a worker in the router's UI and copy its key, which starts `aiw_` and is shown once.
+2. Point a workspace at it, so its runs go there.
+3. On the machine, from a checkout of this repo (`npm ci` once):
+
+```bash
+AI_ROUTER_URL=http://router.lan:3000 \
+AI_ROUTER_WORKER_KEY=aiw_... \
+WORKER_CONFIG=./worker.json \
+npm run worker
+```
+
+| Variable | |
+| --- | --- |
+| `AI_ROUTER_URL` | the router's address. Required |
+| `AI_ROUTER_WORKER_KEY` | the worker's key. Required |
+| `WORKER_ROOT` | where its work directories go. Default `~/ai-router-work`, made if missing |
+| `WORKER_CONFIG` | a JSON file naming its own MCP servers. Optional |
+| `WORKER_HOST` | the machine's name, as the router shows it. Default the hostname |
+
+```json
+{
+  "servers": {
+    "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/ai-router-work"] },
+    "tests": { "command": "node", "args": ["scripts/test-mcp.js"], "env": { "CI": "1" }, "cwd": "../my-app" },
+    "notes": { "url": "http://127.0.0.1:8123/mcp", "headers": { "authorization": "Bearer ..." } }
+  }
+}
+```
+
+Every worker also has the built-in `workdir` server: `open_repo` clones a repo under the work
+root, or returns the checkout already there, at `<root>/<host>/<owner>/<name>` (for example
+`~/ai-router-work/github.com/cubicecho/ai-router`), and `list_dir` lists a folder inside it.
+Nothing either tool touches is outside the root.
+
+**Local servers run as you.** A command server runs as the worker's user on that machine, with
+your trust, unlike the router's own servers, which run sandboxed as their own users. It gets
+only `PATH`, `HOME`, `LANG`, `TERM` and `USER` from the worker's environment, plus its own
+`env`, never the worker's key. A `cwd` is relative to the config file. A server name follows the
+router's name rule (lowercase letters, digits, `.`, `-`, `_`); one that breaks it, or fails to
+start, is left out with a `[worker]` line. A server that says its tools changed is listed
+again, and the router told.
+
+The worker dials the router again whenever its channel drops, waiting longer after each failed
+dial, and keeps its runs going meanwhile. `Ctrl-C` or `SIGTERM` stops its runs, reporting each as
+failed, and closes its servers.
+
 ## Development
 
 ```bash
