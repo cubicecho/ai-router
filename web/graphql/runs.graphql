@@ -11,6 +11,11 @@ fragment RunRowFields on Run {
   inputTokens
   outputTokens
   error
+  worker {
+    id
+    name
+    host
+  }
 }
 
 # The higher priority sorts first: newest first, and the id breaks a tie so pages don't overlap.
