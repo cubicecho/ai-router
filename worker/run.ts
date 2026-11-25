@@ -12,7 +12,13 @@ import type {
   ToolCallOptions,
 } from '../server/runner/assignment.ts';
 import { executeRun } from '../server/runner/execute.ts';
-import { type RouterToolAnswer, runDoorPath, WORKERS_PATH, WorkerDoor } from '../server/runner/protocol.ts';
+import {
+  type RouterToolAnswer,
+  RUN_NOT_FOUND,
+  runDoorPath,
+  WORKERS_PATH,
+  WorkerDoor,
+} from '../server/runner/protocol.ts';
 import { WORKER_PROGRAM_DEFAULTS, type WorkerProgramSettings } from './defaults.ts';
 import type { LocalServers } from './servers.ts';
 
@@ -33,6 +39,21 @@ const routerToolAnswerSchema: z.ZodType<RouterToolAnswer> = z.discriminatedUnion
   z.object({ ok: z.literal(true), text: z.string() }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
+
+/** A run door's own 404, as the router writes it: `{ error, code }`. */
+const runNotFoundSchema = z.object({ code: z.literal(RUN_NOT_FOUND) });
+
+/**
+ * Whether a 404 is a run door's own, saying the router no longer runs the run here, rather than one the router's
+ * models answered.
+ *
+ * @param response - A copy of the 404, whose body this reads.
+ * @returns Whether its body carries the `run_not_found` code.
+ */
+async function isRunNotFound(response: Response): Promise<boolean> {
+  const body: unknown = await response.json().catch(() => undefined);
+  return runNotFoundSchema.safeParse(body).success;
+}
 
 /** What the run host is built with. */
 export interface RunHostOptions {
@@ -225,14 +246,16 @@ export function createRunHost(
       const headers = new Headers(request.headers);
       headers.set('authorization', authorization);
       const hasBody = BODYLESS_METHODS.has(request.method) === false;
-      // The model door may answer 404 itself, as the router's models do for a model or path they don't have, so a 404
-      // here is the loop's to read. A dropped run is caught by its next events or tool call.
-      return fetch(`${doorUrl(runId, WorkerDoor.Model)}${request.url.slice(MODELS_BASE_URL.length)}`, {
+      const response = await fetch(`${doorUrl(runId, WorkerDoor.Model)}${request.url.slice(MODELS_BASE_URL.length)}`, {
         method: request.method,
         headers,
         ...(hasBody ? { body: await request.arrayBuffer() } : {}),
         signal: AbortSignal.any([request.signal, runSignal]),
       });
+      // The router's models answer 404 themselves, for a model or path they don't have, and that 404 is the loop's to
+      // read. Only the door's own 404, coded `run_not_found`, means the router dropped the run.
+      const isDropped = response.status === HttpStatus.NotFound && (await isRunNotFound(response.clone()));
+      return isDropped ? checked(response) : response;
     };
     return {
       modelFetch,

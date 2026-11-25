@@ -9,6 +9,7 @@ import type {
   WorkerDoor,
   WorkerHello,
 } from '../../server/runner/protocol.ts';
+import { RUN_NOT_FOUND } from '../../server/runner/protocol.ts';
 
 /** A tool call the fake model makes. */
 export interface ModelCall {
@@ -186,7 +187,7 @@ export async function startFakeRouter(): Promise<FakeRouter> {
     const runId = decodeURIComponent(encodedId);
     if (router.notFound.get(runId)?.has(door as WorkerDoor)) {
       await readJson(req).catch(() => undefined);
-      json(res, HttpStatus.NotFound, { error: 'This run is not running on this worker.' });
+      json(res, HttpStatus.NotFound, { error: 'This run is not running on this worker.', code: RUN_NOT_FOUND });
       return;
     }
     if (door === '/model') {

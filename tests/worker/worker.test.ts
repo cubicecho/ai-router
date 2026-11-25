@@ -193,6 +193,15 @@ describe('the worker program', () => {
     expect(RUN_DROPPED).toBe('the router dropped this run');
   });
 
+  it("stops a run when the model door's own 404 says the router dropped it", async () => {
+    router.notFound.set('run-4b', new Set([WorkerDoor.Model]));
+    await start();
+    router.send(ChannelMessageType.Assign, { assignment: assignment('run-4b') });
+    await vi.waitFor(() => expect(router.heard.some(({ path }) => path.endsWith('/chat/completions'))).toBe(true));
+    await vi.waitFor(() => expect(worker?.runs.held()).toBe(0));
+    expect(router.finishes.has('run-4b')).toBe(false);
+  });
+
   it('finishes an assignment past its cap at once, as busy', async () => {
     router.replies.push(HANG);
     await start({ deps: { settings: { maxRunsAtOnce: 1 } } });
