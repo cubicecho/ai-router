@@ -2,7 +2,7 @@
 name: ai-router
 services:
   ai-router:
-    image: ai-router
+    image: ${AI_ROUTER_IMAGE:-ai-router}
     build: .
     restart: unless-stopped
     depends_on:

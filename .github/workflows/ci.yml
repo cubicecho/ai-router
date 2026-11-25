@@ -1,6 +1,6 @@
 name: CI
 on:
-  push: { branches: [main] }
+  push: { branches: [main, feat/workers] }
   pull_request:
 concurrency:
   group: ci-${{ github.ref }}

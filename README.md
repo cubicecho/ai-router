@@ -137,6 +137,21 @@ npm test             # vitest, on PGlite
 and `.env.example`'s `DATABASE_URL` works as it is. Or start it with `DEV_BIND=0.0.0.0`, which
 exposes it on the network, and put the host's name in `DATABASE_URL`.
 
+### A preview beside the released router
+
+A push to `feat/workers` that passes CI publishes `ghcr.io/cubicecho/ai-router:workers` (it moves with
+the branch) and `:workers-<short sha>` (`.github/workflows/preview.yml`). Nothing is released or
+tagged, and `:latest` is untouched. Run it as a compose project of its own, so it gets its own
+Postgres volume, since the branch's migrations can't be undone on the released router's database:
+
+```bash
+AI_ROUTER_IMAGE=ghcr.io/cubicecho/ai-router:workers PORT=3001 \
+  docker compose -p ai-router-preview up --no-build --wait
+```
+
+Give it its own `BETTER_AUTH_SECRET` and `APP_URL` (`http://<host>:3001`), and its own OIDC client.
+Workspace keys are its own too: make them in its UI.
+
 [AGENTS.md](AGENTS.md) has the layout and the rules, and
 [.agents/domain-model.md](.agents/domain-model.md) the concepts.
 
