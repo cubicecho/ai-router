@@ -6,5 +6,5 @@
       "@/*": ["./web/*"]
     }
   },
-  "include": ["server", "tests", "vitest.config.ts", "drizzle.config.ts", "codegen.ts", "vite.config.ts"]
+  "include": ["server", "worker", "tests", "vitest.config.ts", "drizzle.config.ts", "codegen.ts", "vite.config.ts"]
 }
