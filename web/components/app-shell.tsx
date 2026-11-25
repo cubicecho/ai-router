@@ -10,6 +10,7 @@ import {
   KeyRound,
   Layers,
   LogOut,
+  Monitor,
   Plug,
   Route,
   Server,
@@ -29,8 +30,8 @@ interface Place {
 }
 
 /**
- * The places every user has, in groups the sidebar divides with a rule: what ran, what does the work, and what the
- * work runs on.
+ * The places every user has, in groups the sidebar divides with a rule: what ran, what does the work and where, and
+ * what the work runs on.
  */
 const PLACE_GROUPS: readonly { label: string; places: readonly Place[] }[] = [
   { label: 'Runs', places: [{ to: '/agent-runs', label: 'Runs', icon: Activity }] },
@@ -39,6 +40,7 @@ const PLACE_GROUPS: readonly { label: string; places: readonly Place[] }[] = [
     places: [
       { to: '/agents', label: 'Agents', icon: Bot },
       { to: '/workspaces', label: 'Workspaces', icon: KeyRound },
+      { to: '/workers', label: 'Workers', icon: Monitor },
     ],
   },
   {

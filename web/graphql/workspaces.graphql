@@ -39,6 +39,9 @@ query Workspaces {
 query Workspace($id: UUID!) {
   workspace(where: { id: { eq: $id } }) {
     ...WorkspaceFields
+    worker {
+      ...WorkerFields
+    }
     keys(orderBy: { createdAt: { direction: desc, priority: 1 } }) {
       ...KeyFields
     }

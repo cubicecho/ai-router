@@ -25,9 +25,11 @@ import { UsageSection } from '@/models/usage-section';
 import { RecentRunsSection } from '@/runs/recent-runs-section';
 import { RUNS_PER_PAGE } from '@/runs/search';
 import { WorkspaceServersSection } from '@/tools/workspace-servers-section';
+import { LOCAL_WORKER_NAME, workerLabelOf } from '@/workers/shapes';
 import { WORKSPACE_TABS, type WorkspaceTab } from '@/workspaces/tabs';
 import { WorkspaceDialog } from '@/workspaces/workspace-dialog';
 import { WorkspaceKeysSection } from '@/workspaces/workspace-keys-section';
+import { WorkspaceWorkerDialog } from '@/workspaces/workspace-worker-dialog';
 
 /** What each tab is called. "MCP" is the workspace's MCP Servers entries. */
 const TAB_LABELS = {
@@ -60,6 +62,7 @@ export function WorkspaceRoute() {
   const navigate = useNavigate({ from: '/workspaces/$workspaceId' });
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [isPickingWorker, setIsPickingWorker] = useState(false);
   const { tab, showTab } = useDetailTab(WORKSPACE_TABS);
   const me = useQuery({ queryKey: ['me'], queryFn: () => request(MeDocument) });
   const workspace = useQuery({
@@ -160,6 +163,24 @@ export function WorkspaceRoute() {
                       valueClassName="font-mono"
                       actionSlot={<CopyButton value={record.slug} label="Copy slug" />}
                     />
+                    <PropertyRow
+                      label="Runs on"
+                      value={record.worker === null ? LOCAL_WORKER_NAME : workerLabelOf(record.worker)}
+                      valueClassName="font-mono"
+                      hint={
+                        record.worker === null
+                          ? 'Its agent loops run inside the router.'
+                          : 'Its agent loops run on this worker. A run already going stays where it started.'
+                      }
+                      actionSlot={
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsPickingWorker(true)}
+                          content="Change worker"
+                        />
+                      }
+                    />
                     <PropertyRow label="Created" value={formatDate(record.createdAt)} />
                   </>
                 }
@@ -186,6 +207,13 @@ export function WorkspaceRoute() {
               <WorkspaceUsage workspaceId={record.id} />
             </DetailTabPanel>
             <WorkspaceDialog open={isEditing} onOpenChange={setIsEditing} workspace={record} />
+            <WorkspaceWorkerDialog
+              open={isPickingWorker}
+              onOpenChange={setIsPickingWorker}
+              workspaceId={record.id}
+              workspaceName={record.name}
+              workerId={record.worker?.id ?? null}
+            />
           </>
         }
       />

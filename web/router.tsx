@@ -100,6 +100,12 @@ const workspaceRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/workspace'), 'WorkspaceRoute'),
 });
 
+const workersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/workers',
+  component: lazyRouteComponent(() => import('@/routes/workers'), 'WorkersRoute'),
+});
+
 const providersRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/providers',
@@ -164,6 +170,7 @@ export const router = createRouter({
       runRoute,
       workspacesRoute,
       workspaceRoute,
+      workersRoute,
       providersRoute,
       providerRoute,
       poolsRoute,

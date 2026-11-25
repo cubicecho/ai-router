@@ -26,6 +26,7 @@ import { RUN_TAB_LABELS, RUN_TABS } from '@/runs/search';
 import { durationOf, formatDuration, formatTokens, isOpen, RunStatus, startedOf } from '@/runs/shapes';
 import { FollowState, type LiveRunEvent, useRunEvents } from '@/runs/use-run-events';
 import { useNow } from '@/runs/use-runs';
+import { workerLabelOf } from '@/workers/shapes';
 
 /** How often a running run's row is read again, in case its events stop arriving. */
 const RUNNING_REFETCH_MS = 5000;
@@ -137,6 +138,18 @@ function RunFacts({ run, now }: { run: RunRecord; now: number }) {
             }
             hint={run.workspaceId === null ? 'This workspace has since been deleted.' : 'Whose key started it.'}
           />
+          {run.worker === null ? null : (
+            <PropertyRow
+              label="Worker"
+              value={
+                <Link to="/workers" className={LINK_CLASS}>
+                  {workerLabelOf(run.worker)}
+                </Link>
+              }
+              valueClassName="font-mono"
+              hint="Where its agent loop ran."
+            />
+          )}
           <PropertyRow
             label="Session"
             value={
@@ -264,7 +277,11 @@ export function RunRoute() {
     <DetailTabs value={tab} onValueChange={showTab}>
       <PageLayout
         title={title}
-        description={`Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`}
+        description={
+          record.worker === null
+            ? `Started ${startedOf(record.startedAt)}, from ${record.workspaceName}.`
+            : `Started ${startedOf(record.startedAt)}, from ${record.workspaceName}, on ${workerLabelOf(record.worker)}.`
+        }
         backSlot={back}
         width="page"
         actionSlot={
