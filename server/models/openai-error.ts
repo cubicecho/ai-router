@@ -27,6 +27,8 @@ export const ModelFailure = {
   NotFound: { status: HttpStatus.NotFound, type: INVALID_REQUEST, code: 'not_found' },
   UpstreamFailed: { status: HttpStatus.BadGateway, type: API_ERROR, code: 'upstream_failed' },
   Unavailable: { status: HttpStatus.ServiceUnavailable, type: API_ERROR, code: 'unavailable' },
+  WorkerOffline: { status: HttpStatus.ServiceUnavailable, type: API_ERROR, code: 'worker_offline' },
+  WorkerBusy: { status: HttpStatus.ServiceUnavailable, type: API_ERROR, code: 'worker_busy' },
   UpstreamTimeout: { status: HttpStatus.GatewayTimeout, type: API_ERROR, code: 'upstream_timeout' },
 } as const;
 export type ModelFailure = (typeof ModelFailure)[keyof typeof ModelFailure];

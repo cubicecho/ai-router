@@ -14,9 +14,11 @@ import { createSnapshotHost, type SnapshotHost } from '../db/snapshot.ts';
 import { createSchema } from '../graphql/build-schema.ts';
 import { createContextFactory, createGraphQLHandler, createRunContextFactory } from '../graphql/handler.ts';
 import { createModelServices, type ModelServices } from '../models/services.ts';
+import { WORKERS_PATH } from '../runner/protocol.ts';
 import { type ChildIsolation, ChildMode } from '../tools/child-users.ts';
 import { createServerLoginRoutes } from '../tools/oauth/routes.ts';
 import { createToolServices, type ToolServiceParts } from '../tools/services.ts';
+import { createWorkerRoutes } from '../workers/routes.ts';
 import { checkHealth } from './health.ts';
 import { mountSso } from './sso.ts';
 import { createStaticHandler } from './static.ts';
@@ -83,8 +85,8 @@ export interface BuiltApp {
 }
 
 /**
- * Builds the Express app: /graphql, the agents endpoint /v1 and its MCP door /mcp, the run records /runs, /healthz, the
- * OIDC redirects and the UI,
+ * Builds the Express app: /graphql, the agents endpoint /v1 and its MCP door /mcp, the run records /runs, the worker
+ * doors /workers, /healthz, the OIDC redirects and the UI,
  * and hands the tools area the admin server, which has no endpoint.
  *
  * @param deps - What the router talks to.
@@ -143,6 +145,8 @@ export async function createApp({
   app.use('/mcp', createAgentMcpRoutes({ db, snapshot: routes, runs: runService, forwarder: services.forwarder }));
   // The same keys, each reading only its own workspace's runs.
   app.use('/runs', createRunRecordRoutes({ db, snapshot: routes, runs: runService }));
+  // Worker keys only: the channel, the hello, and the doors of the runs on the calling worker.
+  app.use(WORKERS_PATH, createWorkerRoutes({ snapshot: routes, workers: runService.workers }));
   app.get('/healthz', async (_request, response) => {
     const health = await checkHealth(db, children);
     response.status(health.ok ? HttpStatus.Ok : HttpStatus.ServiceUnavailable).json(health);

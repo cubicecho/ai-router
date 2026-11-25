@@ -1,25 +1,8 @@
 import type { Request } from 'express';
 import { readWorkspaceCaller } from '../auth/caller.ts';
 import type { WorkspaceCaller } from '../core/context.ts';
+import { headersOf } from '../core/headers.ts';
 import type { Snapshot } from '../db/snapshot.ts';
-
-/**
- * Copies Express's headers into a fetch `Headers`, as the caller reader takes them.
- *
- * @param request - The request.
- * @returns Its headers.
- */
-function headersOf(request: Request): Headers {
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (typeof value === 'string') {
-      headers.set(name, value);
-    } else if (Array.isArray(value)) {
-      headers.set(name, value.join(', '));
-    }
-  }
-  return headers;
-}
 
 /**
  * Reads the app a request to `/v1` or `/runs` is from, by its workspace key alone. A session is never read here.

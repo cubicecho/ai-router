@@ -9,6 +9,7 @@ import type { Transaction } from '../db/client.ts';
 import { LOCAL_WORKER_NAME, type WorkerRow, workers } from '../db/tables/workers.ts';
 import { workspaces } from '../db/tables/workspaces.ts';
 import { objectType } from '../graphql/object-type.ts';
+import { selectedId } from '../graphql/selected-id.ts';
 import { workerInput } from './input.ts';
 
 const WORKERS_SDL = parse(`
@@ -17,6 +18,13 @@ const WORKERS_SDL = parse(`
     worker: Worker!
     "The whole key, for the worker to dial in with."
     secret: String!
+  }
+
+  extend type Worker {
+    "Whether it can take runs now: its channel to the router is open. The local worker always can. Select id with it."
+    online: Boolean!
+    "The servers it offers its runs on its own machine, as it last said. None for local, or offline. Select id with it."
+    localServers: [String!]!
   }
 
   extend type Mutation {
@@ -52,8 +60,9 @@ async function remoteWorker(tx: Transaction, id: string): Promise<WorkerRow | un
 }
 
 /**
- * Adds the worker fields CRUD can't express: making a worker with its key, rotating the key, and removing a worker.
- * Workers have no generated writes, so `local` is never renamed or deleted.
+ * Adds the worker fields CRUD can't express: whether a worker is online and the servers it offers, making a worker
+ * with its key, rotating the key, and removing a worker. Workers have no generated writes, so `local` is never renamed
+ * or deleted.
  *
  * @param schema - Schema to extend.
  * @returns The extended schema.
@@ -61,6 +70,15 @@ async function remoteWorker(tx: Transaction, id: string): Promise<WorkerRow | un
 export function applyWorkersExtension(schema: GraphQLSchema): GraphQLSchema {
   const extended = extendSchema(schema, WORKERS_SDL);
   const mutations = objectType(extended, 'Mutation').getFields();
+  const workerFields = objectType(extended, 'Worker').getFields();
+
+  workerFields.online.resolve = (parent: { id?: string }, _args: unknown, ctx: Context): boolean => {
+    const id = selectedId(parent, 'worker', 'online');
+    const isLocal = ctx.snapshot.current().workers.get(id)?.name === LOCAL_WORKER_NAME;
+    return isLocal || ctx.runs.workers.registry.isOnline(id);
+  };
+  workerFields.localServers.resolve = (parent: { id?: string }, _args: unknown, ctx: Context): string[] =>
+    ctx.runs.workers.registry.localServers(selectedId(parent, 'worker', 'localServers')).map((server) => server.name);
 
   mutations.createWorker.resolve = async (_parent: unknown, args: { name: string }, ctx: Context) => {
     const { userId } = requireUser(ctx.caller);
