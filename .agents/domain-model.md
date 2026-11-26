@@ -453,8 +453,10 @@ Everything about the code comes after `Owner:`.
 - **Worker doors (run doors):** the requests a remote worker makes for a run it was assigned: its model calls,
   its calls to the router's tools, its events and its outcome. Each answers only the worker the run is executing
   on. Owner: `workers/routes`, under `WORKERS_PATH`; `runner/protocol` `WorkerDoor`, `runDoorPath`.
-- **Worker program:** the process a remote worker is, run on its owner's machine with `npm run worker` or as the
-  Dockerfile's `worker` image, which carries only the server files it loads (`tests/worker/image.test.ts`). It reads
+- **Worker program:** the process a remote worker is, run on its owner's machine with `npm run worker`, as the worker
+  package (`@cubicecho/ai-router-worker`, one file bundled by `scripts/worker-package.ts` for Node 22, its
+  dependencies pinned to the repo's; `tests/worker/package.test.ts`), or as the Dockerfile's `worker` image, which is
+  that package and nothing of the router's. It reads
   the router's address, its worker key, its work root and its local servers' config from the environment, holds
   the channel open (dialling again with a doubling wait), and says hello each time the channel opens and whenever a
   local server's tools change. It runs each assignment's loop with `executeRun`, sends its events in order and then

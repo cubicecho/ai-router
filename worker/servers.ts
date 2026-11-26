@@ -3,7 +3,6 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolResultSchema, ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
-import { version } from '../server/core/config.ts';
 import { errorMessage } from '../server/core/errors.ts';
 import { nameSchema } from '../server/core/names.ts';
 import type { LocalServer, LocalTool } from '../server/runner/protocol.ts';
@@ -11,6 +10,7 @@ import { ChildTransport, signalDirectly } from '../server/tools/child-transport.
 import { isToolError, toolResultContent, toolResultText } from '../server/tools/tool-result.ts';
 import type { CommandServerConfig, LocalServerConfig } from './config.ts';
 import { WORKER_PROGRAM_DEFAULTS, type WorkdirSettings, type WorkerProgramSettings } from './defaults.ts';
+import { workerVersion } from './version.ts';
 import type { GitRunner } from './workdir/git.ts';
 import { createWorkdirServer, WORKDIR_SERVER_NAME } from './workdir/server.ts';
 
@@ -167,7 +167,7 @@ export async function startLocalServers(
   const started = new Map<string, Started>();
 
   const connect = async (name: string, transport: Transport): Promise<void> => {
-    const client = new Client({ name: CLIENT_NAME, version: version() });
+    const client = new Client({ name: CLIENT_NAME, version: workerVersion() });
     const entry: Started = { client, tools: [] };
     client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
       try {

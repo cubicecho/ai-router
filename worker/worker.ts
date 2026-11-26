@@ -1,5 +1,4 @@
 import { type Runtime, runAgentLoop } from '@cubicecho/agent-core';
-import { version } from '../server/core/config.ts';
 import type { WorkerSettings } from '../server/core/defaults.ts';
 import { errorMessage } from '../server/core/errors.ts';
 import {
@@ -14,6 +13,7 @@ import type { WorkerConfig } from './config.ts';
 import type { WorkdirSettings, WorkerProgramSettings } from './defaults.ts';
 import { createRunHost, type RunHost } from './run.ts';
 import { type LocalServers, startLocalServers } from './servers.ts';
+import { workerVersion } from './version.ts';
 import type { GitRunner } from './workdir/git.ts';
 
 /** What the worker talks to besides its config. Tests pass stand-ins. */
@@ -74,7 +74,7 @@ export async function startWorker(config: WorkerConfig, deps: WorkerDeps = {}): 
 
   const sayHello = async (): Promise<void> => {
     // Its runs, so a router that sent it runs before it restarted ends those it no longer has.
-    const hello: WorkerHello = { host, version: version(), servers: local.listing(), runs: runs.ids() };
+    const hello: WorkerHello = { host, version: workerVersion(), servers: local.listing(), runs: runs.ids() };
     const response = await fetch(`${url}${WORKERS_PATH}${WorkerDoor.Hello}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },

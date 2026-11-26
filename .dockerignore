@@ -11,3 +11,5 @@ coverage
 *.log
 .claude
 spikes
+dist-worker
+*.tgz

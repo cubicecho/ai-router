@@ -151,14 +151,46 @@ docker run -d --name ai-router-worker --restart unless-stopped \
    so mount what it works on. A server reached by `url` works as it is, but `127.0.0.1` there is
    the container: use the host's address, or `--network host` on Linux.
 
-   Or, from a checkout of this repo (`npm ci` once), where local servers run on the machine itself:
+   Or install the worker package, where local servers run on the machine itself. It needs Node 22
+   or later, and isn't on a registry yet: each release attaches its tarball, and
+   `npm run pack:worker` makes one from a checkout.
 
 ```bash
+npm install -g https://github.com/cubicecho/ai-router/releases/download/v<version>/cubicecho-ai-router-worker-<version>.tgz
 AI_ROUTER_URL=http://router.lan:3000 \
 AI_ROUTER_WORKER_KEY=aiw_... \
 WORKER_CONFIG=./worker.json \
-npm run worker
+ai-router-worker
 ```
+
+   Or run it from a checkout of this repo (`npm ci` once, Node 26) with `npm run worker` and the
+   same variables.
+
+   To keep a worker running across reboots, give it a systemd unit:
+
+```ini
+# /etc/systemd/system/ai-router-worker.service
+[Unit]
+Description=ai-router worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=me
+EnvironmentFile=/etc/ai-router-worker.env
+# Where `command -v ai-router-worker` says it is: npm's global bin, such as /usr/local/bin.
+ExecStart=/usr/local/bin/ai-router-worker
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+   `/etc/ai-router-worker.env` holds the variables below, one `NAME=value` a line; make it
+   readable by root only (`chmod 600`), since it holds the key. Then `systemctl enable --now
+   ai-router-worker`. Systemd sends `SIGTERM` to stop it, which finishes its runs as failed, and a
+   restarted worker's hello tells the router which runs it lost, so they fail at once.
 
 | Variable | |
 | --- | --- |

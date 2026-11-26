@@ -24,6 +24,33 @@ jobs:
       - name: Test
         run: npm test
 
+  # The worker package (#71): it packs, installs on the oldest Node it names, and starts far enough to refuse a
+  # missing router address. The tarball is kept as the run's artifact.
+  worker-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 26, cache: npm }
+      - run: npm ci
+      - run: npm run pack:worker
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      - name: It installs and starts on Node 22
+        run: |
+          npm install -g ./cubicecho-ai-router-worker-*.tgz
+          if ai-router-worker > worker.log 2>&1; then
+            cat worker.log
+            echo "::error::The worker started with no router address."
+            exit 1
+          fi
+          cat worker.log
+          grep -q 'AI_ROUTER_URL' worker.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-router-worker
+          path: cubicecho-ai-router-worker-*.tgz
+
   postgres:
     runs-on: ubuntu-latest
     services:
