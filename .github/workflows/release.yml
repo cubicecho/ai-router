@@ -65,6 +65,10 @@ jobs:
           else
             echo "released=false" >> $GITHUB_OUTPUT
           fi
+      # The worker image is also built for arm64, for workers on a Pi; the router's stays amd64.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - name: Set up Docker Buildx
         if: steps.release.outputs.released == 'true'
         uses: docker/setup-buildx-action@v4
@@ -99,6 +103,7 @@ jobs:
         with:
           context: .
           target: worker
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/ai-router-worker:${{ steps.release.outputs.version }}
