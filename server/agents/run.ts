@@ -1,5 +1,4 @@
 import {
-  type AgentLoopOptions,
   type CatalogServer,
   callIdsIn,
   createRuntime,
@@ -14,15 +13,15 @@ import {
   type Runtime,
   type StackedPrompt,
   type StackWarning,
-  ToolDiscovery,
-  type ToolDispatch,
 } from '@cubicecho/agent-core';
+import type { ResolvedAgent } from '@cubicecho/agent-core/spec';
 import type { CallToolResult, ElicitRequest, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import { and, arrayOverlaps, eq, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { RUN_DEFAULTS, type RunSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
+import { nameSchema } from '../core/names.ts';
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { violatedUniqueIndex } from '../db/errors.ts';
@@ -37,8 +36,21 @@ import {
   runs,
 } from '../db/tables/runs.ts';
 import { ModelFailure } from '../models/openai-error.ts';
+import {
+  type LoopUsage,
+  type RunAssignment,
+  type RunPorts,
+  TOOL_ORIGIN_LOCAL,
+  TOOL_ORIGIN_ROUTER,
+  type ToolDefinition,
+  type ToolOrigin,
+} from '../runner/assignment.ts';
 import type { ToolElicit, ToolServices } from '../tools/api.ts';
 import { isToolError, toolResultContent, toolResultText } from '../tools/tool-result.ts';
+import { createLocalWorker } from '../workers/local.ts';
+import { createWorkerRegistry } from '../workers/registry.ts';
+import { createRemoteWorkers, type RemoteWorkers } from '../workers/remote.ts';
+import type { RunWorker } from '../workers/worker.ts';
 import { type PrunedAppTool, pruneAppTools } from './app-tools.ts';
 import {
   busyRun,
@@ -49,14 +61,10 @@ import {
   touchConversation,
 } from './conversation.ts';
 import { answeredFields, answerOf, DECLINED } from './elicit.ts';
-import type { RunConfig } from './layers.ts';
 import { reachOf } from './reach.ts';
 import { type AppTool, type ChatMessage, RequestRefusal, type RunRequest, type ToolAnswer } from './request.ts';
 import { createRunBus, type RunBus } from './run-bus.ts';
 import { type RunTool, runToolNames } from './tool-names.ts';
-
-/** One tool definition, as the loop sends it. */
-type ToolDefinition = NonNullable<AgentLoopOptions['tools']>[number];
 
 /** What joins the text of two turns in a run's answer. */
 const TURN_JOIN = '\n\n';
@@ -68,13 +76,6 @@ const FINISH_STOP = 'stop';
 const FINISH_TOOL_CALLS = 'tool_calls';
 /** What a run that a restart cut short says. */
 const RESTARTED = 'The router restarted while the run was going.';
-/**
- * What the transcript holds for a handed-back call until the app answers it. A resume replaces it; the model never
- * reads it.
- */
-const HANDED_BACK = '(handed back to the app)';
-/** Why the loop stopped at an app tool, as its `end` says it. */
-const HANDED_BACK_REASON = 'handed back to the app';
 /** The unique index that keeps a conversation to one run at a time. */
 const ONE_RUN_PER_CONVERSATION = 'uq_runs_conversation_id_going';
 /** The statuses of a run that is not over. */
@@ -88,6 +89,8 @@ const CANCEL_ATTEMPTS = 3;
 const RUN_RECORD_PATH = '/runs/';
 /** A run's id, as a called agent's answer names it. */
 const runIdSchema = z.uuid();
+/** The rule a worker's local server name must pass to reach a run, the same as the router's own servers'. */
+const localServerName = nameSchema('A local server name');
 
 /** A request's `Idempotency-Key`, and the hash of the body it came with. */
 export interface Idempotency {
@@ -101,9 +104,12 @@ export interface RunInput {
   /** An agent with a live revision, which this workspace may run. */
   agent: SnapshotAgent;
   request: RunRequest;
-  config: RunConfig;
+  /** The agent as the run's layers resolved it. */
+  config: ResolvedAgent;
   /** The system prompt's parts, the agent's with the app's stacked on, and the app's parts that were dropped. */
   prompt: StackedPrompt;
+  /** Answers the run's model calls at the router's models address: `Forwarder.fetchFor` its workspace and agent. */
+  modelFetch: typeof globalThis.fetch;
   idempotency: Idempotency | null;
   /** The conversation the request names, whose history is already in `request`. Null for a stateless request. */
   conversation: Conversation | null;
@@ -122,6 +128,8 @@ export interface WaitingRun {
   resume: RunResume;
   /** The document of the revision it started with, which it keeps. */
   document: Record<string, unknown>;
+  /** The remote worker it ran on, which it carries on on. Null for `local`. */
+  workerId: string | null;
 }
 
 /** A request the run service refuses because of where a run is, in OpenAI's words. */
@@ -214,6 +222,8 @@ export interface RepeatedRun {
 export interface RunService {
   /** A run's events, stored and live. */
   bus: RunBus;
+  /** The remote workers runs are sent to, and their doors' view of the runs on them. */
+  workers: RemoteWorkers;
   /**
    * Finds the run a workspace's `Idempotency-Key` belongs to.
    *
@@ -227,7 +237,8 @@ export interface RunService {
    *
    * @param input - The run.
    * @returns The new run, to execute at once, or the one the key started.
-   * @throws {@link RunConflict} When the conversation has a run going or waiting.
+   * @throws {@link RunConflict} When the conversation has a run going or waiting, or the workspace's worker is offline
+   * or busy. Nothing is recorded then.
    */
   begin(input: RunInput): Promise<StartedRun | RepeatedRun>;
   /**
@@ -247,7 +258,7 @@ export interface RunService {
    * @param input - The request that answers it, and the config resolved from the run's own layers.
    * @param waiting - The run, from `waitingFor`.
    * @returns The run, to execute at once.
-   * @throws {@link RunConflict} When another request resumed it first.
+   * @throws {@link RunConflict} When another request resumed it first, or the worker it ran on is offline or busy.
    */
   resume(input: RunInput, waiting: WaitingRun): Promise<StartedRun>;
   /**
@@ -304,6 +315,16 @@ export interface RunServiceDeps {
    * @defaultValue a runtime of their own
    */
   runtime?: Runtime;
+  /**
+   * Where the loops of runs on `local` execute.
+   * @defaultValue the `local` worker, in this process, with `runtime`
+   */
+  worker?: RunWorker;
+  /**
+   * The remote workers, for the runs of a workspace that names one.
+   * @defaultValue none online, over a registry of this database's workers
+   */
+  workers?: RemoteWorkers;
   /** Settings that differ from `RUN_DEFAULTS`. */
   overrides?: Partial<RunSettings>;
   /** The clock retention and waiting are judged by. */
@@ -358,8 +379,18 @@ interface Hearing {
 
 /** A tool the run reaches, with what the model is told about it. */
 interface ReachedTool extends RunTool {
+  /** Who answers it. For a local tool, `serverId` is the local server's name. */
+  origin: ToolOrigin;
   description: string;
   parameters: Record<string, unknown>;
+}
+
+/** Where a run's stretch executes, and what narrows the worker's own servers. */
+interface Placement {
+  /** The remote worker. Null for `local`. */
+  workerId: string | null;
+  /** The servers the app narrowed the run to, or null for no narrowing. */
+  servers: readonly string[] | null;
 }
 
 /** The tools a run reaches, named for its model, and what was left out. */
@@ -395,6 +426,8 @@ interface Segment {
   spent: { input: number; output: number };
   /** The layers the run started with, kept for its next wait. */
   layers: Pick<RunResume, 'systemText' | 'appParts' | 'servers' | 'sampling'>;
+  /** The remote worker it runs on. Null for `local`. */
+  workerId: string | null;
 }
 
 /**
@@ -545,6 +578,12 @@ export function createRunService({
   snapshot,
   tools,
   runtime = createRuntime(),
+  worker = createLocalWorker(runtime),
+  workers = createRemoteWorkers(
+    createWorkerRegistry(db),
+    {},
+    (workerId) => snapshot.current().workers.get(workerId)?.name ?? workerId,
+  ),
   overrides = {},
   now = () => new Date(),
 }: RunServiceDeps): RunService {
@@ -590,18 +629,90 @@ export function createRunService({
   };
 
   /**
+   * Reads the tools of a remote worker's own servers, as its last hello said them.
+   *
+   * @param placement - The worker, and the servers the app narrowed the run to.
+   * @param routerServers - The names of the router's servers the run reaches, which win over a local one's.
+   * @param notices - What the run's first events say was left out. Added to.
+   * @returns The local tools the run reaches: none on `local`.
+   */
+  const localTools = (
+    { workerId, servers: narrowed }: Placement,
+    routerServers: ReadonlySet<string>,
+    notices: string[],
+  ): ReachedTool[] => {
+    const offered = workerId === null ? [] : workers.registry.localServers(workerId);
+    return offered.flatMap((server): ReachedTool[] => {
+      const isNarrowedAway = narrowed !== null && narrowed.includes(server.name) === false;
+      if (isNarrowedAway) {
+        return [];
+      }
+      const named = localServerName.safeParse(server.name);
+      if (named.success === false || named.data !== server.name) {
+        notices.push(`the worker's server "${server.name}" is left out: its name breaks the router's name rule.`);
+        return [];
+      }
+      if (routerServers.has(server.name)) {
+        notices.push(`the worker's server "${server.name}" is left out: the router's server of that name is used.`);
+        return [];
+      }
+      return server.tools.map((tool) => ({
+        origin: TOOL_ORIGIN_LOCAL,
+        serverId: server.name,
+        serverName: server.name,
+        tool: tool.name,
+        description: tool.description ?? '',
+        parameters: tool.inputSchema,
+      }));
+    });
+  };
+
+  /**
+   * Refuses a run whose worker can't take it: a remote worker that is offline, or running as many runs as it may.
+   *
+   * @param workerId - The remote worker, or null for `local`, which always can.
+   * @throws {@link RunConflict} When it is offline or busy.
+   */
+  const checkWorker = (workerId: string | null): void => {
+    if (workerId === null) {
+      return;
+    }
+    const name = snapshot.current().workers.get(workerId)?.name ?? workerId;
+    if (workers.registry.isOnline(workerId) === false) {
+      throw new RunConflict(
+        ModelFailure.WorkerOffline,
+        `Worker ${name}, where this workspace's runs go, is offline. Start it, or try again once it has dialled in.`,
+      );
+    }
+    const { maxRunsAtOnce } = workers.settings;
+    if (workers.runsOn(workerId) >= maxRunsAtOnce) {
+      throw new RunConflict(
+        ModelFailure.WorkerBusy,
+        `Worker ${name} is running ${maxRunsAtOnce} runs, as many as it may at once. Try again when one ends.`,
+      );
+    }
+  };
+
+  /**
    * Lists the tools of every server the run reaches, as its workspace's instances, and names them for the model.
    *
    * @param input - The run: its resolved agent, for its servers, and its workspace, whose instances to use.
    * @param sent - The app's own tools, as the request sent them.
+   * @param placement - The remote worker the run is on, whose local servers it reaches too, and the servers the app
+   * narrowed it to (null for no narrowing), which narrow those as well.
    * @returns The tools, with the app's that duplicate one of them left out. A server that can't start or list is left
    * out and said so, never failing the run.
    *
    * @remarks
    * A tool turned off for the agent in its workspace is left out as each server is listed, before the tools are named,
-   * so it takes no name and no slot in the catalogue, and an app tool that duplicates it is kept.
+   * so it takes no name and no slot in the catalogue, and an app tool that duplicates it is kept. Those switches don't
+   * reach a worker's local servers, which the router knows only by what the worker says.
    */
-  const reachedTools = async ({ config, workspace, agent }: RunInput, sent: AppTool[]): Promise<RunTools> => {
+  const reachedTools = async (
+    { config, workspace, agent }: RunInput,
+    sent: AppTool[],
+    placement: Placement,
+  ): Promise<RunTools> => {
     const workspaceId = workspace.id;
     const notices: string[] = [];
     const reach = reachOf(config.servers, snapshot.current());
@@ -609,6 +720,7 @@ export function createRunService({
     for (const name of reach.missing) {
       notices.push(`server "${name}" is not on this router or is turned off; it is left out.`);
     }
+    const local = localTools(placement, new Set(reach.servers.map((server) => server.name)), notices);
     const listed = await Promise.all(
       reach.servers.map(async (server): Promise<ReachedTool[]> => {
         try {
@@ -616,6 +728,7 @@ export function createRunService({
           const off = disabledTools?.get(server.name);
           const kept = off === undefined ? served : served.filter((tool) => off.has(tool.name) === false);
           return kept.map((tool) => ({
+            origin: TOOL_ORIGIN_ROUTER,
             serverId: server.id,
             serverName: server.name,
             tool: tool.name,
@@ -631,7 +744,7 @@ export function createRunService({
         }
       }),
     );
-    const { names, dropped } = runToolNames(listed.flat());
+    const { names, dropped } = runToolNames([...listed.flat(), ...local]);
     for (const tool of dropped) {
       notices.push(`tool "${tool.tool}" of server "${tool.serverName}" is left out: its name clashes with another.`);
     }
@@ -748,9 +861,16 @@ export function createRunService({
     const { workspace, agent, config } = input;
     const deadline = AbortSignal.timeout(settings.timeoutMinutes * MS_PER_MINUTE);
     const runSignal = AbortSignal.any([hearing.connection.signal, cancelled, deadline, stopping.signal]);
-    const say = (event: RunEventInput): void => {
-      hearing.listener.onEvent(bus.publish(runId, event));
+    const say = (event: RunEventInput): RunEvent => {
+      const published = bus.publish(runId, event);
+      hearing.listener.onEvent(published);
+      return published;
     };
+    if (segment.workerId !== null) {
+      const name = snapshot.current().workers.get(segment.workerId)?.name ?? segment.workerId;
+      const host = workers.registry.host(segment.workerId);
+      say({ kind: RunEventKind.Notice, text: `Running on worker ${name}${host === null ? '' : ` (${host})`}` });
+    }
     for (const text of [...segment.tools.notices, ...input.prompt.warnings.map((warning) => warning.message)]) {
       say({ kind: RunEventKind.Notice, text });
     }
@@ -772,28 +892,21 @@ export function createRunService({
       minted.set(loopId, id);
       return id;
     };
-    /** The loop ids of the calls handed back, in the order they were made. */
-    const handed: string[] = [];
 
     let answer = '';
     let isNewTurn = false;
     let counted = Promise.resolve();
     let usedSoFar: { promptTokens: number; completionTokens: number } | undefined;
-    const onEvent = (event: RunEventInput): void => {
+    // What the router does with each of the loop's events, wherever the loop runs.
+    const heard = (event: RunEventInput): RunEvent => {
       const isAppCall =
         (event.kind === RunEventKind.ToolCall || event.kind === RunEventKind.ToolResult) &&
         event.id !== undefined &&
         appNames.has(event.name ?? '');
       if (isAppCall && event.id !== undefined) {
-        // A handed-back call's answer is the app's, told when it arrives, not the stand-in the loop writes.
-        const isStandIn = event.kind === RunEventKind.ToolResult && handed.includes(event.id);
-        if (isStandIn) {
-          return;
-        }
-        say({ ...event, id: mintedFor(event.id) });
-        return;
+        return say({ ...event, id: mintedFor(event.id) });
       }
-      say(event);
+      const published = say(event);
       if (event.kind === RunEventKind.Turn) {
         isNewTurn = answer !== '';
       }
@@ -824,6 +937,7 @@ export function createRunService({
         answer += delta;
         hearing.listener.onText(delta);
       }
+      return published;
     };
     const ended = (status: RunStatus, usage: { promptTokens: number; completionTokens: number } | undefined) => ({
       runId,
@@ -911,134 +1025,145 @@ export function createRunService({
       return turn;
     };
     const asks = hearing.listener.onElicit ?? (input.request.progress ? parkInTurn : undefined);
-    let finished: FinishedRun;
-    try {
-      const reached = segment.tools;
-      const dispatch: ToolDispatch = async (call, callSignal) => {
-        if (appNames.has(call.name)) {
-          handed.push(call.id);
-          mintedFor(call.id);
-          return { text: HANDED_BACK, end: { reason: HANDED_BACK_REASON } };
-        }
-        const target = reached.names.get(call.name);
-        if (target === undefined) {
-          throw new Error(`This run has no tool named "${call.name}".`);
-        }
-        const heard = new Map<string, number>();
-        const onElicit: ToolElicit | undefined =
-          asks &&
-          (async (params, options) => {
-            say({ kind: RunEventKind.Elicit, id: call.id, name: call.name, text: params.message });
-            const said = await asks(params, options);
-            const fields = answeredFields(params, said);
-            say({
-              kind: RunEventKind.ElicitAnswer,
-              id: call.id,
-              name: call.name,
-              text: said.action,
-              ...(fields.length > 0 ? { fields } : {}),
-            });
-            return said;
-          });
-        const result = await tools.callTool(target.serverId, workspace.id, target.tool, call.args, {
-          agentId: agent.id,
-          agentName: agent.name,
-          runId,
-          workspaceId: workspace.id,
-          signal: callSignal ?? runSignal,
-          depth: input.depth + 1,
-          ...(onElicit === undefined ? {} : { onElicit }),
-          onProgress: (progress) => {
-            if (progress.event === undefined) {
-              say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text: progress.message });
-              return;
-            }
-            const nested = nestedEvent(progress.event, call.id, heard);
-            if (nested !== null) {
-              say(nested);
-            }
-          },
-        });
-        const childRunId = calledRunOf(result);
-        if (childRunId !== null) {
+    const callRouterTool: RunPorts['callRouterTool'] = async (serverId, tool, args, { call, signal }) => {
+      const nestedSeqs = new Map<string, number>();
+      const onElicit: ToolElicit | undefined =
+        asks &&
+        (async (params, options) => {
+          say({ kind: RunEventKind.Elicit, id: call.id, name: call.name, text: params.message });
+          const said = await asks(params, options);
+          const fields = answeredFields(params, said);
           say({
-            kind: RunEventKind.Notice,
+            kind: RunEventKind.ElicitAnswer,
             id: call.id,
             name: call.name,
-            text: `${call.name} ran as run ${childRunId}.`,
-            link: { name: childRunId, uri: `${RUN_RECORD_PATH}${childRunId}` },
+            text: said.action,
+            ...(fields.length > 0 ? { fields } : {}),
           });
-        }
-        if (isToolError(result)) {
-          throw new Error(toolResultText(result));
-        }
-        return toolResultContent(result);
-      };
-      const isEager = config.toolDiscovery === ToolDiscovery.Eager;
-      const result = await runtime.runAgentLoop({
-        config,
-        systemPrompt: input.prompt.parts,
-        messages: segment.messages,
-        tools: reached.definitions,
-        hostTools: appTools,
-        loaded: segment.loaded,
-        ...(isEager ? {} : { catalog: reached.catalog }),
-        dispatch,
-        // Every app tool call is handed back, a repeat included: only the app knows what it does.
-        dedupeToolCalls: (call) => appNames.has(call.name) === false,
-        signal: runSignal,
-        session: runId,
-        onEvent,
+          return said;
+        });
+      const result = await tools.callTool(serverId, workspace.id, tool, args, {
+        agentId: agent.id,
+        agentName: agent.name,
+        runId,
+        workspaceId: workspace.id,
+        signal,
+        depth: input.depth + 1,
+        ...(onElicit === undefined ? {} : { onElicit }),
+        onProgress: (progress) => {
+          if (progress.event === undefined) {
+            say({ kind: RunEventKind.Notice, id: call.id, name: call.name, text: progress.message });
+            return;
+          }
+          const nested = nestedEvent(progress.event, call.id, nestedSeqs);
+          if (nested !== null) {
+            say(nested);
+          }
+        },
       });
-      // A cancel that came as the loop ended still cancels: the run hasn't answered yet.
-      cancelled.throwIfAborted();
-      await unpark();
-      const transcript = withCallIds(result.messages, minted);
-      if (handed.length > 0) {
-        const handedBack = handedBackCalls(
-          transcript,
-          handed.map((id) => mintedFor(id)),
-        );
+      const childRunId = calledRunOf(result);
+      if (childRunId !== null) {
+        say({
+          kind: RunEventKind.Notice,
+          id: call.id,
+          name: call.name,
+          text: `${call.name} ran as run ${childRunId}.`,
+          link: { name: childRunId, uri: `${RUN_RECORD_PATH}${childRunId}` },
+        });
+      }
+      if (isToolError(result)) {
+        throw new Error(toolResultText(result));
+      }
+      return toolResultContent(result);
+    };
+    /**
+     * Ends a stretch that failed or was stopped, by what stopped it.
+     *
+     * @param usage - What the model spent, when the loop knows.
+     * @param error - What went wrong, for a failure nothing stopped.
+     * @returns The ended run.
+     */
+    const stopped = (usage: LoopUsage | undefined, error: string): FinishedRun => {
+      if (cancelled.aborted) {
+        return { ...ended(RunStatus.Cancelled, usage), answer: null, error: String(cancelled.reason) };
+      }
+      if (hearing.connection.signal.aborted) {
+        return { ...ended(RunStatus.Cancelled, usage), answer: null, error: 'The app disconnected.' };
+      }
+      if (deadline.aborted) {
+        const late = `The run took longer than ${settings.timeoutMinutes} minutes.`;
+        return { ...ended(RunStatus.Failed, usage), answer: null, error: late };
+      }
+      if (stopping.signal.aborted) {
+        return { ...ended(RunStatus.Failed, usage), answer: null, error: 'The router stopped while it ran.' };
+      }
+      return { ...ended(RunStatus.Failed, usage), answer: null, error };
+    };
+    const reached = segment.tools;
+    const assignment: RunAssignment = {
+      runId,
+      config,
+      prompt: input.prompt.parts,
+      messages: segment.messages,
+      loaded: segment.loaded,
+      tools: reached.definitions,
+      catalog: reached.catalog,
+      targets: Object.fromEntries(
+        [...reached.names].map(([name, tool]) => [
+          name,
+          { origin: tool.origin, server: tool.serverId, tool: tool.tool },
+        ]),
+      ),
+      appTools,
+    };
+    let finished: FinishedRun;
+    try {
+      const runsOn = segment.workerId === null ? worker : workers.worker(segment.workerId);
+      const outcome = await runsOn.execute(assignment, {
+        modelFetch: input.modelFetch,
+        callRouterTool,
+        publish: heard,
+        signal: runSignal,
+      });
+      if (outcome.ok) {
+        // A cancel that came as the loop ended still cancels: the run hasn't answered yet.
+        cancelled.throwIfAborted();
+        await unpark();
+        const handedIds = outcome.handedBack.map((id) => mintedFor(id));
+        const transcript = withCallIds(outcome.messages, minted);
+        if (handedIds.length > 0) {
+          const handedBack = handedBackCalls(transcript, handedIds);
+          finished = {
+            ...ended(RunStatus.Waiting, outcome.usage),
+            answer: { content: answer, finishReason: FINISH_TOOL_CALLS, toolCalls: handedBack },
+            error: null,
+          };
+          const count = handedBack.length === 1 ? 'the call' : `${handedBack.length} calls`;
+          say({ kind: RunEventKind.Notice, text: `the run waits for the app to answer ${count} it handed back.` });
+          await counted;
+          await keepConversation(segment.conversationId, null);
+          await recordWait(finished, {
+            messages: transcript,
+            handedBack,
+            appTools: segment.appTools,
+            loaded: outcome.loaded,
+            ...segment.layers,
+          });
+          await bus.close(runId);
+          return finished;
+        }
+        const finishReason = outcome.finishReason === FINISH_LENGTH ? FINISH_LENGTH : FINISH_STOP;
         finished = {
-          ...ended(RunStatus.Waiting, result.usage),
-          answer: { content: answer, finishReason: FINISH_TOOL_CALLS, toolCalls: handedBack },
+          ...ended(RunStatus.Completed, outcome.usage),
+          answer: { content: answer, finishReason },
           error: null,
         };
-        const count = handedBack.length === 1 ? 'the call' : `${handedBack.length} calls`;
-        say({ kind: RunEventKind.Notice, text: `the run waits for the app to answer ${count} it handed back.` });
-        await counted;
-        await keepConversation(segment.conversationId, null);
-        await recordWait(finished, {
-          messages: transcript,
-          handedBack,
-          appTools: segment.appTools,
-          loaded: result.loaded,
-          ...segment.layers,
-        });
-        await bus.close(runId);
-        return finished;
-      }
-      const finishReason = result.turn.finishReason === FINISH_LENGTH ? FINISH_LENGTH : FINISH_STOP;
-      finished = {
-        ...ended(RunStatus.Completed, result.usage),
-        answer: { content: answer, finishReason },
-        error: null,
-      };
-      await keepConversation(segment.conversationId, { messages: transcript, systemText: segment.layers.systemText });
-    } catch (error) {
-      const usage = failedRun(error)?.usage;
-      if (cancelled.aborted) {
-        finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: String(cancelled.reason) };
-      } else if (hearing.connection.signal.aborted) {
-        finished = { ...ended(RunStatus.Cancelled, usage), answer: null, error: 'The app disconnected.' };
-      } else if (deadline.aborted) {
-        const error = `The run took longer than ${settings.timeoutMinutes} minutes.`;
-        finished = { ...ended(RunStatus.Failed, usage), answer: null, error };
-      } else if (stopping.signal.aborted) {
-        finished = { ...ended(RunStatus.Failed, usage), answer: null, error: 'The router stopped while it ran.' };
+        await keepConversation(segment.conversationId, { messages: transcript, systemText: segment.layers.systemText });
       } else {
-        finished = { ...ended(RunStatus.Failed, usage), answer: null, error: errorMessage(error) };
+        finished = stopped(outcome.usage, outcome.error);
       }
+    } catch (error) {
+      finished = stopped(failedRun(error)?.usage, errorMessage(error));
     }
     await unpark();
     const isCompleted = finished.status === RunStatus.Completed;
@@ -1110,7 +1235,9 @@ export function createRunService({
     if (isBusy) {
       await conversationBusy(conversation);
     }
-    const reached = await reachedTools(input, request.appTools);
+    const { workerId } = workspace;
+    checkWorker(workerId);
+    const reached = await reachedTools(input, request.appTools, { workerId, servers: request.servers });
     let inserted: RunRow[];
     try {
       inserted = await db
@@ -1123,6 +1250,8 @@ export function createRunService({
           revisionId: agent.liveRevisionId,
           conversationId: conversation?.id ?? null,
           sessionKey: input.sessionKey,
+          // Null for `local`, as a workspace names it.
+          workerId,
           input: request.input,
           user: request.user,
           stream: request.stream,
@@ -1161,6 +1290,7 @@ export function createRunService({
       answered: [],
       spent: { input: 0, output: 0 },
       layers: { systemText, appParts, servers, sampling },
+      workerId,
     });
     await bus.open(row.id);
     return handle;
@@ -1245,7 +1375,12 @@ export function createRunService({
       );
     }
     const [row] = await db
-      .select({ resume: runs.resume, conversationId: runs.conversationId, document: agentRevisions.document })
+      .select({
+        resume: runs.resume,
+        conversationId: runs.conversationId,
+        workerId: runs.workerId,
+        document: agentRevisions.document,
+      })
       .from(runs)
       .leftJoin(agentRevisions, eq(agentRevisions.id, runs.revisionId))
       .where(eq(runs.id, match.id));
@@ -1255,7 +1390,13 @@ export function createRunService({
     if (row.document === null) {
       throw new RunConflict(ModelFailure.RunFailed, `Run ${match.id} can't carry on: the revision it ran is gone.`);
     }
-    return { runId: match.id, conversationId: row.conversationId, resume: row.resume, document: row.document };
+    return {
+      runId: match.id,
+      conversationId: row.conversationId,
+      resume: row.resume,
+      document: row.document,
+      workerId: row.workerId,
+    };
   };
 
   /**
@@ -1311,7 +1452,10 @@ export function createRunService({
     // The app sends its tools again with every request, as any OpenAI client does. One that doesn't keeps them.
     // They are pruned again, by the same rules, against the agent's tools as they are now.
     const appTools = request.appTools.length > 0 ? request.appTools : state.appTools;
-    const reached = await reachedTools(input, appTools);
+    // It carries on where it ran, not where its workspace's runs go now.
+    const { workerId } = waiting;
+    checkWorker(workerId);
+    const reached = await reachedTools(input, appTools, { workerId, servers: state.servers });
     const [row] = await db
       .update(runs)
       .set({
@@ -1352,6 +1496,7 @@ export function createRunService({
         servers: state.servers,
         sampling: state.sampling,
       },
+      workerId,
     });
     await bus.open(row.id);
     return handle;
@@ -1451,6 +1596,7 @@ export function createRunService({
 
   return {
     bus,
+    workers,
     repeatOf,
     begin,
     waitingFor,

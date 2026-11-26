@@ -1,5 +1,8 @@
 node_modules
 dist
+# The worker package and its tarball: npm run pack:worker.
+dist-worker/
+*.tgz
 .env
 .env.local
 *.local

@@ -114,7 +114,7 @@ export const AUTH_DEFAULTS: Readonly<AuthSettings> = Object.freeze({
   oidcPairingTimeoutMs: 10_000,
 });
 
-/** Workspace keys. */
+/** Workspace keys and worker keys. */
 export interface KeySettings {
   /** Random bytes in a new key, before encoding. */
   secretBytes: number;
@@ -543,6 +543,34 @@ export const RUN_DEFAULTS: Readonly<RunSettings> = Object.freeze({
   expireEveryMinutes: 5,
   taskPollIntervalMs: 2_000,
   maxAgentDepth: 3,
+});
+
+/** Remote workers: the processes that dial in with a worker key and run agent loops away from the router. */
+export interface WorkerSettings {
+  /** How often a worker and the router tell each other they are still there. */
+  heartbeatMs: number;
+  /** How long a worker that stopped answering may take to dial in again before its runs fail. */
+  reconnectGraceMs: number;
+  /** The most run events a worker sends in one message. */
+  eventBatchSize: number;
+  /** How long a worker holds run events before it sends them together. */
+  eventFlushMs: number;
+  /** The most runs one remote worker runs at once. A run past it is refused as `worker_busy`. */
+  maxRunsAtOnce: number;
+  /** How long a worker told to cancel a run may take to finish it before the router ends it itself. */
+  cancelGraceMs: number;
+  /** Largest JSON body the worker doors accept, as `express.json` reads it: a model call carries the transcript. */
+  bodyLimit: string;
+}
+
+export const WORKER_DEFAULTS: Readonly<WorkerSettings> = Object.freeze({
+  heartbeatMs: 15_000,
+  reconnectGraceMs: 60_000,
+  eventBatchSize: 100,
+  eventFlushMs: 250,
+  maxRunsAtOnce: 8,
+  cancelGraceMs: 10_000,
+  bodyLimit: '8mb',
 });
 
 /**

@@ -2,7 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { hashKey } from '../../server/auth/keys.ts';
 import { workspaces } from '../../server/db/schema.ts';
 import { createSnapshotHost, EMPTY_SNAPSHOT, loadSnapshot, type Snapshot } from '../../server/db/snapshot.ts';
-import { closeTestDb, createTestDb, createWorkspaceWithKey, resetTestDb, type TestDb } from '../helpers.ts';
+import { LOCAL_WORKER_NAME } from '../../server/db/tables/workers.ts';
+import {
+  closeTestDb,
+  createTestDb,
+  createWorkerWithKey,
+  createWorkspaceWithKey,
+  resetTestDb,
+  type TestDb,
+} from '../helpers.ts';
 
 let db: TestDb;
 
@@ -20,8 +28,21 @@ describe('the snapshot', () => {
   it('holds workspaces by id and keys by hash', async () => {
     const { workspaceId, keyId, secret } = await createWorkspaceWithKey(db, 'min-agent');
     const snapshot = await loadSnapshot(db);
-    expect(snapshot.workspaces.get(workspaceId)).toEqual({ id: workspaceId, slug: 'min-agent', name: 'min-agent' });
+    expect(snapshot.workspaces.get(workspaceId)).toEqual({
+      id: workspaceId,
+      slug: 'min-agent',
+      name: 'min-agent',
+      workerId: null,
+    });
     expect(snapshot.keys.get(hashKey(secret))).toEqual({ keyId, workspaceId, expiresAt: null });
+  });
+
+  it('holds workers by id, local included, and worker keys by hash', async () => {
+    const { workerId, secret } = await createWorkerWithKey(db, 'gpu-box');
+    const snapshot = await loadSnapshot(db);
+    expect([...snapshot.workers.values()].map((worker) => worker.name).sort()).toEqual(['gpu-box', LOCAL_WORKER_NAME]);
+    expect(snapshot.workers.get(workerId)).toEqual({ id: workerId, name: 'gpu-box' });
+    expect([...snapshot.workerKeys]).toEqual([[hashKey(secret), { workerId }]]);
   });
 
   it('sees a write only once rebuilt', async () => {

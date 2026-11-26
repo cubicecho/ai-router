@@ -122,6 +122,111 @@ What the router serves:
 
 Every other `/v1` path, `/v1/embeddings` and `/v1/completions` included, answers 404.
 
+## Running a worker
+
+A worker runs a workspace's agent loops on another machine, such as your dev box, so its tools
+can work on files there. It dials the router, says which tools it has, and takes the runs the
+router sends it. Its model calls, and calls to the router's own servers, still go through the
+router.
+
+1. Make a worker in the router's UI and copy its key, which starts `aiw_` and is shown once.
+2. Point a workspace at it, so its runs go there.
+3. On the machine, run its image:
+
+```bash
+docker run -d --name ai-router-worker --restart unless-stopped \
+  -e AI_ROUTER_URL=http://router.lan:3000 \
+  -e AI_ROUTER_WORKER_KEY=aiw_... \
+  -e WORKER_HOST=devbox \
+  -e WORKER_CONFIG=/config/worker.json \
+  -v "$PWD/worker.json:/config/worker.json:ro" \
+  -v ai_router_work:/work \
+  ghcr.io/cubicecho/ai-router-worker:latest
+```
+
+   Its work root is `/work`, a volume, so checkouts outlive the container. Name the machine with
+   `WORKER_HOST`, since a container's own hostname is its id. The image has Node and git and nothing
+   else, so **local command servers run inside the container**: a server needing another program
+   needs an image built on this one, and a `cwd` or a path in its args is a path in the container,
+   so mount what it works on. A server reached by `url` works as it is, but `127.0.0.1` there is
+   the container: use the host's address, or `--network host` on Linux.
+
+   Or install the worker package, where local servers run on the machine itself. It needs Node 22
+   or later, and isn't on a registry yet: each release attaches its tarball, and
+   `npm run pack:worker` makes one from a checkout.
+
+```bash
+npm install -g https://github.com/cubicecho/ai-router/releases/download/v<version>/cubicecho-ai-router-worker-<version>.tgz
+AI_ROUTER_URL=http://router.lan:3000 \
+AI_ROUTER_WORKER_KEY=aiw_... \
+WORKER_CONFIG=./worker.json \
+ai-router-worker
+```
+
+   Or run it from a checkout of this repo (`npm ci` once, Node 26) with `npm run worker` and the
+   same variables.
+
+   To keep a worker running across reboots, give it a systemd unit:
+
+```ini
+# /etc/systemd/system/ai-router-worker.service
+[Unit]
+Description=ai-router worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=me
+EnvironmentFile=/etc/ai-router-worker.env
+# Where `command -v ai-router-worker` says it is: npm's global bin, such as /usr/local/bin.
+ExecStart=/usr/local/bin/ai-router-worker
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+   `/etc/ai-router-worker.env` holds the variables below, one `NAME=value` a line; make it
+   readable by root only (`chmod 600`), since it holds the key. Then `systemctl enable --now
+   ai-router-worker`. Systemd sends `SIGTERM` to stop it, which finishes its runs as failed, and a
+   restarted worker's hello tells the router which runs it lost, so they fail at once.
+
+| Variable | |
+| --- | --- |
+| `AI_ROUTER_URL` | the router's address. Required |
+| `AI_ROUTER_WORKER_KEY` | the worker's key. Required |
+| `WORKER_ROOT` | where its work directories go. Default `~/ai-router-work`, made if missing; `/work` in the image |
+| `WORKER_CONFIG` | a JSON file naming its own MCP servers. Optional |
+| `WORKER_HOST` | the machine's name, as the router shows it. Default the hostname |
+
+```json
+{
+  "servers": {
+    "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/ai-router-work"] },
+    "tests": { "command": "node", "args": ["scripts/test-mcp.js"], "env": { "CI": "1" }, "cwd": "../my-app" },
+    "notes": { "url": "http://127.0.0.1:8123/mcp", "headers": { "authorization": "Bearer ..." } }
+  }
+}
+```
+
+Every worker also has the built-in `workdir` server: `open_repo` clones a repo under the work
+root, or returns the checkout already there, at `<root>/<host>/<owner>/<name>` (for example
+`~/ai-router-work/github.com/cubicecho/ai-router`), and `list_dir` lists a folder inside it.
+Nothing either tool touches is outside the root.
+
+**Local servers run as you.** A command server runs as the worker's user on that machine, with
+your trust, unlike the router's own servers, which run sandboxed as their own users. It gets
+only `PATH`, `HOME`, `LANG`, `TERM` and `USER` from the worker's environment, plus its own
+`env`, never the worker's key. A `cwd` is relative to the config file. A server name follows the
+router's name rule (lowercase letters, digits, `.`, `-`, `_`); one that breaks it, or fails to
+start, is left out with a `[worker]` line. A server that says its tools changed is listed
+again, and the router told.
+
+The worker dials the router again whenever its channel drops, waiting longer after each failed
+dial, and keeps its runs going meanwhile. `Ctrl-C` or `SIGTERM` stops its runs, reporting each as
+failed, and closes its servers.
+
 ## Development
 
 ```bash
@@ -136,6 +241,22 @@ npm test             # vitest, on PGlite
 (`docker context ls`), reach it through a tunnel, `ssh -fN -L 127.0.0.1:5440:127.0.0.1:5440 <host>`,
 and `.env.example`'s `DATABASE_URL` works as it is. Or start it with `DEV_BIND=0.0.0.0`, which
 exposes it on the network, and put the host's name in `DATABASE_URL`.
+
+### A preview beside the released router
+
+A push to `feat/workers` that passes CI publishes `ghcr.io/cubicecho/ai-router:workers` (it moves with
+the branch) and `:workers-<short sha>` (`.github/workflows/preview.yml`), and the worker program as
+`ghcr.io/cubicecho/ai-router-worker` under the same tags: use `:workers` in place of `:latest` above. Nothing is released or
+tagged, and `:latest` is untouched. Run it as a compose project of its own, so it gets its own
+Postgres volume, since the branch's migrations can't be undone on the released router's database:
+
+```bash
+AI_ROUTER_IMAGE=ghcr.io/cubicecho/ai-router:workers PORT=3001 \
+  docker compose -p ai-router-preview up --no-build --wait
+```
+
+Give it its own `BETTER_AUTH_SECRET` and `APP_URL` (`http://<host>:3001`), and its own OIDC client.
+Workspace keys are its own too: make them in its UI.
 
 [AGENTS.md](AGENTS.md) has the layout and the rules, and
 [.agents/domain-model.md](.agents/domain-model.md) the concepts.

@@ -46,6 +46,7 @@ describe('GET /runs/<id>', () => {
       agentId: h.agentId,
       revisionId: h.revisionId,
       workspace: 'task-server',
+      worker: 'local',
       status: RunStatus.Completed,
       input: [QUESTION],
       user: 'household-a',

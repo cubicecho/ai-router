@@ -230,3 +230,16 @@ mutation DeleteWorkspaceAgent($id: UUID!) {
     id
   }
 }
+
+# What the editor's Model field offers: the pools by name, and the providers whose models it asks for.
+query ModelChoices {
+  pools(orderBy: { name: { direction: asc, priority: 1 } }) {
+    name
+    enabled
+  }
+  providers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    id
+    name
+    enabled
+  }
+}

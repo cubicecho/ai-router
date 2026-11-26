@@ -11,6 +11,7 @@ import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import { conversations } from '../db/tables/conversations.ts';
 import { type RunRow, runs } from '../db/tables/runs.ts';
+import { LOCAL_WORKER_NAME } from '../db/tables/workers.ts';
 import { appCaller } from './app-caller.ts';
 import { openEventStream } from './completion.ts';
 import { NOT_JSON, TOO_LARGE } from './routes.ts';
@@ -71,10 +72,11 @@ function refuse(response: Response, status: HttpStatus, code: ErrorCode, error: 
  *
  * @param row - The run.
  * @param conversation - The app's name for the conversation it belongs to, or null.
- * @returns Its agent, revision, conversation, session, status, what its requests added, timings (when it started, last
- * began waiting, and ended), usage and error.
+ * @param worker - The name of the worker it executes on: `local`, or a remote worker's.
+ * @returns Its agent, revision, conversation, session, worker, status, what its requests added, timings (when it
+ * started, last began waiting, and ended), usage and error.
  */
-export function runRecord(row: RunRow, conversation: string | null) {
+export function runRecord(row: RunRow, conversation: string | null, worker: string) {
   return {
     id: row.id,
     conversation,
@@ -83,6 +85,7 @@ export function runRecord(row: RunRow, conversation: string | null) {
     agentId: row.agentId,
     revisionId: row.revisionId,
     workspace: row.workspaceName,
+    worker,
     status: row.status,
     input: row.input,
     user: row.user,
@@ -115,6 +118,10 @@ export function createRunRecordRoutes({
   const { heartbeatSeconds, bodyLimit } = { ...RUN_DEFAULTS, ...overrides };
   const { bus } = runService;
   const router = express.Router();
+  // A remote worker's name as the snapshot has it now; null is the router's own.
+  const workerNameOf = (workerId: string | null): string =>
+    workerId === null ? LOCAL_WORKER_NAME : (snapshot.current().workers.get(workerId)?.name ?? workerId);
+  const record = (row: RunRow, conversation: string | null) => runRecord(row, conversation, workerNameOf(row.workerId));
 
   /**
    * Finds a run of the caller's workspace.
@@ -179,13 +186,13 @@ export function createRunRecordRoutes({
       .where(session === undefined ? ofWorkspace : and(ofWorkspace, eq(runs.sessionKey, session)))
       .orderBy(desc(runs.startedAt), desc(runs.id))
       .limit(limit);
-    response.json({ runs: rows.map((row) => runRecord(row.run, row.conversation)) });
+    response.json({ runs: rows.map((row) => record(row.run, row.conversation)) });
   });
 
   router.get('/:id', async (request: Request<{ id: string }>, response: Response<unknown, AppLocals>) => {
     const found = await ownRun(response, request.params.id);
     if (found !== null) {
-      response.json(runRecord(found.run, found.conversation));
+      response.json(record(found.run, found.conversation));
     }
   });
 
@@ -231,7 +238,7 @@ export function createRunRecordRoutes({
         return;
       }
       const cancelled = await runService.cancel(found.run.id, parsed.data?.reason ?? APP_CANCELLED);
-      response.json(runRecord(cancelled ?? found.run, found.conversation));
+      response.json(record(cancelled ?? found.run, found.conversation));
     },
   );
 

@@ -1,6 +1,7 @@
 import { MODEL_DEFAULTS, type ModelSettings } from '../core/defaults.ts';
 import { errorMessage } from '../core/errors.ts';
 import { isRecord } from '../core/is-record.ts';
+import { MODELS_BASE_URL } from '../core/wire.ts';
 import type { Snapshot, SnapshotHost, SnapshotPool, SnapshotProvider, SnapshotTarget } from '../db/snapshot.ts';
 import { AFFINITY_STICKY } from '../db/tables/pools.ts';
 import { affinityKey, SESSION_HEADER } from './affinity.ts';
@@ -13,11 +14,8 @@ import { JSON_CONTENT_TYPE, providerHeaders } from './provider-headers.ts';
 import type { ServedBy, UsageRecorder } from './usage.ts';
 import { UsageReader } from './usage-reader.ts';
 
-/**
- * The address a run's endpoint points at. No server answers it: the run's `fetch` hands every call to `forward`.
- * `.invalid` is reserved, so a call that escaped would go nowhere.
- */
-export const MODELS_BASE_URL = 'http://models.ai-router.invalid/v1';
+/** The address a run's endpoint points at, which `fetchFor` answers. It moved to core, for the runner. */
+export { MODELS_BASE_URL };
 
 /**
  * Answer headers that describe the provider's connection or encoding, not the body passed on, and `set-cookie`,

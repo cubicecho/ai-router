@@ -1,0 +1,58 @@
+fragment WorkerFields on Worker {
+  id
+  name
+  keyPrefix
+  keySet
+  host
+  version
+  lastSeenAt
+  online
+  localServers
+  createdAt
+  creator {
+    name
+    email
+  }
+}
+
+# `local` sorts with the rest by name; the page puts it first.
+query Workers {
+  workers(orderBy: { name: { direction: asc, priority: 1 } }) {
+    ...WorkerFields
+    workspaces(orderBy: { name: { direction: asc, priority: 1 } }) {
+      id
+      name
+    }
+  }
+}
+
+mutation CreateWorker($name: String!) {
+  createWorker(name: $name) {
+    secret
+    worker {
+      ...WorkerFields
+    }
+  }
+}
+
+mutation RotateWorkerKey($id: UUID!) {
+  rotateWorkerKey(id: $id) {
+    secret
+    worker {
+      ...WorkerFields
+    }
+  }
+}
+
+mutation DeleteWorker($id: UUID!) {
+  deleteWorker(id: $id)
+}
+
+mutation SetWorkspaceWorker($workspaceId: UUID!, $workerId: UUID) {
+  setWorkspaceWorker(workspaceId: $workspaceId, workerId: $workerId) {
+    id
+    worker {
+      ...WorkerFields
+    }
+  }
+}

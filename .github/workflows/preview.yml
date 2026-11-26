@@ -1,0 +1,74 @@
+# Preview images for a long-lived feature branch, to run beside the released router.
+#
+# A push to the branch runs CI's checks (ci.yml, called here), and when they pass, the same
+# Dockerfile is pushed to GHCR only, as ghcr.io/<repo>:<branch name> (moves with the branch) and
+# :<branch name>-<short sha> (pinned), and its worker stage as ghcr.io/<repo>-worker under the same
+# tags. Nothing here runs semantic-release, cuts a tag or a GitHub release, or pushes :latest, a
+# version tag or Docker Hub. The branch's migrations need a database of its own: see README.md.
+#
+# It triggers on push rather than after CI's workflow_run, because workflow_run only fires for a
+# workflow file on the default branch. To preview another branch, add it below.
+
+name: Preview
+
+on:
+  push:
+    branches: [feat/workers]
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      # The tag is the branch's last segment (feat/workers -> workers), and the commit's short sha.
+      - name: Tags
+        id: tags
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "name=${BRANCH##*/}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+      # The worker image is also built for arm64, for workers on a Pi; the router's stays amd64.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          cache-from: type=gha
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.tags.outputs.name }}
+            ghcr.io/${{ github.repository }}:${{ steps.tags.outputs.name }}-${{ steps.tags.outputs.sha }}
+      # The worker program's image (the Dockerfile's worker stage), under the same tags.
+      - name: Build and push the worker
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: worker
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: type=gha,scope=worker
+          tags: |
+            ghcr.io/${{ github.repository }}-worker:${{ steps.tags.outputs.name }}
+            ghcr.io/${{ github.repository }}-worker:${{ steps.tags.outputs.name }}-${{ steps.tags.outputs.sha }}

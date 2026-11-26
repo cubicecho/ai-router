@@ -18,6 +18,33 @@ RUN npm run build
 FROM builder AS test
 CMD ["npm", "test"]
 
+# The worker package (`npm run build:worker`): one bundled file and its manifest. Built on the build machine's own
+# platform, since the bundle is the same JavaScript on every one.
+FROM --platform=$BUILDPLATFORM node:26-slim AS worker-package
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build:worker
+
+# The worker program, on its own: `docker build --target worker`. It runs a workspace's agent loops on another
+# machine and reaches the router only over HTTP, so it carries no helper, no uv, no UI and no migrations: only the
+# worker package and its four dependencies, the same package `npm run pack:worker` makes.
+FROM node:26-slim AS worker
+WORKDIR /app
+# git for workdir's open_repo, which clones; ssh for a repo named like git@host:owner/name.git.
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=worker-package /app/dist-worker ./
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+ENV NODE_ENV=production
+# Where its work directories go: a volume, so checkouts outlive the container.
+ENV WORKER_ROOT=/work
+RUN mkdir -p /work && chown node:node /work
+VOLUME /work
+USER node
+CMD ["node", "worker.js"]
+
 FROM node:26-slim AS runtime
 WORKDIR /app
 

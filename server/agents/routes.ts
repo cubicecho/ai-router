@@ -31,7 +31,6 @@ import {
   resolveAgent,
   resolveRun,
   UnreadableAgentError,
-  withRouterFetch,
 } from './layers.ts';
 import {
   AGENT_CORE_FIELD,
@@ -384,13 +383,13 @@ export function createAgentRoutes({
           agentId: agent.id,
           agentName: agent.name,
         });
-        const config = withRouterFetch(resolved, fetch);
         const input = {
           workspace,
           agent,
           request: runRequest,
-          config,
+          config: resolved,
           prompt,
+          modelFetch: fetch,
           idempotency,
           conversation,
           sessionKey,

@@ -7,13 +7,14 @@ import { ROOT } from '../../server/core/config.ts';
 import { relations } from '../../server/db/relations.ts';
 import { registries } from '../../server/db/tables/registries.ts';
 import { servers } from '../../server/db/tables/servers.ts';
+import { LOCAL_WORKER_NAME, workers } from '../../server/db/tables/workers.ts';
 import { ADMIN_SERVER_ROW } from '../../server/tools/shapes.ts';
 
 // Every migration runs on a fresh PGlite: about 4 s alone, and past Vitest's 5 s default when the machine is busy.
 const MIGRATE_TIMEOUT_MS = 30_000;
 
 describe('the migrations', () => {
-  it('seed the official registry and the admin server, as the code describes it', {
+  it('seed the official registry, the admin server and the local worker, as the code describes it', {
     timeout: MIGRATE_TIMEOUT_MS,
   }, async () => {
     const client = new PGlite('memory://');
@@ -35,6 +36,10 @@ describe('the migrations', () => {
           enabled,
         })),
       ).toEqual([{ ...ADMIN_SERVER_ROW, env: {}, enabled: true }]);
+      const seededWorkers = await db
+        .select({ name: workers.name, keyHash: workers.keyHash, keyPrefix: workers.keyPrefix, keySet: workers.keySet })
+        .from(workers);
+      expect(seededWorkers).toEqual([{ name: LOCAL_WORKER_NAME, keyHash: null, keyPrefix: null, keySet: false }]);
     } finally {
       await client.close();
     }
