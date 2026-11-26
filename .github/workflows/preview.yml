@@ -2,9 +2,9 @@
 #
 # A push to the branch runs CI's checks (ci.yml, called here), and when they pass, the same
 # Dockerfile is pushed to GHCR only, as ghcr.io/<repo>:<branch name> (moves with the branch) and
-# :<branch name>-<short sha> (pinned). Nothing here runs semantic-release, cuts a tag or a GitHub
-# release, or pushes :latest, a version tag or Docker Hub. The branch's migrations need a database
-# of its own: see README.md.
+# :<branch name>-<short sha> (pinned), and its worker stage as ghcr.io/<repo>-worker under the same
+# tags. Nothing here runs semantic-release, cuts a tag or a GitHub release, or pushes :latest, a
+# version tag or Docker Hub. The branch's migrations need a database of its own: see README.md.
 #
 # It triggers on push rather than after CI's workflow_run, because workflow_run only fires for a
 # workflow file on the default branch. To preview another branch, add it below.
@@ -56,3 +56,14 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ steps.tags.outputs.name }}
             ghcr.io/${{ github.repository }}:${{ steps.tags.outputs.name }}-${{ steps.tags.outputs.sha }}
+      # The worker program's image (the Dockerfile's worker stage), under the same tags.
+      - name: Build and push the worker
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: worker
+          push: true
+          cache-from: type=gha,scope=worker
+          tags: |
+            ghcr.io/${{ github.repository }}-worker:${{ steps.tags.outputs.name }}
+            ghcr.io/${{ github.repository }}-worker:${{ steps.tags.outputs.name }}-${{ steps.tags.outputs.sha }}

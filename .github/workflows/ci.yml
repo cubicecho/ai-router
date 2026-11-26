@@ -77,6 +77,25 @@ jobs:
           grep -q '"children":"isolated"' health.json
       - name: A child user is boxed in
         run: docker compose exec -T ai-router sh scripts/check-children.sh
+      # The worker program's image: it builds, and starts far enough to refuse a missing router address.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: worker
+          push: false
+          load: true
+          tags: ai-router-worker
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
+      - name: The worker image starts
+        run: |
+          if docker run --rm ai-router-worker > worker.log 2>&1; then
+            cat worker.log
+            echo "::error::The worker started with no router address."
+            exit 1
+          fi
+          cat worker.log
+          grep -q 'AI_ROUTER_URL' worker.log
       - name: Logs
         if: failure()
         run: docker compose logs

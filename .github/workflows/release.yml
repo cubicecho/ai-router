@@ -92,3 +92,16 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/ai-router:latest
             ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}
             ghcr.io/${{ github.repository }}:latest
+      # The worker program's image (the Dockerfile's worker stage), beside the router's.
+      - name: Build and push the worker
+        if: steps.release.outputs.released == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: worker
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/ai-router-worker:${{ steps.release.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/ai-router-worker:latest
+            ghcr.io/${{ github.repository }}-worker:${{ steps.release.outputs.version }}
+            ghcr.io/${{ github.repository }}-worker:latest

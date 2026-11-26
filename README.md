@@ -131,7 +131,27 @@ router.
 
 1. Make a worker in the router's UI and copy its key, which starts `aiw_` and is shown once.
 2. Point a workspace at it, so its runs go there.
-3. On the machine, from a checkout of this repo (`npm ci` once):
+3. On the machine, run its image:
+
+```bash
+docker run -d --name ai-router-worker --restart unless-stopped \
+  -e AI_ROUTER_URL=http://router.lan:3000 \
+  -e AI_ROUTER_WORKER_KEY=aiw_... \
+  -e WORKER_HOST=devbox \
+  -e WORKER_CONFIG=/config/worker.json \
+  -v "$PWD/worker.json:/config/worker.json:ro" \
+  -v ai_router_work:/work \
+  ghcr.io/cubicecho/ai-router-worker:latest
+```
+
+   Its work root is `/work`, a volume, so checkouts outlive the container. Name the machine with
+   `WORKER_HOST`, since a container's own hostname is its id. The image has Node and git and nothing
+   else, so **local command servers run inside the container**: a server needing another program
+   needs an image built on this one, and a `cwd` or a path in its args is a path in the container,
+   so mount what it works on. A server reached by `url` works as it is, but `127.0.0.1` there is
+   the container: use the host's address, or `--network host` on Linux.
+
+   Or, from a checkout of this repo (`npm ci` once), where local servers run on the machine itself:
 
 ```bash
 AI_ROUTER_URL=http://router.lan:3000 \
@@ -144,7 +164,7 @@ npm run worker
 | --- | --- |
 | `AI_ROUTER_URL` | the router's address. Required |
 | `AI_ROUTER_WORKER_KEY` | the worker's key. Required |
-| `WORKER_ROOT` | where its work directories go. Default `~/ai-router-work`, made if missing |
+| `WORKER_ROOT` | where its work directories go. Default `~/ai-router-work`, made if missing; `/work` in the image |
 | `WORKER_CONFIG` | a JSON file naming its own MCP servers. Optional |
 | `WORKER_HOST` | the machine's name, as the router shows it. Default the hostname |
 
@@ -193,7 +213,8 @@ exposes it on the network, and put the host's name in `DATABASE_URL`.
 ### A preview beside the released router
 
 A push to `feat/workers` that passes CI publishes `ghcr.io/cubicecho/ai-router:workers` (it moves with
-the branch) and `:workers-<short sha>` (`.github/workflows/preview.yml`). Nothing is released or
+the branch) and `:workers-<short sha>` (`.github/workflows/preview.yml`), and the worker program as
+`ghcr.io/cubicecho/ai-router-worker` under the same tags: use `:workers` in place of `:latest` above. Nothing is released or
 tagged, and `:latest` is untouched. Run it as a compose project of its own, so it gets its own
 Postgres volume, since the branch's migrations can't be undone on the released router's database:
 
