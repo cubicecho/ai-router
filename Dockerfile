@@ -18,6 +18,29 @@ RUN npm run build
 FROM builder AS test
 CMD ["npm", "test"]
 
+# The worker program, on its own: `docker build --target worker`. It runs a workspace's agent loops on another
+# machine and reaches the router only over HTTP, so it carries no helper, no uv, no UI and no migrations, and of
+# the server's source only what worker/ loads (tests/worker/image.test.ts checks this list against its imports).
+FROM node:26-slim AS worker
+WORKDIR /app
+# git for workdir's open_repo, which clones; ssh for a repo named like git@host:owner/name.git.
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY server/core server/core
+COPY server/runner server/runner
+COPY server/auth/keys.ts server/auth/keys.ts
+COPY server/tools/child-transport.ts server/tools/tool-result.ts server/tools/
+COPY worker worker
+ENV NODE_ENV=production
+# Where its work directories go: a volume, so checkouts outlive the container.
+ENV WORKER_ROOT=/work
+RUN mkdir -p /work && chown node:node /work
+VOLUME /work
+USER node
+CMD ["node", "worker/index.ts"]
+
 FROM node:26-slim AS runtime
 WORKDIR /app
 
