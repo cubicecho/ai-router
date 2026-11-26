@@ -103,6 +103,11 @@ export const workerHelloSchema = z.object({
   version: z.string().min(1),
   /** The servers it offers runs, called on the worker itself. */
   servers: z.array(localServerSchema),
+  /**
+   * The runs it holds now. The router ends at once any run it sent this worker on an earlier channel that is not here:
+   * a worker that restarted holds none. Absent, from a worker older than the field, the router keeps them.
+   */
+  runs: z.array(z.string().min(1)).optional(),
 });
 export type WorkerHello = z.infer<typeof workerHelloSchema>;
 

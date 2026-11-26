@@ -188,7 +188,9 @@ export function createWorkerRoutes({ snapshot, workers }: WorkerRoutesDeps): Rou
       refuse(response, HttpStatus.BadRequest, ErrorCode.BadUserInput, said);
       return;
     }
-    await registry.hello(response.locals.caller.workerId, parsed.data);
+    const { workerId } = response.locals.caller;
+    await registry.hello(workerId, parsed.data);
+    workers.hold(workerId, parsed.data.runs);
     response.json({ ok: true });
   });
 

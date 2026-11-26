@@ -96,6 +96,12 @@ export interface RunHost {
    */
   held(): number;
   /**
+   * Names the runs going now, as the hello says them.
+   *
+   * @returns Their ids.
+   */
+  ids(): string[];
+  /**
    * Stops every run, finishes each as failed, and refuses new ones.
    *
    * @returns Resolves once each has finished, or the stop deadline passed.
@@ -305,6 +311,7 @@ export function createRunHost(
     const { stoppedFor } = held;
     const reported: RunOutcome =
       stoppedFor === undefined ? outcome : { ok: false, error: stoppedFor, usage: outcome.usage };
+    console.log(`[worker] run ${runId} ${reported.ok ? 'finished' : `failed: ${reported.error}`}`);
     await finish(runId, reported);
   };
 
@@ -332,6 +339,7 @@ export function createRunHost(
         done: Promise.resolve(),
       };
       runs.set(runId, held);
+      console.log(`[worker] run ${runId} started: agent ${assignment.config.id}`);
       held.done = run(assignment, held)
         .catch((error) => console.error(`[worker] run ${runId} failed here: ${errorMessage(error)}`))
         .finally(() => runs.delete(runId));
@@ -345,6 +353,7 @@ export function createRunHost(
       held.controller.abort(new Error(reason));
     },
     held: () => runs.size,
+    ids: () => [...runs.keys()],
     stop: async () => {
       isStopping = true;
       const going = [...runs.values()];

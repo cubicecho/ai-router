@@ -579,7 +579,11 @@ export function createRunService({
   tools,
   runtime = createRuntime(),
   worker = createLocalWorker(runtime),
-  workers = createRemoteWorkers(createWorkerRegistry(db)),
+  workers = createRemoteWorkers(
+    createWorkerRegistry(db),
+    {},
+    (workerId) => snapshot.current().workers.get(workerId)?.name ?? workerId,
+  ),
   overrides = {},
   now = () => new Date(),
 }: RunServiceDeps): RunService {

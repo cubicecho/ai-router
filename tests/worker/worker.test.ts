@@ -213,14 +213,16 @@ describe('the worker program', () => {
     expect(worker?.runs.held()).toBe(1);
   });
 
-  it('dials in again when the channel drops, keeps its run going, and says hello again', async () => {
+  it('dials in again when the channel drops, keeps its run going, and names it in its hello again', async () => {
     router.replies.push(HANG);
     await start();
+    expect(router.hellos[0]?.runs).toEqual([]);
     router.send(ChannelMessageType.Assign, { assignment: assignment('run-7') });
     await vi.waitFor(() => expect(router.modelCalls.length).toBe(1));
     router.dropChannels();
     await vi.waitFor(() => expect(router.hellos.length).toBe(2));
     expect(worker?.runs.held()).toBe(1);
+    expect(router.hellos[1]?.runs).toEqual(['run-7']);
     router.send(ChannelMessageType.Cancel, { runId: 'run-7', reason: 'over' });
     await vi.waitFor(() => expect(router.finishes.get('run-7')).toMatchObject({ ok: false, error: 'over' }));
   });

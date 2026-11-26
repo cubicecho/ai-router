@@ -73,7 +73,8 @@ export async function startWorker(config: WorkerConfig, deps: WorkerDeps = {}): 
   let channel: Channel | undefined;
 
   const sayHello = async (): Promise<void> => {
-    const hello: WorkerHello = { host, version: version(), servers: local.listing() };
+    // Its runs, so a router that sent it runs before it restarted ends those it no longer has.
+    const hello: WorkerHello = { host, version: version(), servers: local.listing(), runs: runs.ids() };
     const response = await fetch(`${url}${WORKERS_PATH}${WorkerDoor.Hello}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },

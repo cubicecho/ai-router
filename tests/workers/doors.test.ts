@@ -21,7 +21,7 @@ import {
   WorkerDoor,
 } from '../../server/runner/protocol.ts';
 import { createWorkerRegistry } from '../../server/workers/registry.ts';
-import { createRemoteWorkers, WENT_AWAY } from '../../server/workers/remote.ts';
+import { createRemoteWorkers, restartedWithout, wentAway } from '../../server/workers/remote.ts';
 import {
   ECHO,
   expectInOrder,
@@ -102,15 +102,16 @@ class FakeWorker {
    * Opens the channel, says hello, and reads the channel until it closes.
    *
    * @param servers - The local servers it offers.
+   * @param [runs] - The runs its hello says it holds. Left out, the hello doesn't say, as an older worker's.
    */
-  async dialIn(servers: LocalServer[] = [LOCAL]): Promise<void> {
+  async dialIn(servers: LocalServer[] = [LOCAL], runs?: string[]): Promise<void> {
     const response = await fetch(`${this.base}${WORKERS_PATH}${WorkerDoor.Channel}`, {
       headers: { authorization: `Bearer ${this.secret}` },
       signal: this.channel.signal,
     });
     expect(response.status).toBe(HttpStatus.Ok);
     void this.read(response);
-    const hello = await this.door(WorkerDoor.Hello, { host: HOST, version: '0.0.0-test', servers });
+    const hello = await this.door(WorkerDoor.Hello, { host: HOST, version: '0.0.0-test', servers, runs });
     expect(hello.status).toBe(HttpStatus.Ok);
   }
 
@@ -257,7 +258,11 @@ describe('the worker doors', () => {
    */
   const startWithWorkers = async (overrides: Partial<WorkerSettings> = {}): Promise<string> => {
     // Short graces, so a run held by a worker that never finishes it ends quickly when the router stops.
-    const remote = createRemoteWorkers(createWorkerRegistry(h.db), { ...QUICK, ...overrides });
+    const remote = createRemoteWorkers(
+      createWorkerRegistry(h.db),
+      { ...QUICK, ...overrides },
+      (workerId) => h.snapshot.current().workers.get(workerId)?.name ?? workerId,
+    );
     const { base } = await h.startRouter({}, remote);
     return base;
   };
@@ -442,7 +447,86 @@ describe('the worker doors', () => {
 
     expect((await answer).status).toBe(HttpStatus.InternalServerError);
     const row = await h.runReaches(assignment.runId, RunStatus.Failed);
-    expect(row.error).toBe(WENT_AWAY);
+    expect(row.error).toBe(wentAway('gpu-box'));
+  });
+
+  it('fails at once the runs a worker that dials in again no longer holds', async () => {
+    const worker = await placeOnWorker();
+    const base = await startWithWorkers({ reconnectGraceMs: 60_000 });
+    const before = new FakeWorker(base, worker.secret);
+    before.onAssign = () => {};
+    await before.dialIn();
+    const answer = h.complete(base, { model: 'helper', messages: [QUESTION] });
+    await before.heard(ChannelMessageType.Assign);
+    const [assignment] = before.assignments;
+
+    before.hangUp();
+    // A worker that restarted: a new process, holding nothing, well inside the grace.
+    await new FakeWorker(base, worker.secret).dialIn([LOCAL], []);
+
+    expect((await answer).status).toBe(HttpStatus.InternalServerError);
+    const row = await h.runReaches(assignment.runId, RunStatus.Failed);
+    expect(row.error).toBe(restartedWithout('gpu-box'));
+    const record = await fetch(`${base}/runs/${assignment.runId}`, {
+      headers: { authorization: `Bearer ${h.keySecret}` },
+    });
+    expect(await record.json()).toMatchObject({ worker: 'gpu-box', error: restartedWithout('gpu-box') });
+  });
+
+  it('keeps the runs a worker that dials in again says it holds, and those an older worker says nothing of', async () => {
+    const worker = await placeOnWorker();
+    const base = await startWithWorkers({ reconnectGraceMs: 60_000 });
+    const first = new FakeWorker(base, worker.secret);
+    first.onAssign = () => {};
+    await first.dialIn();
+    const answer = h.complete(base, { model: 'helper', messages: [QUESTION] });
+    await first.heard(ChannelMessageType.Assign);
+    const [assignment] = first.assignments;
+
+    first.hangUp();
+    const holding = new FakeWorker(base, worker.secret);
+    await holding.dialIn([LOCAL], [assignment.runId]);
+    holding.hangUp();
+    const older = new FakeWorker(base, worker.secret);
+    await older.dialIn();
+    const finished = await older.finish(assignment.runId, {
+      ok: false,
+      error: 'finished by the worker',
+      usage: undefined,
+    });
+
+    // Ended by the worker's own finish, so the router kept the run until then.
+    expect(finished.status).toBe(HttpStatus.Ok);
+    expect((await answer).status).toBe(HttpStatus.InternalServerError);
+    const row = await h.runReaches(assignment.runId, RunStatus.Failed);
+    expect(row.error).toBe('finished by the worker');
+  });
+
+  it('keeps a run sent on the channel the hello comes on, which the worker may not have read yet', async () => {
+    const worker = await placeOnWorker();
+    const base = await startWithWorkers();
+    const fake = new FakeWorker(base, worker.secret);
+    fake.onAssign = () => {};
+    await fake.dialIn([LOCAL], []);
+    const answer = h.complete(base, { model: 'helper', messages: [QUESTION] });
+    await fake.heard(ChannelMessageType.Assign);
+    const [assignment] = fake.assignments;
+
+    // Its tools changed, and it says hello again before it has taken the run.
+    expect(
+      (await fake.door(WorkerDoor.Hello, { host: HOST, version: '0.0.0-test', servers: [], runs: [] })).status,
+    ).toBe(HttpStatus.Ok);
+    const finished = await fake.finish(assignment.runId, {
+      ok: false,
+      error: 'finished by the worker',
+      usage: undefined,
+    });
+
+    // Ended by the worker's own finish, so the router kept the run until then.
+    expect(finished.status).toBe(HttpStatus.Ok);
+    expect((await answer).status).toBe(HttpStatus.InternalServerError);
+    const row = await h.runReaches(assignment.runId, RunStatus.Failed);
+    expect(row.error).toBe('finished by the worker');
   });
 
   it('never forwards the worker key to the models', async () => {

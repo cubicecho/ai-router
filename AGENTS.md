@@ -143,9 +143,11 @@ non-negotiables apply on top of these.
   whose name breaks the name rule or is one of the run's router servers, and narrows them by
   `agent_core.servers`. The per-agent switches don't reach them. They reach only runs on that
   worker.
-- **A worker that goes away gets `reconnectGraceMs`,** then its runs fail ("the worker went
-  away"). A reconnecting worker is sent nothing again. A cancel goes down the channel, and the
-  router stops waiting after `cancelGraceMs`.
+- **A worker that goes away gets `reconnectGraceMs`,** then its runs fail ("worker <name> went
+  away"). A reconnecting worker is sent nothing again, and its hello's `runs` names what it
+  still holds: a run sent on an earlier channel that isn't there fails at once ("worker <name>
+  restarted, and lost the run"). A hello without `runs` keeps them. A cancel goes down the
+  channel, and the router stops waiting after `cancelGraceMs`.
 - **`local` is a row the migration adds, with no key.** `ck_workers_local_keyless` makes it the
   one keyless worker; `workers` has no generated writes, and `deleteWorker` and
   `rotateWorkerKey` refuse it, so nothing renames, deletes or keys it.

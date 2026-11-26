@@ -426,8 +426,10 @@ sequenceDiagram
   `agent_core.servers` narrows them, and the per-agent switches don't reach them.
 - **A cancel goes down the channel.** The worker still posts `finish`; if it doesn't within `cancelGraceMs`, the
   router ends the stretch itself.
-- **A channel that drops gives the worker `reconnectGraceMs`** to dial in again; then its runs fail, "the worker
-  went away". A worker that comes back is sent nothing again: it keeps the runs the router still names.
+- **A channel that drops gives the worker `reconnectGraceMs`** to dial in again; then its runs fail, "worker
+  <name> went away". A worker that comes back is sent nothing again: it keeps the runs the router still names.
+  Its hello lists the runs it holds, so a worker that restarted, and holds none, has its old runs failed at once
+  ("worker <name> restarted, and lost the run") instead of left until the run's deadline.
 
 ## Waiting for the app
 
