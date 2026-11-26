@@ -1,3 +1,23 @@
+# [0.19.0](https://github.com/cubicecho/ai-router/compare/v0.18.0...v0.19.0) (2026-11-26)
+
+### Bug Fixes
+
+* **workers:** fail at once the runs a restarted worker lost ([e45ade7](https://github.com/cubicecho/ai-router/commit/e45ade79ed4a31a619fe3de014bb854b72f3cd3d)), closes [#67](https://github.com/cubicecho/ai-router/issues/67)
+* **worker:** stop a run when the model door says the router dropped it ([81f601b](https://github.com/cubicecho/ai-router/commit/81f601b952aa1432a5aadb611919f901df3fdff4))
+
+### Features
+
+* **web:** a Workers page, and a workspace's worker ([2ce6c0e](https://github.com/cubicecho/ai-router/commit/2ce6c0eac8c68017d65c6966b38601d1957f4c88))
+* **web:** choose an agent's model from the pools and providers' models ([c589703](https://github.com/cubicecho/ai-router/commit/c589703e946a057690a72b2fab01736aba022e3a))
+* **web:** show whether a worker is online, and its local servers ([c2c5989](https://github.com/cubicecho/ai-router/commit/c2c5989faecb63f72ef38d1cc997251a9a62aac8))
+* **worker:** a Docker image for the worker program ([b64cf06](https://github.com/cubicecho/ai-router/commit/b64cf06ded864a1d8096b9cef3635952c1074a4f))
+* **worker:** a worker package that runs on Node 22 ([4d78e76](https://github.com/cubicecho/ai-router/commit/4d78e768ec428e35a6d8eb097003c743fe1c46ce)), closes [#71](https://github.com/cubicecho/ai-router/issues/71)
+* **worker:** a worker that dials the router and runs its loops ([16d2d60](https://github.com/cubicecho/ai-router/commit/16d2d60ca02d345b56f0ec90efff06a97531d24d))
+* **worker:** add the workdir server, a work dir per repo ([cadf8c3](https://github.com/cubicecho/ai-router/commit/cadf8c3df17b2da57694ee2db99527cee03efec9))
+* **workers:** add workers, worker keys and a workspace's worker ([6670c5d](https://github.com/cubicecho/ai-router/commit/6670c5d771a69ae8da8ca49e5885a0fc1ff8a13f))
+* **workers:** define the worker protocol both ends share ([10570a4](https://github.com/cubicecho/ai-router/commit/10570a40208e24009e795995fcc4b65c851feac6))
+* **workers:** run a workspace's runs on its worker ([018dbc8](https://github.com/cubicecho/ai-router/commit/018dbc84e190686c03e9624d6b60722b18146418))
+
 # [0.18.0](https://github.com/cubicecho/ai-router/compare/v0.17.0...v0.18.0) (2026-11-24)
 
 ### Features
