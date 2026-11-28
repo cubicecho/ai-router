@@ -1,6 +1,13 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { AUTH_DEFAULTS, type AuthSettings, CHILD_DEFAULTS, DATABASE_DEFAULTS, HTTP_DEFAULTS } from './defaults.ts';
+import {
+  AUTH_DEFAULTS,
+  type AuthSettings,
+  CHILD_DEFAULTS,
+  DATABASE_DEFAULTS,
+  DISCOVERY_DEFAULTS,
+  HTTP_DEFAULTS,
+} from './defaults.ts';
 
 /** What `version()` answers when the root package.json cannot be read. */
 const UNKNOWN_VERSION = 'unknown';
@@ -211,6 +218,27 @@ export function trustProxy(): boolean | number | string {
  */
 export function secureLocalNet(): boolean {
   return envFlag(process.env.SECURE_LOCAL_NET, AUTH_DEFAULTS.secureLocalNet);
+}
+
+/**
+ * Whether the router announces itself on the local network over mDNS.
+ *
+ * @returns `MDNS_ADVERTISE` as a flag, or `DISCOVERY_DEFAULTS.advertise`.
+ *
+ * @remarks
+ * Multicast does not cross Docker's default bridge network, so a container needs `network_mode: host`.
+ */
+export function mdnsAdvertise(): boolean {
+  return envFlag(process.env.MDNS_ADVERTISE, DISCOVERY_DEFAULTS.advertise);
+}
+
+/**
+ * Whether the router watches the local network for MCP servers to offer people to add.
+ *
+ * @returns `MDNS_DISCOVER` as a flag, or `DISCOVERY_DEFAULTS.discover`.
+ */
+export function mdnsDiscover(): boolean {
+  return envFlag(process.env.MDNS_DISCOVER, DISCOVERY_DEFAULTS.discover);
 }
 
 /**

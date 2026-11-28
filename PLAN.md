@@ -504,10 +504,10 @@ The acceptance check for the first release.
       local servers beside the workspace's. The worker program is the other end.
     - Agents offered as MCP tools, on `/mcp` (built: one tool per agent, stateless, no app tools).
     - `/v1/responses` for agents.
-    - **Discovery:** the AI Catalog at `/.well-known/ai-catalog.json`, Server Cards, A2A Agent
-      Cards, and LAN announce and discovery (servers found on the network, offered to add). The
-      public catalog names only endpoints, and agents, servers and cards are listed only to a
-      key, for its workspace.
+    - **Discovery** (built, but for A2A Agent Cards): the AI Catalog at `/.well-known/ai-catalog.json`
+      and `/mcp`'s Server Card, naming only the endpoint; LAN announce (`MDNS_ADVERTISE`) and
+      discovery (`MDNS_DISCOVER`), servers found on the network offered to people to add, never
+      added by the router. A2A Agent Cards, listed only to a key for its workspace, are still to come.
     - Importers for Claude Code subagents, Copilot `.agent.md` and cagent YAML.
     - An agent editor in the UI.
     - **Raw model and tool endpoints**, only if retiring llm-router and mcp-router becomes a

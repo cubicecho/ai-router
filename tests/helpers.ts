@@ -18,6 +18,7 @@ import { EMPTY_SNAPSHOT, loadSnapshot, type Snapshot, type SnapshotHost } from '
 import { servers } from '../server/db/tables/servers.ts';
 import { Role } from '../server/db/tables/users.ts';
 import { LOCAL_WORKER_NAME, workers } from '../server/db/tables/workers.ts';
+import { idleLanServers, type LanServers } from '../server/discovery/lan-servers.ts';
 import { createSchema } from '../server/graphql/build-schema.ts';
 import type { UpstreamFetch } from '../server/models/outbound.ts';
 import { createModelServices, type ModelServices } from '../server/models/services.ts';
@@ -216,6 +217,8 @@ export interface ClientDeps {
   tools?: ToolServices;
   /** @defaultValue the run service over this client's snapshot and tools */
   runs?: RunService;
+  /** @defaultValue `idleLanServers()`, which finds nothing */
+  lanServers?: LanServers;
   /** @defaultValue none */
   headers?: Headers;
 }
@@ -266,7 +269,7 @@ function freshSnapshot(db: TestDb): SnapshotHost {
  * @returns The client.
  */
 export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps = {}): TestClient {
-  const { limiter = createRateLimiter(), ip = TEST_IP, headers = new Headers() } = deps;
+  const { limiter = createRateLimiter(), ip = TEST_IP, headers = new Headers(), lanServers = idleLanServers() } = deps;
   const authHost = deps.authHost ?? fixedAuthHost(createTestAuth(db));
   const isFresh = deps.snapshot === undefined;
   const snapshot = deps.snapshot ?? freshSnapshot(db);
@@ -296,6 +299,7 @@ export function createClient(db: TestDb, caller: Caller | null, deps: ClientDeps
       models,
       tools,
       runs,
+      lanServers,
       caller,
       headers,
       ip,

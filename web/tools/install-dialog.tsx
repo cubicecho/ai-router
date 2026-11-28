@@ -109,10 +109,20 @@ function headerValueError(value: string): string | undefined {
   return LINE_BREAK.test(value) ? 'A header value cannot hold a line break.' : undefined;
 }
 
+/** An HTTP server to start the dialog with, such as one found on the local network. */
+export interface HttpServerPrefill {
+  name: string;
+  url: string;
+  /** Headers it needs, each a row with its value left for a person to type. */
+  headerNames: readonly string[];
+}
+
 /** What the install dialog is given. */
 export interface InstallDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Opens on "HTTP address" with these filled in. Read when the dialog mounts, so key it by what it holds. */
+  prefill?: HttpServerPrefill;
 }
 
 /**
@@ -130,7 +140,7 @@ function choiceLabel(choice: RegistryEntry['choices'][number]): string {
  * Installs a server from a registry, npm or PyPI, or adds a program or an HTTP address by hand, then opens its page.
  * An admin can give an HTTP server its secret headers here; anyone else adds them later, through an admin.
  */
-export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
+export function InstallDialog({ open, onOpenChange, prefill }: InstallDialogProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -152,7 +162,7 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
   });
   const form = useAppForm({
     defaultValues: {
-      from: 'registry' as InstallFrom,
+      from: (prefill === undefined ? 'registry' : 'http') as InstallFrom,
       registryId: '',
       packageSelector: null as string | null,
       package: '',
@@ -160,9 +170,9 @@ export function InstallDialog({ open, onOpenChange }: InstallDialogProps) {
       command: '',
       args: '',
       httpTransport: STREAMABLE_HTTP as HttpTransportType,
-      url: '',
-      headers: [] as HeaderRow[],
-      name: '',
+      url: prefill?.url ?? '',
+      headers: (prefill?.headerNames ?? []).map((name): HeaderRow => ({ name, value: '' })),
+      name: prefill?.name ?? '',
       env: '',
     },
     onSubmit: ({ value }) => {

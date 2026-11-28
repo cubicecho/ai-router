@@ -97,17 +97,13 @@ export interface InstallResult {
 }
 
 /**
- * Suggests a server name from a package or registry entry name.
+ * Suggests a server name from a package, registry entry or Server Card name.
  *
- * @param source - Where the server comes from.
- * @returns The last path segment, lower-cased, with each run of other characters as one dash.
- * @throws BAD_USER_INPUT for a manual source, or when nothing valid is left.
+ * @param raw - Such as `@scope/pkg` or `io.github.owner/repo`.
+ * @returns The last path segment, lower-cased, with each run of other characters as one dash; null when nothing
+ * valid is left.
  */
-export function deriveServerName(source: InstallSource): string {
-  if (source.type === SourceType.Manual) {
-    throw badInput('A server added by hand needs a name.');
-  }
-  const raw = source.type === SourceType.Registry ? source.serverName : source.package;
+export function suggestServerName(raw: string): string | null {
   const lastSegment = raw.split('/').pop() ?? raw;
   const suggested = lastSegment
     .toLowerCase()
@@ -115,10 +111,26 @@ export function deriveServerName(source: InstallSource): string {
     .replace(/^[^a-z0-9]+/, '')
     .slice(0, NAME_DEFAULTS.maxLength);
   const result = serverNameSchema.safeParse(suggested);
-  if (result.success === false) {
+  return result.success ? result.data : null;
+}
+
+/**
+ * Suggests a server name from a package or registry entry name.
+ *
+ * @param source - Where the server comes from.
+ * @returns What `suggestServerName` makes of its name.
+ * @throws BAD_USER_INPUT for a manual source, or when nothing valid is left.
+ */
+export function deriveServerName(source: InstallSource): string {
+  if (source.type === SourceType.Manual) {
+    throw badInput('A server added by hand needs a name.');
+  }
+  const raw = source.type === SourceType.Registry ? source.serverName : source.package;
+  const suggested = suggestServerName(raw);
+  if (suggested === null) {
     throw badInput(`No server name can be made from "${raw}". Give one.`);
   }
-  return result.data;
+  return suggested;
 }
 
 /**

@@ -11,6 +11,7 @@ import { CALLER_RUN, type Context } from '../core/context.ts';
 import { OPERATION_LIMIT_DEFAULTS } from '../core/defaults.ts';
 import { forbidden } from '../core/errors.ts';
 import type { DB } from '../db/client.ts';
+import { applyDiscoveryExtension } from '../discovery/resolvers.ts';
 import { modelWriteHooks } from '../models/hooks.ts';
 import { applyModelsExtension } from '../models/resolvers.ts';
 import { applySettingsExtension } from '../settings/resolvers.ts';
@@ -142,10 +143,12 @@ export function createSchema(db: DB): GraphQLSchema {
   });
 
   const withAuth = applySsoExtension(applyBetterAuthExtension(applyAuthExtension(withMutationRoot(generated)), db));
-  const extended = applySettingsExtension(
-    applyRunsExtension(
-      applyAgentsExtension(
-        applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(applyWorkersExtension(withAuth)))),
+  const extended = applyDiscoveryExtension(
+    applySettingsExtension(
+      applyRunsExtension(
+        applyAgentsExtension(
+          applyToolsExtension(applyModelsExtension(applyWorkspacesExtension(applyWorkersExtension(withAuth)))),
+        ),
       ),
     ),
   );

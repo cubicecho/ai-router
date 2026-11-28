@@ -16,6 +16,7 @@ import { Plug, Plus } from '@/components/ui/icons';
 import { joinStats } from '@/lib/format';
 import { request } from '@/lib/gql';
 import { InstallDialog } from '@/tools/install-dialog';
+import { LanServersSection } from '@/tools/lan-servers-section';
 import { LoginBadge } from '@/tools/login-section';
 import { RegistriesSection } from '@/tools/registries-section';
 import { SERVERS_PAGE_TAB_LABELS, SERVERS_PAGE_TABS } from '@/tools/server-tabs';
@@ -107,6 +108,7 @@ export function ServersRoute() {
                   }
                 />
               ) : null}
+              <LanServersSection />
             </DetailTabPanel>
             <DetailTabPanel value="registries">
               <RegistriesSection />

@@ -17,6 +17,9 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_NAME: ${OIDC_NAME:-}
+      # mDNS needs multicast, which this bridge network drops: see "Finding and being found" in the README.
+      MDNS_ADVERTISE: ${MDNS_ADVERTISE:-false}
+      MDNS_DISCOVER: ${MDNS_DISCOVER:-false}
     ports:
       - "${PORT:-3000}:3000"
     # The MCP servers' installs, from phase 3. A named volume: a bind mount keeps the host folder's owner.

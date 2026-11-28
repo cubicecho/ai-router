@@ -227,6 +227,41 @@ The worker dials the router again whenever its channel drops, waiting longer aft
 dial, and keeps its runs going meanwhile. `Ctrl-C` or `SIGTERM` stops its runs, reporting each as
 failed, and closes its servers.
 
+## Finding and being found
+
+Every router serves an [AI Catalog](https://github.com/Agent-Card/ai-catalog) at
+`/.well-known/ai-catalog.json` and an [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards)
+for its agents door at `/mcp/server-card`, to anyone. They name the endpoint and say it needs a
+workspace key as `Authorization: Bearer`; they never name an agent, a workspace or a key.
+
+Two switches use the local network, over mDNS (`_mcp._tcp`):
+
+| Variable | |
+| --- | --- |
+| `MDNS_ADVERTISE` | announce the router as `AI Router on <host>`, so MCP clients and other routers find its `/mcp`. Default false |
+| `MDNS_DISCOVER` | watch for MCP servers other hosts announce, and list them under **MCP Servers → On your network**, each with an **Add** button that opens the add dialog filled in. Default false |
+
+The router never adds a server it found: anything on the network can announce itself, and a
+card is unauthenticated, so a person adds it and types any header it needs.
+
+Multicast does not cross Docker's default bridge network, so a container that announces or
+watches needs `network_mode: host`. The router then reaches its Postgres on the host's ports,
+so publish them and point `DATABASE_URL` at `127.0.0.1`, for example with a
+`docker-compose.override.yml`:
+
+```yaml
+services:
+  ai-router:
+    network_mode: host
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgres://router:${POSTGRES_PASSWORD:-router}@127.0.0.1:5432/router
+      MDNS_ADVERTISE: "true"
+      MDNS_DISCOVER: "true"
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+```
+
 ## Development
 
 ```bash

@@ -197,6 +197,9 @@ export const permissions: PermissionsMap = {
   RunSessionPage: isUser,
   Activity: isUser,
   Conversation: isUser,
+  // People only: what is on the network is for a person to judge, never for a run to add.
+  LanDiscovery: isUser,
+  LanServer: isUser,
   ServerSecret: isUser,
   UsageCount: isUser,
   User: isUser,
