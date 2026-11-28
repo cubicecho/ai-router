@@ -1,3 +1,9 @@
+# [0.20.0](https://github.com/cubicecho/ai-router/compare/v0.19.0...v0.20.0) (2026-11-28)
+
+### Features
+
+* **discovery:** advertise /mcp and suggest MCP servers found on the LAN ([c48cdb6](https://github.com/cubicecho/ai-router/commit/c48cdb6a804170668aa534530e3d7cafadc61dd5))
+
 # [0.19.0](https://github.com/cubicecho/ai-router/compare/v0.18.0...v0.19.0) (2026-11-26)
 
 ### Bug Fixes
