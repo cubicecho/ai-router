@@ -6,6 +6,7 @@ import { CardLayout } from '@/components/card-layout';
 import { Combobox } from '@/components/combobox';
 import { DetailTabBar, DetailTabPanel, DetailTabs, useDetailTab } from '@/components/detail-tabs';
 import { EmptyState } from '@/components/empty-state';
+import { FilterBar } from '@/components/filter-bar';
 import { LoadState } from '@/components/load-state';
 import { PageLayout } from '@/components/page-layout';
 import { Button } from '@/components/ui/button';
@@ -71,6 +72,8 @@ export function RunsRoute() {
   const now = useNow(rows.some((run) => isOpen(run.status)));
   const isGroupFiltered = search.agent !== undefined || search.workspace !== undefined;
   const isFiltered = isGroupFiltered || search.status !== undefined || search.session !== undefined;
+  /** Whether a filter the open tab shows is set: the Sessions tab has no status or session filter. */
+  const isTabFiltered = isSessions ? isGroupFiltered : isFiltered;
 
   /** Changes one filter, and goes back to the first page. */
   const filter = (next: Partial<RunsSearch>) => {
@@ -87,15 +90,11 @@ export function RunsRoute() {
       filter({ tab: next === first ? undefined : next });
     }
   };
-  const clear = (
-    <Button
-      variant="outline"
-      size="sm"
-      iconSlot={<X />}
-      onClick={() => void navigate({ search: { tab: search.tab } })}
-      content="Clear filters"
-    />
-  );
+  /** Puts every filter back, staying on the open tab. */
+  const clearFilters = () => {
+    void navigate({ search: { tab: search.tab } });
+  };
+  const clear = <Button variant="outline" size="sm" iconSlot={<X />} onClick={clearFilters} content="Clear filters" />;
 
   const agents = choices.data?.agents ?? [];
   const workspaces = choices.data?.workspaces ?? [];
@@ -114,44 +113,49 @@ export function RunsRoute() {
         width="page"
         description="Every time an app ran an agent: what it ran, for whom, how long it took and how it ended."
         headerContentSlot={
-          <div className="grid w-full max-w-4xl gap-2 sm:grid-cols-4">
-            <Combobox
-              className="w-full"
-              aria-label="Agent"
-              options={withEmptyOption(agentOptions, 'All agents')}
-              value={menuValueOf(search.agent)}
-              onValueChange={(value) => filter({ agent: storedValueOf(value) ?? undefined })}
-            />
-            <Combobox
-              className="w-full"
-              aria-label="Workspace"
-              options={withEmptyOption(
-                withOrphanOptions(workspaceOptions, search.workspace === undefined ? [] : [search.workspace]),
-                'All workspaces',
-              )}
-              value={menuValueOf(search.workspace)}
-              onValueChange={(value) => filter({ workspace: storedValueOf(value) ?? undefined })}
-            />
-            {isSessions ? null : (
-              <Combobox
-                className="w-full"
-                aria-label="Status"
-                options={withEmptyOption(RUN_STATUS_CHOICES, 'Any status')}
-                value={menuValueOf(search.status)}
-                onValueChange={(value) => filter({ status: statusOf(storedValueOf(value)) })}
-              />
-            )}
-            {isSessions || search.session === undefined ? null : (
-              <Button
-                className="justify-self-start"
-                variant="outline"
-                iconSlot={<X />}
-                onClick={() => filter({ session: undefined })}
-                content={<span className="truncate font-mono">{search.session}</span>}
-                aria-label={`Show every session, not only ${search.session}`}
-              />
-            )}
-          </div>
+          <FilterBar
+            isFiltered={isTabFiltered}
+            onClear={clearFilters}
+            contentSlot={
+              <>
+                <Combobox
+                  className="w-48"
+                  aria-label="Agent"
+                  options={withEmptyOption(agentOptions, 'All agents')}
+                  value={menuValueOf(search.agent)}
+                  onValueChange={(value) => filter({ agent: storedValueOf(value) ?? undefined })}
+                />
+                <Combobox
+                  className="w-48"
+                  aria-label="Workspace"
+                  options={withEmptyOption(
+                    withOrphanOptions(workspaceOptions, search.workspace === undefined ? [] : [search.workspace]),
+                    'All workspaces',
+                  )}
+                  value={menuValueOf(search.workspace)}
+                  onValueChange={(value) => filter({ workspace: storedValueOf(value) ?? undefined })}
+                />
+                {isSessions ? null : (
+                  <Combobox
+                    className="w-48"
+                    aria-label="Status"
+                    options={withEmptyOption(RUN_STATUS_CHOICES, 'Any status')}
+                    value={menuValueOf(search.status)}
+                    onValueChange={(value) => filter({ status: statusOf(storedValueOf(value)) })}
+                  />
+                )}
+                {isSessions || search.session === undefined ? null : (
+                  <Button
+                    variant="outline"
+                    iconSlot={<X />}
+                    onClick={() => filter({ session: undefined })}
+                    content={<span className="truncate font-mono">{search.session}</span>}
+                    aria-label={`Show every session, not only ${search.session}`}
+                  />
+                )}
+              </>
+            }
+          />
         }
         headerBarSlot={<DetailTabBar tabs={RUNS_TABS} labels={RUNS_TAB_LABELS} label="Runs, or sessions" />}
         footerSlot={

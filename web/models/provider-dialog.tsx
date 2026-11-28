@@ -5,8 +5,9 @@ import { DialogLayout } from '@/components/dialog-layout';
 import { Button } from '@/components/ui/button';
 import { FormElement } from '@/components/ui/form-element';
 import { request } from '@/lib/gql';
+import { formatKeyValueLines, parseKeyValueLines } from '@/lib/key-value';
 import { NAME_HINT, NAME_PATTERN } from '@/models/names';
-import { headersOf, headersToText, textToHeaders } from './headers';
+import { headersOf } from './headers';
 
 /** What the provider dialog is given. */
 export interface ProviderDialogProps {
@@ -53,17 +54,16 @@ export function ProviderDialog({ open, onOpenChange, provider, onSaved }: Provid
       baseUrl: provider?.baseUrl ?? '',
       description: provider?.description ?? '',
       enabled: provider?.enabled ?? true,
-      headers: provider === null ? '' : headersToText(headersOf(provider.headers)),
+      headers: provider === null ? '' : formatKeyValueLines(headersOf(provider.headers)),
     },
     onSubmit: ({ value }) => {
-      const parsed = textToHeaders(value.headers);
       return save.mutateAsync({
         name: value.name.trim(),
         displayName: value.displayName.trim() === '' ? null : value.displayName.trim(),
         baseUrl: value.baseUrl.trim(),
         description: value.description,
         enabled: value.enabled,
-        headers: parsed.headers ?? {},
+        headers: parseKeyValueLines(value.headers).record,
       });
     },
   });
@@ -115,7 +115,7 @@ export function ProviderDialog({ open, onOpenChange, provider, onSaved }: Provid
             label="Extra headers"
             description="One per line, as Name: value. They are shown here, so put a key in the API key instead."
             rows={3}
-            validators={{ onChange: ({ value }) => textToHeaders(value).error ?? undefined }}
+            validators={{ onChange: ({ value }) => parseKeyValueLines(value).errors[0]?.message }}
           />
           <TextareaField form={form} name="description" label="Description" rows={2} />
           <SwitchField

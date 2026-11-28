@@ -9,7 +9,7 @@ import {
   RegistryServersDocument,
   type RegistryServersQuery,
 } from '@/__generated__/graphql';
-import { InputField, PasswordField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
+import { InputField, SelectField, TextareaField, useAppForm } from '@/components/app-form';
 import { DialogLayout } from '@/components/dialog-layout';
 import { EmptyState } from '@/components/empty-state';
 import { FieldRow } from '@/components/field-row';
@@ -17,13 +17,15 @@ import { List } from '@/components/list';
 import { ListItem } from '@/components/list-item';
 import { LoadState } from '@/components/load-state';
 import { RowMeta, rowNameFact } from '@/components/row-meta';
-import { Section } from '@/components/section';
 import { Button } from '@/components/ui/button';
+import { bindToForm } from '@/components/ui/form';
 import { FormElement } from '@/components/ui/form-element';
-import { Plus, Trash2 } from '@/components/ui/icons';
+import { KeyValueField, type KeyValueFieldProps } from '@/components/ui/key-value-field';
+import { LoadMoreButton } from '@/components/ui/load-more-button';
 import { SearchInput } from '@/components/ui/search-input';
 import { SegmentedButton, SegmentedGroup } from '@/components/ui/segmented';
 import { request } from '@/lib/gql';
+import type { KeyValueRow } from '@/lib/key-value';
 import { Role } from '@/lib/roles';
 import {
   envToText,
@@ -42,12 +44,6 @@ type InstallFrom = 'registry' | 'npm' | 'pypi' | 'program' | 'http';
 
 /** One entry in a registry's search results. */
 type RegistryEntry = RegistryServersQuery['registryServers']['servers'][number];
-
-/** One header row of the form. */
-interface HeaderRow {
-  name: string;
-  value: string;
-}
 
 /** The ways to add a server, as people read them. */
 const FROM: { value: InstallFrom; label: string }[] = [
@@ -84,7 +80,7 @@ const CHOICE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * @param rows - Every row, this one included.
  * @returns What is wrong with it, or undefined.
  */
-function headerNameError(name: string, rows: readonly HeaderRow[]): string | undefined {
+function headerNameError(name: string, rows: readonly KeyValueRow[]): string | undefined {
   const trimmed = name.trim();
   if (trimmed === '') {
     return 'Name the header.';
@@ -92,7 +88,7 @@ function headerNameError(name: string, rows: readonly HeaderRow[]): string | und
   if (HEADER_NAME_PATTERN.test(trimmed) === false) {
     return 'A header name, such as Authorization.';
   }
-  const sameName = rows.filter((row) => row.name.trim().toLowerCase() === trimmed.toLowerCase());
+  const sameName = rows.filter((row) => row.key.trim().toLowerCase() === trimmed.toLowerCase());
   return sameName.length > 1 ? 'That header is listed twice.' : undefined;
 }
 
@@ -108,6 +104,25 @@ function headerValueError(value: string): string | undefined {
   }
   return LINE_BREAK.test(value) ? 'A header value cannot hold a line break.' : undefined;
 }
+
+/**
+ * Checks every header row, name then value, and says what is wrong with the first that fails.
+ *
+ * @param rows - The rows typed.
+ * @returns Such as "Header 2: Name the header.", or undefined when every row is a header.
+ */
+function headersError(rows: readonly KeyValueRow[]): string | undefined {
+  for (const [index, row] of rows.entries()) {
+    const error = headerNameError(row.key, rows) ?? headerValueError(row.value);
+    if (error !== undefined) {
+      return `Header ${index + 1}: ${error}`;
+    }
+  }
+  return undefined;
+}
+
+/** The header rows, bound to the form as one field. */
+const HeadersField = bindToForm<KeyValueFieldProps, KeyValueRow[]>(KeyValueField, 'HeadersField');
 
 /** An HTTP server to start the dialog with, such as one found on the local network. */
 export interface HttpServerPrefill {
@@ -171,7 +186,7 @@ export function InstallDialog({ open, onOpenChange, prefill }: InstallDialogProp
       args: '',
       httpTransport: STREAMABLE_HTTP as HttpTransportType,
       url: prefill?.url ?? '',
-      headers: (prefill?.headerNames ?? []).map((name): HeaderRow => ({ name, value: '' })),
+      headers: (prefill?.headerNames ?? []).map((key): KeyValueRow => ({ key, value: '' })),
       name: prefill?.name ?? '',
       env: '',
     },
@@ -207,7 +222,7 @@ export function InstallDialog({ open, onOpenChange, prefill }: InstallDialogProp
         name,
         source: { type: 'manual' },
         transport: { type: value.httpTransport, url: value.url.trim() },
-        ...(isAdmin ? { headers: value.headers.map((row) => ({ name: row.name.trim(), value: row.value })) } : {}),
+        ...(isAdmin ? { headers: value.headers.map((row) => ({ name: row.key.trim(), value: row.value })) } : {}),
       });
     },
   });
@@ -276,15 +291,12 @@ export function InstallDialog({ open, onOpenChange, prefill }: InstallDialogProp
               />
             ))}
           />
-          {results.hasNextPage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              loading={results.isFetchingNextPage}
-              onClick={() => void results.fetchNextPage()}
-              content="Show more"
-            />
-          ) : null}
+          <LoadMoreButton
+            hasMore={results.hasNextPage}
+            onLoadMore={results.fetchNextPage}
+            loading={results.isFetchingNextPage}
+            label="Show more"
+          />
         </div>
       )}
       {chosen === null ? null : (
@@ -350,76 +362,21 @@ export function InstallDialog({ open, onOpenChange, prefill }: InstallDialogProp
   );
 
   const headersPart = isAdmin ? (
-    <Section
-      title="Headers"
-      level={3}
+    <HeadersField
+      form={form}
+      name="headers"
+      label="Headers"
       description="Sent with every request, such as Authorization. They are kept as secrets and never shown again."
-      actionSlot={
-        <Button
-          variant="positive"
-          size="sm"
-          iconSlot={<Plus />}
-          onClick={() => form.pushFieldValue('headers', { name: '', value: '' })}
-          content="Add header"
-        />
-      }
-      contentSlot={
-        <form.Subscribe selector={(state) => state.values.headers.length}>
-          {(count) =>
-            count === 0 ? (
-              <EmptyState compact title="No headers." />
-            ) : (
-              <div className="grid gap-3">
-                {Array.from({ length: count }, (_row, index) => (
-                  // A row has no key of its own until its name is typed, and its place is what the fields bind to.
-                  // biome-ignore lint/suspicious/noArrayIndexKey: the fields are bound by index.
-                  <div key={index} className="flex items-end gap-2">
-                    <FieldRow
-                      className="flex-1"
-                      contentSlot={
-                        <>
-                          <InputField
-                            form={form}
-                            name={`headers[${index}].name`}
-                            label="Name"
-                            placeholder="Authorization"
-                            required
-                            validators={{
-                              onChangeListenTo: ['headers'],
-                              onChange: ({ value, fieldApi }) =>
-                                fieldApi.form.getFieldValue('from') === 'http'
-                                  ? headerNameError(value, fieldApi.form.getFieldValue('headers'))
-                                  : undefined,
-                            }}
-                          />
-                          <PasswordField
-                            form={form}
-                            name={`headers[${index}].value`}
-                            label="Value"
-                            autoComplete="off"
-                            required
-                            validators={{
-                              onChange: ({ value, fieldApi }) =>
-                                fieldApi.form.getFieldValue('from') === 'http' ? headerValueError(value) : undefined,
-                            }}
-                          />
-                        </>
-                      }
-                    />
-                    <Button
-                      variant="destructive-outline"
-                      size="icon"
-                      aria-label={`Remove header ${index + 1}`}
-                      iconSlot={<Trash2 />}
-                      onClick={() => form.removeFieldValue('headers', index)}
-                    />
-                  </div>
-                ))}
-              </div>
-            )
-          }
-        </form.Subscribe>
-      }
+      keyLabel="Name"
+      valueLabel="Value"
+      addLabel="Add header"
+      removeLabel="Remove header"
+      emptyTitle="No headers."
+      masked
+      validators={{
+        onChange: ({ value, fieldApi }) =>
+          fieldApi.form.getFieldValue('from') === 'http' ? headersError(value) : undefined,
+      }}
     />
   ) : (
     <p className="text-foreground/60 text-sm">
