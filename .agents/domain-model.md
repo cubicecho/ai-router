@@ -402,6 +402,14 @@ Everything about the code comes after `Owner:`.
   answer's `_meta.runId`. Each run is one agent deeper than its caller, and `/mcp` refuses a call
   past `RUN_DEFAULTS.maxAgentDepth`. Owner: `agents/run` (dispatch), `tools/instance`,
   `agents/mcp`.
+- **Discovery documents:** what tells a client the router is an MCP server, before it holds a
+  key: the AI Catalog at `/.well-known/ai-catalog.json` and the agents MCP door's Server Card at
+  `/mcp/server-card`, served to anyone, ahead of every door's key check. The card names the
+  endpoint, the router's version and that it needs a workspace key in `Authorization`, never the
+  key, an agent or a workspace. With `MDNS_ADVERTISE`, the router also announces itself on the
+  local network as `AI Router on <host>` (`_mcp._tcp`), after it listens, and says goodbye on
+  shutdown. Owner: `discovery/endpoints`, `@cubicecho/mcp-discovery`; mounted in `http/app`,
+  announced in `index.ts`.
 - **Run records:** where an app reads a run of its own workspace, and its events, after the answer
   or while it runs. Another workspace's run is as missing as one that never was. Owner:
   `agents/run-records`; `GET /runs` (its workspace's runs, newest first, `?session=` for one
@@ -534,6 +542,13 @@ Everything about the code comes after `Owner:`.
   values and every header value are in `server_secrets`, written by `setServerSecret`, or by
   `installServer` for the headers a server is added with, in the same transaction as its row, and
   served only by name. Headers go only to a server reached over HTTP.
+- **Server on the network:** an MCP server another host announces on the local network, which the
+  router finds with `MDNS_DISCOVER` and offers people to add: its card's name, its URL, the headers
+  it needs, a free name, and the server already at its URL, if any. Only a suggestion: cards are
+  unauthenticated and anything on the network can announce, so the router never adds one itself,
+  and a person adds it as a streamable-HTTP server with `installServer`, typing any header's value.
+  Its own announcement is left out. Read by people only, never a run. Owner: `discovery/lan-servers`
+  (held in memory, never stored); `lanServers`.
 - **Source:** where a server came from: a registry, npm, PyPI, added by hand by its address, or the
   router itself, for the admin server. Owner: `servers.source`; `builtin` for `ai-router` alone.
 - **Transport:** how the router reaches a server: a program it starts, an address it connects to,

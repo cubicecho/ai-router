@@ -4,10 +4,12 @@ import {
   describeWeakSecret,
   envFlag,
   isPostgresUrl,
+  mdnsAdvertise,
+  mdnsDiscover,
   PLACEHOLDER_SECRET,
   trustProxy,
 } from '../../server/core/config.ts';
-import { AUTH_DEFAULTS } from '../../server/core/defaults.ts';
+import { AUTH_DEFAULTS, DISCOVERY_DEFAULTS } from '../../server/core/defaults.ts';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -66,5 +68,19 @@ describe('isPostgresUrl', () => {
 
   it.each(['', 'memory://', '/var/lib/pg', 'mysql://a@b/c'])('refuses %j', (url) => {
     expect(isPostgresUrl(url)).toBe(false);
+  });
+});
+
+describe('the mDNS switches', () => {
+  it.each([
+    ['MDNS_ADVERTISE', mdnsAdvertise, DISCOVERY_DEFAULTS.advertise],
+    ['MDNS_DISCOVER', mdnsDiscover, DISCOVERY_DEFAULTS.discover],
+  ])('%s follows its default until set', (name, read, fallback) => {
+    vi.stubEnv(name, '');
+    expect(read()).toBe(fallback);
+    vi.stubEnv(name, 'true');
+    expect(read()).toBe(true);
+    vi.stubEnv(name, 'false');
+    expect(read()).toBe(false);
   });
 });

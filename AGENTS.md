@@ -64,6 +64,7 @@ One package: `server/`, `web/` (Vite, cubeui, GraphQL codegen), `tests/` (the sa
 | `runner/` | the agent loop of one stretch of a run, from a JSON assignment, with the router reached only through its ports: what a worker executes | `core` (a test keeps it so) |
 | `workers/` | where a run's loop executes: the built-in `local` worker, in process, and remote workers: who is online, the runs on them, the worker doors, and workers' and their keys' mutations | `core`, `db`, `auth`, `runner`, `graphql/object-type`, `graphql/selected-id`, `agents/routes` (for express's body error words) |
 | `agents/` | revisions, layers, reach, runs, conversations, the `/v1` agents endpoint, `/runs`, the `/mcp` door (phases 5–7, 10) | the above and `models`, `tools` |
+| `discovery/` | the discovery documents and the mDNS announcement's name, and the servers found on the network | `core`, `db`, `tools`, `graphql/object-type` |
 | `workspaces/` | workspaces, their keys' mutations, server entries, their worker, and what each request may reach | all of the above |
 | `graphql/` | schema assembly, permissions, operation limits, the Yoga handler | everything |
 | `http/` | `createApp`, the OIDC redirects, static files, shutdown, health | everything |
@@ -191,9 +192,14 @@ non-negotiables apply on top of these.
   `RunCaller`, whose roles are read from the snapshot. A call names its run in `_meta`, set by the
   dispatch and never sent to another server, which is told only the call's depth. A run never changes or restarts `ai-router`. The
   listing must fit `MCP_DEFAULTS`; prune it in `admin/server`, never in the schema.
-- **No discovery yet.** mcp-router's AI Catalog, cards and LAN announce/discovery are not
-  ported in the first pass. When they come, the public catalog names only the endpoint, and
-  every agent behind it needs a key.
+- **Discovery names only the endpoint.** `discoveryMiddleware` serves the AI Catalog and `/mcp`'s
+  Server Card ahead of every guard, and the card says only that it needs a workspace key, never
+  an agent, a workspace or a key: the agents are listed to a key, by `tools/list`. mDNS is off
+  unless `MDNS_ADVERTISE` (announce) or `MDNS_DISCOVER` (watch) is set; in Docker it needs
+  `network_mode: host`.
+- **A server found on the network is never added by the router.** `lanServers` offers it to
+  people only (no run, no key), skipping the router's own announcement, and a person adds it with
+  `installServer`. Cards are unauthenticated, so there is no auto-linking.
 
 ### Untrusted code and the snapshot
 

@@ -16,6 +16,7 @@ import { createSnapshotHost, type SnapshotHost } from '../../server/db/snapshot.
 import { activity } from '../../server/db/tables/activity.ts';
 import { runs } from '../../server/db/tables/runs.ts';
 import { servers } from '../../server/db/tables/servers.ts';
+import { idleLanServers } from '../../server/discovery/lan-servers.ts';
 import { FIELD_GRANTS } from '../../server/graphql/abilities.ts';
 import { createSchema } from '../../server/graphql/build-schema.ts';
 import { createRunContextFactory } from '../../server/graphql/handler.ts';
@@ -346,6 +347,7 @@ describe('a call to the admin server', () => {
       models,
       tools,
       runs: createRunService({ db, snapshot, tools }),
+      lanServers: idleLanServers(),
     };
     const contextValue = createRunContextFactory(deps)({
       kind: CALLER_RUN,

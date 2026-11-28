@@ -5,6 +5,7 @@ import type { RateLimiter } from '../auth/rate-limit.ts';
 import type { DB } from '../db/client.ts';
 import type { SnapshotHost } from '../db/snapshot.ts';
 import type { Role } from '../db/tables/users.ts';
+import type { LanServers } from '../discovery/lan-servers.ts';
 import type { ModelServices } from '../models/services.ts';
 import type { ToolServices } from '../tools/api.ts';
 import type { AdminRole } from './admin-roles.ts';
@@ -80,6 +81,8 @@ export interface ContextDeps {
   tools: ToolServices;
   /** Agent runs, and the bus their live events are on. */
   runs: RunService;
+  /** The MCP servers found on the local network, offered to people to add. */
+  lanServers: LanServers;
 }
 
 /** What every resolver, generated or hand-written, is handed. */

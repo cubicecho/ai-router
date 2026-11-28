@@ -1,12 +1,25 @@
 import './core/preflight.ts';
 
 import path from 'node:path';
+import { createAdvertiser, watchServers } from '@cubicecho/mcp-discovery/mdns';
 import { upgradeStored } from './agents/upgrade.ts';
 import { createAuthHost } from './auth/auth-host.ts';
-import { appUrl, dbConnectTimeoutMs, oidcRedirectUri, port, ROOT, secureLocalNet } from './core/config.ts';
+import {
+  appUrl,
+  dbConnectTimeoutMs,
+  mdnsAdvertise,
+  mdnsDiscover,
+  oidcRedirectUri,
+  port,
+  ROOT,
+  secureLocalNet,
+} from './core/config.ts';
 import { errorMessage } from './core/errors.ts';
 import { openDatabase } from './db/client.ts';
+import { createSnapshotHost } from './db/snapshot.ts';
 import { waitForDatabase } from './db/wait.ts';
+import { AGENTS_MCP_PATH, mdnsInstanceName } from './discovery/endpoints.ts';
+import { createLanServers } from './discovery/lan-servers.ts';
 import { createApp } from './http/app.ts';
 import { stopOnSignals } from './http/shutdown.ts';
 import { ChildMode, checkChildIsolation } from './tools/child-users.ts';
@@ -38,10 +51,26 @@ if (children.mode === ChildMode.Shared) {
 
 // After migrating: the provider may be a pairing, which lives in the database.
 const authHost = await createAuthHost(database.db);
+const snapshot = await createSnapshotHost(database.db);
+// Both off unless asked for: multicast needs the host's network, and a found server is only ever a suggestion.
+const advertiser = createAdvertiser({
+  isWanted: mdnsAdvertise,
+  options: () => ({ name: mdnsInstanceName(), port: port(), path: AGENTS_MCP_PATH }),
+  log: (message) => console.log(`[discovery] ${message}`),
+});
+const lanServers = createLanServers({
+  isWanted: mdnsDiscover,
+  ownInstanceName: mdnsInstanceName(),
+  servers: () => snapshot.current().servers.values(),
+  log: console.log,
+  watch: (handlers) => watchServers(handlers),
+});
 const { app, models, tools, runs } = await createApp({
   db: database.db,
   authHost,
+  snapshot,
   children,
+  lanServers,
   staticDir: path.join(ROOT, 'dist'),
 });
 models.usage.start();
@@ -70,9 +99,17 @@ const server = app.listen(port(), LISTEN_HOST, () => {
       '[auth] Nobody can sign in yet: set OIDC_ISSUER, pair a provider from the sign-in page, or set SECURE_LOCAL_NET on a private network.',
     );
   }
+  // After listen, so a watcher that finds the announcement can already read the catalog.
+  void advertiser.sync();
+  void lanServers.sync();
 });
 
 stopOnSignals(server, {
+  // The goodbye goes out while the router still answers, so browsers drop it at once.
+  before: async () => {
+    await advertiser.close();
+    await lanServers.close();
+  },
   after: async () => {
     models.health.stop();
     // Runs still going end first and are recorded, then MCP servers stop, then counts and calls gathered since the

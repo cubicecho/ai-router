@@ -1,3 +1,4 @@
+import { discoveryMiddleware } from '@cubicecho/mcp-discovery';
 import express, { type Express } from 'express';
 import { createAdminServer } from '../admin/server.ts';
 import { createAgentMcpRoutes } from '../agents/mcp.ts';
@@ -6,11 +7,13 @@ import { createRunService, type RunService } from '../agents/run.ts';
 import { createRunRecordRoutes } from '../agents/run-records.ts';
 import { type AuthHost, createAuthHost } from '../auth/auth-host.ts';
 import { createRateLimiter, type RateLimiter } from '../auth/rate-limit.ts';
-import { trustProxy as configuredTrustProxy } from '../core/config.ts';
+import { trustProxy as configuredTrustProxy, version } from '../core/config.ts';
 import { HTTP_DEFAULTS, type HttpSettings } from '../core/defaults.ts';
 import { HttpStatus } from '../core/wire.ts';
 import type { DB } from '../db/client.ts';
 import { createSnapshotHost, type SnapshotHost } from '../db/snapshot.ts';
+import { discoveryEndpoints } from '../discovery/endpoints.ts';
+import { idleLanServers, type LanServers } from '../discovery/lan-servers.ts';
 import { createSchema } from '../graphql/build-schema.ts';
 import { createContextFactory, createGraphQLHandler, createRunContextFactory } from '../graphql/handler.ts';
 import { createModelServices, type ModelServices } from '../models/services.ts';
@@ -62,6 +65,11 @@ export interface AppDeps {
    */
   children?: ChildIsolation;
   /**
+   * The MCP servers found on the local network. Boot builds the watch, since it needs the snapshot.
+   * @defaultValue `idleLanServers()`, which finds nothing.
+   */
+  lanServers?: LanServers;
+  /**
    * Express's `trust proxy`.
    * @defaultValue `trustProxy()` from the environment
    */
@@ -85,8 +93,8 @@ export interface BuiltApp {
 }
 
 /**
- * Builds the Express app: /graphql, the agents endpoint /v1 and its MCP door /mcp, the run records /runs, the worker
- * doors /workers, /healthz, the OIDC redirects and the UI,
+ * Builds the Express app: the discovery documents, /graphql, the agents endpoint /v1 and its MCP door /mcp, the run
+ * records /runs, the worker doors /workers, /healthz, the OIDC redirects and the UI,
  * and hands the tools area the admin server, which has no endpoint.
  *
  * @param deps - What the router talks to.
@@ -101,6 +109,7 @@ export async function createApp({
   tools,
   runs,
   children = { mode: ChildMode.Shared, reason: '' },
+  lanServers = idleLanServers(),
   trustProxy = configuredTrustProxy(),
   staticDir,
 }: AppDeps): Promise<BuiltApp> {
@@ -121,12 +130,16 @@ export async function createApp({
     models: services,
     tools: toolServices,
     runs: runService,
+    lanServers,
   };
   // One permissioned schema behind both doors: /graphql for people, and the admin server for agent runs.
   const schema = createSchema(db);
   const graphql = createGraphQLHandler(schema, createContextFactory(contextDeps));
   toolServices.instances.serveBuiltin(createAdminServer(schema, createRunContextFactory(contextDeps)));
 
+  // First, before any door's guard: the AI Catalog and the agents door's Server Card are public, and name no agent.
+  const endpoints = discoveryEndpoints({ version: version() });
+  app.use(discoveryMiddleware(() => endpoints));
   // Yoga reads a body Express already parsed, so the size cap goes here. Over it: 413.
   app.use(graphql.graphqlEndpoint, express.json({ limit: HTTP_DEFAULTS.bodyLimit }));
   // `all`, not `use`: a mounted `use` strips the path, and Yoga matches graphqlEndpoint itself.

@@ -640,3 +640,16 @@ export const MCP_DEFAULTS: Readonly<McpSettings> = Object.freeze({
   maxToolListBytes: 250_000,
   maxResultChars: 50_000,
 });
+
+/** Being found on the local network, and finding the MCP servers on it. The HTTP documents are always served. */
+export interface DiscoverySettings {
+  /** Whether the router announces itself over mDNS as `_mcp._tcp`. `MDNS_ADVERTISE` overrides it. */
+  advertise: boolean;
+  /** Whether the router watches mDNS for MCP servers to offer people to add. `MDNS_DISCOVER` overrides it. */
+  discover: boolean;
+}
+
+export const DISCOVERY_DEFAULTS: Readonly<DiscoverySettings> = Object.freeze({
+  advertise: false,
+  discover: false,
+});

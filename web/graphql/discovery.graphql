@@ -1,0 +1,17 @@
+query LanServers {
+  lanServers {
+    watching
+    servers {
+      key
+      cardName
+      title
+      description
+      version
+      host
+      url
+      requiredHeaders
+      suggestedName
+      addedAs
+    }
+  }
+}
